@@ -168,7 +168,10 @@ void main() {
   group('SymbolResolver', () {
     test('recognizes primary table house symbol', () {
       expect(SymbolResolver.isKnown('/', '-'), isTrue);
-      expect(SymbolResolver.symbolName('/', '-'), equals('House / Home Station'));
+      expect(
+        SymbolResolver.symbolName('/', '-'),
+        equals('House / Home Station'),
+      );
     });
 
     test('recognizes primary table car symbol', () {
