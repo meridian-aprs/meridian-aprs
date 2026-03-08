@@ -17,9 +17,21 @@ ParseResult<Station> parseAprsLine(String raw) {
 
   if (info.isEmpty) return Err('Empty info field');
   final dti = info[0];
-  if (dti != '!' && dti != '=') return Err('Not a position report (DTI: $dti)');
 
-  final pos = _parsePosition(info.substring(1));
+  // Determine position substring based on DTI:
+  //   !  =  → position starts immediately after DTI
+  //   /  @  → 7-char timestamp precedes position (DDHHMMz / HHMMSSh)
+  final String posStr;
+  if (dti == '!' || dti == '=') {
+    posStr = info.substring(1);
+  } else if (dti == '/' || dti == '@') {
+    if (info.length < 9) return Err('Timestamped packet too short');
+    posStr = info.substring(8); // skip DTI + 7-char timestamp
+  } else {
+    return Err('Not a position report (DTI: $dti)');
+  }
+
+  final pos = _parsePosition(posStr);
   if (pos == null) return Err('Could not parse position');
 
   return Ok(

@@ -49,6 +49,21 @@ void main() {
         expect(station.lon, isPositive); // East
       });
 
+      test('decodes lat/lon from / position-with-timestamp report', () {
+        // DTI '/' + 7-char timestamp + position
+        const raw = 'N0CALL>APRS:/221509z4903.50N/07201.75W-Test';
+        final station = (parseAprsLine(raw) as Ok<Station>).value;
+        expect(station.lat, closeTo(49.0583, 0.001));
+        expect(station.lon, closeTo(-72.0292, 0.001));
+      });
+
+      test('decodes lat/lon from @ position-with-timestamp report', () {
+        const raw = 'N0CALL>APRS:@221509z4903.50N/07201.75W-Test';
+        final station = (parseAprsLine(raw) as Ok<Station>).value;
+        expect(station.lat, closeTo(49.0583, 0.001));
+        expect(station.lon, closeTo(-72.0292, 0.001));
+      });
+
       test('preserves raw packet string', () {
         const raw = 'N0CALL>APRS:!4903.50N/07201.75W-Test';
         final station = (parseAprsLine(raw) as Ok<Station>).value;

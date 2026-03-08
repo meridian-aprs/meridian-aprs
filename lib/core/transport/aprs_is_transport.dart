@@ -28,7 +28,8 @@ class AprsIsTransport implements AprsTransport {
     _socket = await Socket.connect(host, port);
     _socket!.write(loginLine);
     if (filterLine != null) _socket!.write(filterLine);
-    (_socket! as Stream<List<int>>)
+    _socket!
+        .cast<List<int>>()
         .transform(utf8.decoder)
         .transform(const LineSplitter())
         .listen(
@@ -37,6 +38,9 @@ class AprsIsTransport implements AprsTransport {
           onDone: _controller.close,
         );
   }
+
+  @override
+  void sendLine(String line) => _socket?.write(line);
 
   @override
   Future<void> disconnect() async {

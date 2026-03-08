@@ -21,6 +21,12 @@ class StationService {
     _transport.lines.listen(_handleLine);
   }
 
+  void updateFilter(double lat, double lon, {int radiusKm = 150}) {
+    final line =
+        '#filter r/${lat.toStringAsFixed(2)}/${lon.toStringAsFixed(2)}/$radiusKm\r\n';
+    _transport.sendLine(line);
+  }
+
   Future<void> stop() async {
     await _transport.disconnect();
     await _controller.close();
@@ -30,8 +36,13 @@ class StationService {
     debugPrint(raw);
     final result = parseAprsLine(raw);
     if (result is Ok<Station>) {
+      debugPrint(
+        'PARSED: ${result.value.callsign} @ ${result.value.lat}, ${result.value.lon}',
+      );
       _stations[result.value.callsign] = result.value;
       _controller.add(Map.unmodifiable(_stations));
+    } else if (result is Err<Station>) {
+      debugPrint('SKIP: ${result.message} -- $raw');
     }
   }
 }
