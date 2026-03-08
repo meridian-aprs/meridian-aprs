@@ -5,7 +5,6 @@ import 'package:test/test.dart';
 
 void main() {
   group('APRS position parser', () {
-
     group('callsign parsing', () {
       test('parses bare callsign (no SSID)', () {
         const raw = 'N0CALL>APRS:!4903.50N/07201.75W-Test station';
@@ -15,7 +14,8 @@ void main() {
       });
 
       test('parses callsign with SSID', () {
-        const raw = 'WB4APR-14>APWW10,TCPIP*,qAC,T2MCI:=3855.34N/07701.13W-Direwolf';
+        const raw =
+            'WB4APR-14>APWW10,TCPIP*,qAC,T2MCI:=3855.34N/07701.13W-Direwolf';
         final result = parseAprsLine(raw);
         expect(result, isA<Ok<Station>>());
         expect((result as Ok<Station>).value.callsign, equals('WB4APR-14'));
@@ -33,7 +33,8 @@ void main() {
       });
 
       test('decodes lat/lon from = position report', () {
-        const raw = 'WB4APR-14>APWW10,TCPIP*,qAC,T2MCI:=3855.34N/07701.13W-Direwolf';
+        const raw =
+            'WB4APR-14>APWW10,TCPIP*,qAC,T2MCI:=3855.34N/07701.13W-Direwolf';
         final station = (parseAprsLine(raw) as Ok<Station>).value;
         // 38°55.34' N = 38 + 55.34/60 = 38.9223...
         expect(station.lat, closeTo(38.9223, 0.001));
@@ -69,11 +70,17 @@ void main() {
       });
 
       test('returns Err for comment lines', () {
-        expect(parseAprsLine('# logresp NOCALL unverified'), isA<Err<Station>>());
+        expect(
+          parseAprsLine('# logresp NOCALL unverified'),
+          isA<Err<Station>>(),
+        );
       });
 
       test('returns Err for non-position packet type (message)', () {
-        expect(parseAprsLine('N0CALL>APRS::WB4APR   :Hello{001'), isA<Err<Station>>());
+        expect(
+          parseAprsLine('N0CALL>APRS::WB4APR   :Hello{001'),
+          isA<Err<Station>>(),
+        );
       });
 
       test('never throws for any malformed input', () {
