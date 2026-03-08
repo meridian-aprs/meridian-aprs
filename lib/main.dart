@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
+import 'screens/map_screen.dart';
 
 void main() {
-  runApp(const MainApp());
+  runApp(const MeridianApp());
 }
 
-class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+class MeridianApp extends StatelessWidget {
+  const MeridianApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: Scaffold(body: Center(child: Text('Hello World!'))),
+    return MaterialApp(
+      title: 'Meridian APRS',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        useMaterial3: true,
+      ),
+      home: const MapScreen(),
     );
   }
 }

@@ -116,3 +116,14 @@ Keep these files current as the project evolves:
 - Pure Dart for all packet core logic (no FFI in `lib/core/`)
 - Follow existing Flutter/Dart conventions in the codebase
 - Run `flutter analyze` and `flutter test` before considering any task done
+
+---
+
+## Branching & PR Conventions
+
+- All feature work happens on feature branches, never directly on `main`
+- Branch naming: `feat/<short>`, `fix/<short>`, `docs/<short>`, `infra/<short>`
+- v0.1 feature branches: `feature/v0.1-scaffold`, `feature/packet-core-tests`, `feature/aprs-is-connection`
+- One logical unit of work per branch
+- PRs to `main` with description + test coverage summary
+- `main` must always pass CI (format, analyze, test)

@@ -19,8 +19,8 @@ Goal: A working app that connects to APRS-IS, receives packets, and plots statio
 
 - [x] Flutter project created and pushed to GitHub
 - [x] GitHub repo configured (labels, milestones, templates, CI)
-- [ ] CI pipeline running (flutter format, analyze, test)
-- [ ] `flutter_map` integrated with OSM tile layer
+- [x] CI pipeline running (flutter format, analyze, test)
+- 🔵 `flutter_map` integrated with OSM tile layer
 - [ ] APRS-IS TCP connection established (`rotate.aprs2.net:14580`)
 - [ ] Basic station position parsing (plain/compressed lat/lon)
 - [ ] Station markers rendered on map
