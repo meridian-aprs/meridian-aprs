@@ -1,0 +1,188 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+
+import '../../ui/theme/app_theme.dart';
+
+/// Third onboarding page — connection method selection.
+///
+/// Presents three connection options as tappable cards. BLE and USB options
+/// are stub-only at this milestone. "Start Listening" persists the onboarding
+/// completion flag and navigates to the map.
+class OnboardingConnectPage extends StatefulWidget {
+  const OnboardingConnectPage({super.key, required this.onStartListening});
+
+  final VoidCallback onStartListening;
+
+  @override
+  State<OnboardingConnectPage> createState() => _OnboardingConnectPageState();
+}
+
+class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
+  int _selectedOption = 0; // 0=APRS-IS, 1=BLE, 2=USB
+
+  bool get _isMobile {
+    if (kIsWeb) return false;
+    // defaultTargetPlatform is Android or iOS on mobile.
+    return defaultTargetPlatform == TargetPlatform.android ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Connect',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Choose how Meridian connects to the APRS network.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 24),
+            _OptionCard(
+              index: 0,
+              selectedIndex: _selectedOption,
+              icon: Icons.wifi,
+              title: 'APRS-IS',
+              subtitle: 'Connect via internet. No hardware required.',
+              dimmed: false,
+              onTap: () => setState(() => _selectedOption = 0),
+            ),
+            const SizedBox(height: 12),
+            _OptionCard(
+              index: 1,
+              selectedIndex: _selectedOption,
+              icon: Icons.bluetooth,
+              title: 'BLE TNC',
+              subtitle: 'Connect a Bluetooth TNC. Mobile-friendly.',
+              dimmed: false,
+              onTap: () => setState(() => _selectedOption = 1),
+            ),
+            const SizedBox(height: 12),
+            _OptionCard(
+              index: 2,
+              selectedIndex: _selectedOption,
+              icon: Icons.usb,
+              title: 'USB TNC',
+              subtitle: _isMobile
+                  ? 'Connect via USB serial. Desktop only.'
+                  : 'Connect via USB serial. Desktop only.',
+              dimmed: _isMobile,
+              onTap: _isMobile
+                  ? null
+                  : () => setState(() => _selectedOption = 2),
+            ),
+            const SizedBox(height: 32),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: widget.onStartListening,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                ),
+                child: const Text('Start Listening'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OptionCard extends StatelessWidget {
+  const _OptionCard({
+    required this.index,
+    required this.selectedIndex,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.dimmed,
+    required this.onTap,
+  });
+
+  final int index;
+  final int selectedIndex;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool dimmed;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isSelected = index == selectedIndex;
+    final borderColor = isSelected
+        ? theme.colorScheme.primary
+        : theme.colorScheme.outlineVariant;
+
+    return Opacity(
+      opacity: dimmed ? 0.45 : 1.0,
+      child: Card(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: borderColor, width: isSelected ? 2 : 1),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 32,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: isSelected
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (isSelected)
+                  Icon(Icons.check_circle, color: theme.colorScheme.primary),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
