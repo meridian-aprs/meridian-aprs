@@ -52,7 +52,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding |
 
-**Current status: v0.1 Foundation in progress.**
+**Current status: v0.1 Foundation complete. v0.2 Packets is next.**
 
 See `docs/ROADMAP.md` for per-milestone task breakdowns.
 

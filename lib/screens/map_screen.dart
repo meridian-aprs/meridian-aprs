@@ -7,6 +7,7 @@ import 'package:latlong2/latlong.dart';
 import '../core/packet/station.dart';
 import '../core/transport/aprs_is_transport.dart';
 import '../services/station_service.dart';
+import '../ui/widgets/station_info_sheet.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -65,20 +66,39 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  /// Returns an icon color appropriate for the APRS symbol code.
+  Color _markerColor(String symbolCode) {
+    switch (symbolCode) {
+      // Emergency / police / fire
+      case '!':
+      case 'P':
+      case 'f':
+      case 'd':
+        return Colors.red;
+      // Weather
+      case '_':
+        return Colors.blue;
+      default:
+        return Colors.blueGrey;
+    }
+  }
+
   Marker _buildMarker(Station s) => Marker(
     point: LatLng(s.lat, s.lon),
-    width: 30,
-    height: 30,
+    width: 36,
+    height: 36,
     child: GestureDetector(
-      onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(s.callsign),
-          duration: const Duration(seconds: 2),
-        ),
+      onTap: () => showModalBottomSheet(
+        context: context,
+        builder: (_) => StationInfoSheet(station: s),
       ),
       child: Tooltip(
         message: s.callsign,
-        child: const Icon(Icons.location_on, color: Colors.red, size: 30),
+        child: Icon(
+          symbolIcon(s.symbolCode),
+          color: _markerColor(s.symbolCode),
+          size: 36,
+        ),
       ),
     ),
   );

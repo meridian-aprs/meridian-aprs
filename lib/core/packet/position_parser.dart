@@ -40,20 +40,27 @@ ParseResult<Station> parseAprsLine(String raw) {
       lat: pos.$1,
       lon: pos.$2,
       rawPacket: raw,
-      timestamp: DateTime.now(),
+      lastHeard: DateTime.now(),
+      symbolTable: pos.$3,
+      symbolCode: pos.$4,
+      comment: pos.$5,
     ),
   );
 }
 
-// Plain (uncompressed) APRS position: DDMM.mmN/DDDMM.mmW
-final _posRe = RegExp(r'^(\d{4}\.\d{2})(N|S)\/(\d{5}\.\d{2})(E|W)');
+// Plain (uncompressed) APRS position: DDmm.mmN<symTable>DDDmm.mmW<symCode><comment>
+// Groups: (lat digits)(N|S)(symbolTable)(lon digits)(E|W)(symbolCode)(comment)
+final _posRe = RegExp(r'^(\d{4}\.\d{2})(N|S)(.)(\d{5}\.\d{2})(E|W)(.)(.*)$');
 
-(double, double)? _parsePosition(String s) {
+(double, double, String, String, String)? _parsePosition(String s) {
   final m = _posRe.firstMatch(s);
   if (m == null) return null;
   final lat = _ddmm(m.group(1)!, isLat: true) * (m.group(2) == 'S' ? -1 : 1);
-  final lon = _ddmm(m.group(3)!, isLat: false) * (m.group(4) == 'W' ? -1 : 1);
-  return (lat, lon);
+  final lon = _ddmm(m.group(4)!, isLat: false) * (m.group(5) == 'W' ? -1 : 1);
+  final symbolTable = m.group(3)!;
+  final symbolCode = m.group(6)!;
+  final comment = m.group(7)!;
+  return (lat, lon, symbolTable, symbolCode, comment);
 }
 
 double _ddmm(String s, {required bool isLat}) {

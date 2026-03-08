@@ -4,7 +4,7 @@
 
 | Milestone | Focus | Status |
 |---|---|---|
-| v0.1 — Foundation | Flutter scaffold, map, APRS-IS, basic station display | 🔵 In Progress |
+| v0.1 — Foundation | Flutter scaffold, map, APRS-IS, station display with symbols | ✅ Complete |
 | v0.2 — Packets | AX.25/APRS parser, packet log, message decoding | ⬜ Planned |
 | v0.3 — TNC | KISS over USB serial, desktop first | ⬜ Planned |
 | v0.4 — BLE | KISS over BLE, mobile platforms | ⬜ Planned |
@@ -24,7 +24,11 @@ Goal: A working app that connects to APRS-IS, receives packets, and plots statio
 - [x] APRS-IS TCP connection established (`rotate.aprs2.net:14580`)
 - [x] Basic station position parsing (plain/compressed lat/lon)
 - [x] Station markers rendered on map
-- [ ] Station info panel (callsign, symbol, last heard)
+- [x] Station info panel (callsign, symbol, last heard)
+- [x] APRS symbol extraction (symbolTable, symbolCode, comment) from position packets
+- [x] SymbolResolver — maps table+code to human-readable name
+- [x] Symbol-appropriate marker icons on map
+- [x] Tap-to-show station info bottom sheet
 
 ---
 

@@ -1,6 +1,7 @@
 import 'package:meridian_aprs/core/packet/position_parser.dart';
 import 'package:meridian_aprs/core/packet/result.dart';
 import 'package:meridian_aprs/core/packet/station.dart';
+import 'package:meridian_aprs/core/packet/symbol_resolver.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -71,6 +72,64 @@ void main() {
       });
     });
 
+    group('symbol and comment extraction', () {
+      test('extracts primary table symbol (/) and house code (-)', () {
+        final station =
+            (parseAprsLine('N0CALL>APRS:!4903.50N/07201.75W-Test station')
+                    as Ok<Station>)
+                .value;
+        expect(station.symbolTable, equals('/'));
+        expect(station.symbolCode, equals('-'));
+        expect(station.comment, equals('Test station'));
+      });
+
+      test('extracts car symbol (/) and > code', () {
+        final station =
+            (parseAprsLine('N0CALL>APRS:!4903.50N/07201.75W>On the road')
+                    as Ok<Station>)
+                .value;
+        expect(station.symbolTable, equals('/'));
+        expect(station.symbolCode, equals('>'));
+        expect(station.comment, equals('On the road'));
+      });
+
+      test(r'extracts alternate table (\) symbol', () {
+        final station =
+            (parseAprsLine(r'N0CALL>APRS:!4903.50N\07201.75W#Digipeater')
+                    as Ok<Station>)
+                .value;
+        expect(station.symbolTable, equals(r'\'));
+        expect(station.symbolCode, equals('#'));
+        expect(station.comment, equals('Digipeater'));
+      });
+
+      test('comment is empty string when no comment', () {
+        final station =
+            (parseAprsLine('N0CALL>APRS:!4903.50N/07201.75W-') as Ok<Station>)
+                .value;
+        expect(station.comment, equals(''));
+      });
+
+      test('lastHeard is recent DateTime', () {
+        final before = DateTime.now();
+        final station =
+            (parseAprsLine('N0CALL>APRS:!4903.50N/07201.75W-Test')
+                    as Ok<Station>)
+                .value;
+        final after = DateTime.now();
+        expect(
+          station.lastHeard.isAfter(before) ||
+              station.lastHeard.isAtSameMomentAs(before),
+          isTrue,
+        );
+        expect(
+          station.lastHeard.isBefore(after) ||
+              station.lastHeard.isAtSameMomentAs(after),
+          isTrue,
+        );
+      });
+    });
+
     group('malformed packet handling (must not throw)', () {
       test('returns Err for completely malformed input', () {
         expect(parseAprsLine('BADPACKET'), isA<Err<Station>>());
@@ -103,6 +162,23 @@ void main() {
           expect(() => parseAprsLine(s), returnsNormally);
         }
       });
+    });
+  });
+
+  group('SymbolResolver', () {
+    test('recognizes primary table house symbol', () {
+      expect(SymbolResolver.isKnown('/', '-'), isTrue);
+      expect(SymbolResolver.symbolName('/', '-'), equals('House / Home Station'));
+    });
+
+    test('recognizes primary table car symbol', () {
+      expect(SymbolResolver.isKnown('/', '>'), isTrue);
+      expect(SymbolResolver.symbolName('/', '>'), equals('Car'));
+    });
+
+    test('returns Station for unknown symbol', () {
+      expect(SymbolResolver.isKnown('/', '\x01'), isFalse);
+      expect(SymbolResolver.symbolName('/', '\x01'), equals('Station'));
     });
   });
 }
