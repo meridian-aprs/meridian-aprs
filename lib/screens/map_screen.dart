@@ -3,14 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
 import '../core/packet/station.dart';
 import '../core/transport/aprs_is_transport.dart';
 import '../services/station_service.dart';
+import '../ui/layout/responsive_layout.dart';
+import '../ui/theme/theme_provider.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/station_info_sheet.dart';
-import 'packet_log_screen.dart';
+import 'settings_screen.dart';
 
+/// Root screen that owns the [StationService] lifecycle and builds the
+/// adaptive layout.
+///
+/// Map tile URL is theme-aware: light mode uses OSM standard tiles, dark mode
+/// uses CartoDB dark tiles. The theme is read from [ThemeProvider] and the
+/// system brightness is used to resolve [ThemeMode.system].
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
 
@@ -24,6 +33,11 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _markers = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
+
+  // Tile URL constants.
+  static const _lightTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+  static const _darkTileUrl =
+      'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png';
 
   @override
   void initState() {
@@ -106,32 +120,32 @@ class _MapScreenState extends State<MapScreen> {
     ),
   );
 
+  /// Resolve the tile URL based on the current theme mode and system brightness.
+  String _tileUrl(BuildContext context) {
+    final themeProvider = context.watch<ThemeProvider>();
+    final brightness = switch (themeProvider.themeMode) {
+      ThemeMode.light => Brightness.light,
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.system => MediaQuery.of(context).platformBrightness,
+    };
+    return brightness == Brightness.dark ? _darkTileUrl : _lightTileUrl;
+  }
+
+  void _navigateToSettings() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Meridian APRS')),
-      body: FlutterMap(
-        mapController: _mapController,
-        options: const MapOptions(
-          initialCenter: LatLng(39.0, -77.0),
-          initialZoom: 9,
-        ),
-        children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.meridianaprs.app',
-          ),
-          MarkerLayer(markers: _markers),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => PacketLogScreen(service: _service)),
-        ),
-        tooltip: 'Packet Log',
-        child: const Icon(Icons.list_alt),
-      ),
+    return ResponsiveLayout(
+      service: _service,
+      mapController: _mapController,
+      markers: _markers,
+      tileUrl: _tileUrl(context),
+      onNavigateToSettings: _navigateToSettings,
     );
   }
 }
