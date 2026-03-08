@@ -130,6 +130,45 @@ At v1.0, the implementation inside `AprsSymbolWidget` will be swapped to render 
 
 ---
 
+## Responsive Layout Strategy (UI Foundation)
+
+The UI layer uses three scaffold variants selected at runtime by window width:
+
+| Width | Scaffold | Layout |
+|---|---|---|
+| < 600 px | `MobileScaffold` | Full-screen map, FAB cluster (bottom-right), bottom sheets |
+| 600–1024 px | `TabletScaffold` | Collapsed `NavigationRail` (72 px) + map + collapsed bottom panel |
+| > 1024 px | `DesktopScaffold` | Extended `NavigationRail` (240 px) + map + 320 px side panel |
+
+`ResponsiveLayout` (`lib/ui/layout/responsive_layout.dart`) reads `MediaQuery.of(context).size.width` and returns the appropriate scaffold. All three scaffolds receive the same props: `StationService`, `MapController`, `markers`, `tileUrl`, and a settings navigation callback.
+
+`MeridianMap` (`lib/ui/layout/meridian_map.dart`) isolates all flutter_map configuration so the three scaffolds share a single map widget with a clean interface.
+
+---
+
+## Theme Token System (UI Foundation)
+
+All colors are defined as static constants on `AppColors` in `lib/ui/theme/app_theme.dart`:
+
+| Token | Light | Dark |
+|---|---|---|
+| Primary | `#2563EB` | `#3B82F6` |
+| Primary variant | `#1D4ED8` | `#2563EB` |
+| Accent (connected) | `#10B981` | `#10B981` |
+| Warning (connecting) | `#F59E0B` | `#F59E0B` |
+| Danger (error/TX) | `#EF4444` | `#EF4444` |
+| Surface | `#FFFFFF` | `#0F172A` |
+| Surface variant | `#F8FAFC` | `#1E293B` |
+| Text | `#0F172A` | `#F1F5F9` |
+
+`AppTheme.lightTheme` and `AppTheme.darkTheme` build `ThemeData` from these tokens using `ColorScheme.fromSeed`. No widget may hard-code a color — all values must come from `Theme.of(context)` or `AppColors`.
+
+`ThemeProvider` (`lib/ui/theme/theme_provider.dart`) extends `ChangeNotifier` and persists the user's `ThemeMode` choice to `SharedPreferences` under key `'theme_mode'`. Default is `ThemeMode.system`. It is provided at the top of the widget tree via `provider`.
+
+The map tile URL is theme-aware: light mode uses OSM standard tiles; dark mode uses CartoDB dark tiles (subdomain rotation via `{s}`).
+
+---
+
 ## Key Dependencies
 
 | Package | Purpose |
@@ -137,5 +176,7 @@ At v1.0, the implementation inside `AprsSymbolWidget` will be swapped to render 
 | `flutter_map` | Map rendering with OpenStreetMap tiles |
 | `flutter_blue_plus` | BLE transport (KISS/BLE) |
 | `flutter_libserialport` | USB serial transport (KISS/USB) |
+| `provider` | ThemeProvider ChangeNotifier wiring |
+| `shared_preferences` | Theme mode and onboarding flag persistence |
 
 No third-party APRS or AX.25 libraries — parsing is implemented in-house in the Packet Core.

@@ -6,6 +6,7 @@
 |---|---|---|
 | v0.1 — Foundation | Flutter scaffold, map, APRS-IS, station display with symbols | ✅ Complete |
 | v0.2 — Packets | AX.25/APRS parser, packet log, message decoding | ✅ Complete |
+| UI Foundation | Theme system, adaptive scaffold, core widgets, onboarding | ✅ Complete |
 | v0.3 — TNC | KISS over USB serial, desktop first | ▶ In Progress |
 | v0.4 — BLE | KISS over BLE, mobile platforms | ⬜ Planned |
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending | ⬜ Planned |
@@ -44,6 +45,20 @@ Goal: Comprehensive APRS packet parsing and a packet log view.
 - [x] StationService updated: `packetStream` + `recentPackets` (500-packet rolling buffer)
 - [x] Unit test coverage: 92 tests passing (69 parser tests + existing suite)
 - [ ] ~~Message thread view~~ — deferred to v0.3+
+
+---
+
+## UI Foundation
+
+Goal: A complete design system, adaptive layouts, core widget library, settings screen, and first-launch onboarding flow — across all three platform form factors.
+
+- [x] Theme system (token colors, light/dark/auto, ThemeProvider, SharedPreferences persistence)
+- [x] Adaptive scaffold (MobileScaffold, TabletScaffold, DesktopScaffold, ResponsiveLayout)
+- [x] MeridianMap widget — encapsulates flutter_map configuration, theme-aware tile URL
+- [x] Core widget library (MeridianStatusPill, MeridianBottomSheet, StationListTile, BeaconFAB, CallsignField)
+- [x] Settings screen shell (Appearance section functional — theme switching works; all other sections stubbed)
+- [x] Onboarding flow (3-screen PageView, first-launch gated via SharedPreferences)
+- [x] MapScreen updated to use ResponsiveLayout; service lifecycle remains in MapScreen
 
 ---
 
