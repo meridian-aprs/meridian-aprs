@@ -329,9 +329,12 @@ class _PacketRow extends StatelessWidget {
       final f = p.temperature!.toStringAsFixed(0);
       parts.add('$f \u00b0F');
     }
-    if (p.windSpeed != null)
+    if (p.windSpeed != null) {
       parts.add('${p.windSpeed!.toStringAsFixed(0)} mph wind');
-    if (p.humidity != null) parts.add('${p.humidity}% RH');
+    }
+    if (p.humidity != null) {
+      parts.add('${p.humidity}% RH');
+    }
     return parts.isEmpty ? 'Weather' : parts.join(' / ');
   }
 }

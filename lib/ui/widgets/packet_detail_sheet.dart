@@ -158,8 +158,9 @@ class PacketDetailSheet extends StatelessWidget {
         m['Symbol code'] = p.symbolCode;
         if (p.course != null) m['Course'] = '${p.course}\u00b0';
         if (p.speed != null) m['Speed'] = '${p.speed!.toStringAsFixed(1)} kt';
-        if (p.altitude != null)
+        if (p.altitude != null) {
           m['Altitude'] = '${p.altitude!.toStringAsFixed(0)} m';
+        }
         m['Messaging'] = p.hasMessaging ? 'Yes' : 'No';
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
         if (p.timestamp != null) m['Packet time'] = p.timestamp.toString();
@@ -180,18 +181,24 @@ class PacketDetailSheet extends StatelessWidget {
               '${p.temperature!.toStringAsFixed(1)} \u00b0F (${c.toStringAsFixed(1)} \u00b0C)';
         }
         if (p.humidity != null) m['Humidity'] = '${p.humidity}%';
-        if (p.pressure != null)
+        if (p.pressure != null) {
           m['Pressure'] = '${p.pressure!.toStringAsFixed(1)} hPa';
-        if (p.windSpeed != null)
+        }
+        if (p.windSpeed != null) {
           m['Wind speed'] = '${p.windSpeed!.toStringAsFixed(1)} mph';
-        if (p.windDirection != null)
+        }
+        if (p.windDirection != null) {
           m['Wind direction'] = '${p.windDirection}\u00b0';
-        if (p.windGust != null)
+        }
+        if (p.windGust != null) {
           m['Wind gust'] = '${p.windGust!.toStringAsFixed(1)} mph';
-        if (p.rainfall1h != null)
+        }
+        if (p.rainfall1h != null) {
           m['Rainfall 1h'] = '${(p.rainfall1h! / 100).toStringAsFixed(2)} in';
-        if (p.rainfall24h != null)
+        }
+        if (p.rainfall24h != null) {
           m['Rainfall 24h'] = '${(p.rainfall24h! / 100).toStringAsFixed(2)} in';
+        }
 
       case ObjectPacket():
         m['Type'] = 'Object';
@@ -227,8 +234,9 @@ class PacketDetailSheet extends StatelessWidget {
         m['Symbol code'] = p.symbolCode;
         if (p.course != null) m['Course'] = '${p.course}\u00b0';
         if (p.speed != null) m['Speed'] = '${p.speed!.toStringAsFixed(1)} kt';
-        if (p.altitude != null)
+        if (p.altitude != null) {
           m['Altitude'] = '${p.altitude!.toStringAsFixed(0)} m';
+        }
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
 
       case UnknownPacket():
