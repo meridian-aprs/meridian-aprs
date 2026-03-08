@@ -119,6 +119,53 @@ Keep these files current as the project evolves:
 
 ---
 
+## UI Components Inventory
+
+### Theme System (`lib/ui/theme/`)
+
+| File | Class | Description |
+|---|---|---|
+| `app_theme.dart` | `AppColors` | Static color token constants (primary, accent, warning, danger, surface, text) |
+| `app_theme.dart` | `AppTheme` | `lightTheme` and `darkTheme` ThemeData builders |
+| `theme_provider.dart` | `ThemeProvider` | ChangeNotifier for ThemeMode; persists to SharedPreferences |
+
+### Layout System (`lib/ui/layout/`)
+
+| File | Class | Description |
+|---|---|---|
+| `meridian_map.dart` | `MeridianMap` | Encapsulates flutter_map; accepts `mapController`, `markers`, `tileUrl` |
+| `mobile_scaffold.dart` | `MobileScaffold` | Full-screen map + FAB cluster + bottom sheets (< 600 px) |
+| `tablet_scaffold.dart` | `TabletScaffold` | Collapsed NavigationRail + map + bottom panel (600–1024 px) |
+| `desktop_scaffold.dart` | `DesktopScaffold` | Extended NavigationRail (240 px) + map + side panel (> 1024 px) |
+| `responsive_layout.dart` | `ResponsiveLayout` | Selects scaffold by `MediaQuery` width; breakpoints 600 px and 1024 px |
+
+### Widget Library (`lib/ui/widgets/`)
+
+| File | Class | Description |
+|---|---|---|
+| `aprs_symbol_widget.dart` | `AprsSymbolWidget` | APRS symbol rendering; Material icons now, sprite sheet at v1.0 |
+| `beacon_fab.dart` | `BeaconFAB` | Large FAB; idle=primary blue, beaconing=danger red + pulse animation |
+| `callsign_field.dart` | `CallsignField` | Validated callsign TextFormField; regex + inline error |
+| `meridian_bottom_sheet.dart` | `MeridianBottomSheet` | Draggable bottom sheet with drag handle; theming wrapper |
+| `meridian_status_pill.dart` | `MeridianStatusPill` | Connection status pill; green/amber/red dot + label; pulsing on connecting |
+| `packet_detail_sheet.dart` | `PacketDetailSheet` | Full decoded packet field view + selectable raw line |
+| `station_info_sheet.dart` | `StationInfoSheet` | Station summary bottom sheet (callsign, symbol, comment, last heard) |
+| `station_list_tile.dart` | `StationListTile` | ListTile for station list; symbol + callsign + relative timestamp |
+
+### Screens (`lib/screens/`)
+
+| File | Class | Description |
+|---|---|---|
+| `map_screen.dart` | `MapScreen` | Root screen; owns StationService lifecycle; delegates to ResponsiveLayout |
+| `packet_log_screen.dart` | `PacketLogScreen` | Real-time packet list; type filter chips; tap → PacketDetailSheet |
+| `settings_screen.dart` | `SettingsScreen` | Settings screen; Appearance (theme) functional; all others stubbed |
+| `onboarding/onboarding_screen.dart` | `OnboardingScreen` | 3-page PageView; shown on first launch; saves onboarding_complete flag |
+| `onboarding/onboarding_welcome_page.dart` | `OnboardingWelcomePage` | Page 1: logo, tagline, Get Started / skip |
+| `onboarding/onboarding_callsign_page.dart` | `OnboardingCallsignPage` | Page 2: CallsignField, SSID picker, passcode field |
+| `onboarding/onboarding_connect_page.dart` | `OnboardingConnectPage` | Page 3: APRS-IS / BLE / USB option cards, Start Listening |
+
+---
+
 ## Branching & PR Conventions
 
 - All feature work happens on feature branches, never directly on `main`
