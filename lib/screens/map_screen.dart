@@ -71,7 +71,10 @@ class _MapScreenState extends State<MapScreen> {
     height: 30,
     child: GestureDetector(
       onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(s.callsign), duration: const Duration(seconds: 2)),
+        SnackBar(
+          content: Text(s.callsign),
+          duration: const Duration(seconds: 2),
+        ),
       ),
       child: Tooltip(
         message: s.callsign,
