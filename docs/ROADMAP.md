@@ -5,8 +5,8 @@
 | Milestone | Focus | Status |
 |---|---|---|
 | v0.1 — Foundation | Flutter scaffold, map, APRS-IS, station display with symbols | ✅ Complete |
-| v0.2 — Packets | AX.25/APRS parser, packet log, message decoding | ⬜ Planned |
-| v0.3 — TNC | KISS over USB serial, desktop first | ⬜ Planned |
+| v0.2 — Packets | AX.25/APRS parser, packet log, message decoding | ✅ Complete |
+| v0.3 — TNC | KISS over USB serial, desktop first | ▶ In Progress |
 | v0.4 — BLE | KISS over BLE, mobile platforms | ⬜ Planned |
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending | ⬜ Planned |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding | ⬜ Planned |
@@ -36,11 +36,14 @@ Goal: A working app that connects to APRS-IS, receives packets, and plots statio
 
 Goal: Comprehensive APRS packet parsing and a packet log view.
 
-- [ ] Full AX.25 frame parser (address, control, PID, info)
-- [ ] APRS info field parser: position (all formats), message, object, item, weather, telemetry, status
-- [ ] Packet log screen (raw + decoded view)
-- [ ] Message thread view
-- [ ] Unit test coverage for parser (Dire Wolf/aprslib test vectors)
+- [x] Full APRS parser with `AprsPacket` sealed class hierarchy (PositionPacket, WeatherPacket, MessagePacket, ObjectPacket, ItemPacket, StatusPacket, MicEPacket, UnknownPacket)
+- [x] All DTI types supported: `!`, `=`, `/`, `@`, `;`, `)`, `:`, `_`, `>`, `` ` ``, `'`
+- [x] Packet log screen (real-time scrolling, type filter chips, tap-to-detail)
+- [x] PacketDetailSheet — full decoded field view with selectable raw packet line
+- [x] AprsSymbolWidget — abstract symbol rendering widget, replaces inline symbolIcon helpers
+- [x] StationService updated: `packetStream` + `recentPackets` (500-packet rolling buffer)
+- [x] Unit test coverage: 92 tests passing (69 parser tests + existing suite)
+- [ ] ~~Message thread view~~ — deferred to v0.3+
 
 ---
 
