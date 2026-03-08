@@ -7,7 +7,9 @@ import 'package:latlong2/latlong.dart';
 import '../core/packet/station.dart';
 import '../core/transport/aprs_is_transport.dart';
 import '../services/station_service.dart';
+import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/station_info_sheet.dart';
+import 'packet_log_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -94,10 +96,11 @@ class _MapScreenState extends State<MapScreen> {
       ),
       child: Tooltip(
         message: s.callsign,
-        child: Icon(
-          symbolIcon(s.symbolCode),
-          color: _markerColor(s.symbolCode),
+        child: AprsSymbolWidget(
+          symbolTable: s.symbolTable,
+          symbolCode: s.symbolCode,
           size: 36,
+          color: _markerColor(s.symbolCode),
         ),
       ),
     ),
@@ -120,6 +123,16 @@ class _MapScreenState extends State<MapScreen> {
           ),
           MarkerLayer(markers: _markers),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PacketLogScreen(service: _service),
+          ),
+        ),
+        tooltip: 'Packet Log',
+        child: const Icon(Icons.list_alt),
       ),
     );
   }
