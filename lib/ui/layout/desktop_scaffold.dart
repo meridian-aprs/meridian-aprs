@@ -38,6 +38,8 @@ class DesktopScaffold extends StatefulWidget {
 
 class _DesktopScaffoldState extends State<DesktopScaffold> {
   int _selectedIndex = 0;
+  bool _navRailExpanded = true;
+  bool _panelVisible = true;
 
   void _showConnectionSheet(BuildContext context) {
     showModalBottomSheet(
@@ -58,12 +60,24 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.menu),
+          tooltip: _navRailExpanded ? 'Collapse sidebar' : 'Expand sidebar',
+          onPressed: () => setState(() => _navRailExpanded = !_navRailExpanded),
+        ),
         title: const Text('Meridian'),
         actions: [
           MeridianStatusPill(
             status: widget.connectionStatus,
             label: 'APRS-IS',
             onTap: () => _showConnectionSheet(context),
+          ),
+          IconButton(
+            icon: Icon(
+              _panelVisible ? Icons.view_sidebar : Icons.view_sidebar_outlined,
+            ),
+            tooltip: _panelVisible ? 'Hide packet log' : 'Show packet log',
+            onPressed: () => setState(() => _panelVisible = !_panelVisible),
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -76,7 +90,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       body: Row(
         children: [
           NavigationRail(
-            extended: true,
+            extended: _navRailExpanded,
             minExtendedWidth: 240,
             selectedIndex: _selectedIndex,
             onDestinationSelected: (i) {
@@ -124,8 +138,19 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
               initialZoom: widget.initialZoom,
             ),
           ),
-          const VerticalDivider(width: 1),
-          _PacketLogPanel(service: widget.service),
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            child: _panelVisible
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const VerticalDivider(width: 1),
+                      _PacketLogPanel(service: widget.service),
+                    ],
+                  )
+                : const SizedBox.shrink(),
+          ),
         ],
       ),
     );
