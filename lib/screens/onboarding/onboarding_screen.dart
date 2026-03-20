@@ -48,6 +48,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
     await prefs.setInt('user_ssid', _ssid);
     await prefs.setString('user_passcode', _passcode);
+    // connection_method is persisted for future use.
+    // 0 = APRS-IS (only active transport). BLE (v0.4) and USB (v0.3) are not
+    // yet implemented; transport selection will be wired here when they land.
     await prefs.setInt('connection_method', _connectionMethod);
 
     final effectiveCallsign = _callsign.isNotEmpty ? _callsign : 'NOCALL';

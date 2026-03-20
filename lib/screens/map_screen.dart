@@ -116,7 +116,10 @@ class _MapScreenState extends State<MapScreen> {
     _markerDebounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       setState(() {
-        _markers = _service.currentStations.values.map(_buildMarker).toList();
+        // Sort ascending by lastHeard so newest stations render on top.
+        final sorted = _service.currentStations.values.toList()
+          ..sort((a, b) => a.lastHeard.compareTo(b.lastHeard));
+        _markers = sorted.map(_buildMarker).toList();
       });
     });
   }

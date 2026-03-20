@@ -15,8 +15,11 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(
-        children: const [
+      body: ListView.separated(
+        itemCount: 8,
+        separatorBuilder: (context, index) =>
+            const Divider(indent: 16, endIndent: 16),
+        itemBuilder: (context, index) => const [
           _AppearanceSection(),
           _MyStationSection(),
           _BeaconingSection(),
@@ -25,7 +28,7 @@ class SettingsScreen extends StatelessWidget {
           _NotificationsSection(),
           _AccountSection(),
           _AboutSection(),
-        ],
+        ][index],
       ),
     );
   }

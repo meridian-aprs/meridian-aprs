@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -12,6 +14,7 @@ enum _PacketFilter {
   msg('MSG'),
   wx('WX'),
   obj('OBJ'),
+  item('ITEM'),
   status('STATUS'),
   micE('MIC-E');
 
@@ -56,6 +59,7 @@ class _PacketLogBodyState extends State<PacketLogBody> {
   _PacketFilter _filter = _PacketFilter.all;
 
   final _scrollController = ScrollController();
+  StreamSubscription<AprsPacket>? _subscription;
 
   /// Whether the user has scrolled up (away from the bottom).
   bool _userScrolledUp = false;
@@ -70,13 +74,14 @@ class _PacketLogBodyState extends State<PacketLogBody> {
     _packets.addAll(widget.service.recentPackets);
 
     // Listen for new packets.
-    widget.service.packetStream.listen(_onPacket);
+    _subscription = widget.service.packetStream.listen(_onPacket);
 
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    _subscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -118,7 +123,8 @@ class _PacketLogBodyState extends State<PacketLogBody> {
       _PacketFilter.pos => p is PositionPacket,
       _PacketFilter.msg => p is MessagePacket,
       _PacketFilter.wx => p is WeatherPacket,
-      _PacketFilter.obj => p is ObjectPacket || p is ItemPacket,
+      _PacketFilter.obj => p is ObjectPacket,
+      _PacketFilter.item => p is ItemPacket,
       _PacketFilter.status => p is StatusPacket,
       _PacketFilter.micE => p is MicEPacket,
     };

@@ -31,6 +31,9 @@ class AppColors {
   // Text
   static const Color textLight = Color(0xFF0F172A);
   static const Color textDark = Color(0xFFF1F5F9);
+
+  // Dark-theme primary container foreground
+  static const Color onPrimaryContainerDark = Color(0xFFBFDBFE);
 }
 
 /// Provides the Material 3 [ThemeData] instances used throughout Meridian.
@@ -95,7 +98,7 @@ class AppTheme {
       primary: AppColors.primaryDark,
       onPrimary: AppColors.surfaceDark,
       primaryContainer: AppColors.primaryDark.withAlpha(40),
-      onPrimaryContainer: const Color(0xFFBFDBFE),
+      onPrimaryContainer: AppColors.onPrimaryContainerDark,
       secondary: AppColors.accent,
       onSecondary: AppColors.surfaceDark,
       error: AppColors.danger,

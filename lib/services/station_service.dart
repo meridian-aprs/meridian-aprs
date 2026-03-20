@@ -115,6 +115,11 @@ class StationService {
       final station = _stationFromPosition(packet);
       _stations[station.callsign] = station;
       _stationController.add(Map.unmodifiable(_stations));
+    } else if (packet is MicEPacket) {
+      debugPrint('MIC-E: ${packet.source} @ ${packet.lat}, ${packet.lon}');
+      final station = _stationFromMicE(packet);
+      _stations[station.callsign] = station;
+      _stationController.add(Map.unmodifiable(_stations));
     } else if (packet is UnknownPacket) {
       debugPrint('SKIP: ${packet.reason} -- $raw');
     }
@@ -122,6 +127,20 @@ class StationService {
 
   /// Convert a [PositionPacket] to a [Station] for the legacy station map.
   Station _stationFromPosition(PositionPacket p) {
+    return Station(
+      callsign: p.source,
+      lat: p.lat,
+      lon: p.lon,
+      rawPacket: p.rawLine,
+      lastHeard: p.receivedAt,
+      symbolTable: p.symbolTable,
+      symbolCode: p.symbolCode,
+      comment: p.comment,
+    );
+  }
+
+  /// Convert a [MicEPacket] to a [Station] for the station map.
+  Station _stationFromMicE(MicEPacket p) {
     return Station(
       callsign: p.source,
       lat: p.lat,
