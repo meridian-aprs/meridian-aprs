@@ -10,6 +10,11 @@ abstract class AprsTransport {
   /// Emits the current [ConnectionStatus] whenever it changes.
   Stream<ConnectionStatus> get connectionState;
 
+  /// Returns the most-recently-set [ConnectionStatus] synchronously.
+  /// Allows late subscribers to read the current state without waiting for
+  /// the next stream event.
+  ConnectionStatus get currentStatus;
+
   Future<void> connect();
   Future<void> disconnect();
 

@@ -27,12 +27,21 @@ class MapScreen extends StatefulWidget {
   const MapScreen({
     super.key,
     this.callsign = 'NOCALL',
+    this.passcode = '-1',
+    this.ssid = 0,
     this.initialLat = 39.0,
     this.initialLon = -77.0,
     this.initialZoom = 9.0,
   });
 
   final String callsign;
+
+  /// APRS-IS passcode. Empty string or `'-1'` means receive-only.
+  final String passcode;
+
+  /// SSID suffix (0 = no suffix, 1–15 appended as `-N`).
+  final int ssid;
+
   final double initialLat;
   final double initialLon;
   final double initialZoom;
@@ -47,7 +56,7 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _markers = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
-  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
+  late ConnectionStatus _connectionStatus;
 
   // Tile URL constants.
   static const _lightTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -59,12 +68,17 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     final callsign =
         widget.callsign.isNotEmpty ? widget.callsign : 'NOCALL';
+    final ssidSuffix = widget.ssid > 0 ? '-${widget.ssid}' : '';
+    final effectivePasscode =
+        widget.passcode.isEmpty ? '-1' : widget.passcode;
     final transport = AprsIsTransport(
-      loginLine: 'user $callsign pass -1 vers meridian-aprs 0.1\r\n',
+      loginLine:
+          'user $callsign$ssidSuffix pass $effectivePasscode vers meridian-aprs 0.1\r\n',
       filterLine:
           '#filter r/${widget.initialLat.toStringAsFixed(1)}/${widget.initialLon.toStringAsFixed(1)}/100\r\n',
     );
     _service = StationService(transport);
+    _connectionStatus = _service.currentConnectionStatus;
     _service.stationUpdates.listen(_onStationsUpdated);
     _service.connectionState.listen((status) {
       if (mounted) setState(() => _connectionStatus = status);

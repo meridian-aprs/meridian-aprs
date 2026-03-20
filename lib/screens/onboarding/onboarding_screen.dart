@@ -49,7 +49,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => MapScreen(callsign: _callsign.isNotEmpty ? _callsign : 'NOCALL'),
+          builder: (_) => MapScreen(
+            callsign: _callsign.isNotEmpty ? _callsign : 'NOCALL',
+            passcode: _passcode,
+            ssid: _ssid,
+          ),
         ),
       );
     }

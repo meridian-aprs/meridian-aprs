@@ -54,6 +54,11 @@ class StationService {
   /// Forwards the transport's connection state stream.
   Stream<ConnectionStatus> get connectionState => _transport.connectionState;
 
+  /// Returns the transport's current [ConnectionStatus] synchronously.
+  /// Use this to seed UI state for widgets that subscribe after the connection
+  /// has already been established.
+  ConnectionStatus get currentConnectionStatus => _transport.currentStatus;
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------

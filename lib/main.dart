@@ -15,6 +15,8 @@ Future<void> main() async {
   final prefs = await SharedPreferences.getInstance();
   final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
   final userCallsign = prefs.getString('user_callsign') ?? '';
+  final userPasscode = prefs.getString('user_passcode') ?? '';
+  final userSsid = prefs.getInt('user_ssid') ?? 0;
   final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
   final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
   final mapZoom = prefs.getDouble('map_last_zoom') ?? 9.0;
@@ -25,6 +27,8 @@ Future<void> main() async {
       child: MeridianApp(
         onboardingComplete: onboardingComplete,
         userCallsign: userCallsign,
+        userPasscode: userPasscode,
+        userSsid: userSsid,
         mapLat: mapLat,
         mapLon: mapLon,
         mapZoom: mapZoom,
@@ -38,6 +42,8 @@ class MeridianApp extends StatelessWidget {
     super.key,
     required this.onboardingComplete,
     this.userCallsign = '',
+    this.userPasscode = '',
+    this.userSsid = 0,
     this.mapLat = 39.0,
     this.mapLon = -77.0,
     this.mapZoom = 9.0,
@@ -45,6 +51,8 @@ class MeridianApp extends StatelessWidget {
 
   final bool onboardingComplete;
   final String userCallsign;
+  final String userPasscode;
+  final int userSsid;
   final double mapLat;
   final double mapLon;
   final double mapZoom;
@@ -61,6 +69,8 @@ class MeridianApp extends StatelessWidget {
       home: onboardingComplete
           ? MapScreen(
               callsign: userCallsign.isNotEmpty ? userCallsign : 'NOCALL',
+              passcode: userPasscode,
+              ssid: userSsid,
               initialLat: mapLat,
               initialLon: mapLon,
               initialZoom: mapZoom,
