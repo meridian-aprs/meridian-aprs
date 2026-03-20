@@ -14,19 +14,40 @@ Future<void> main() async {
   final themeProvider = await ThemeProvider.create();
   final prefs = await SharedPreferences.getInstance();
   final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+  final userCallsign = prefs.getString('user_callsign') ?? '';
+  final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
+  final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
+  final mapZoom = prefs.getDouble('map_last_zoom') ?? 9.0;
 
   runApp(
     ChangeNotifierProvider<ThemeProvider>.value(
       value: themeProvider,
-      child: MeridianApp(onboardingComplete: onboardingComplete),
+      child: MeridianApp(
+        onboardingComplete: onboardingComplete,
+        userCallsign: userCallsign,
+        mapLat: mapLat,
+        mapLon: mapLon,
+        mapZoom: mapZoom,
+      ),
     ),
   );
 }
 
 class MeridianApp extends StatelessWidget {
-  const MeridianApp({super.key, required this.onboardingComplete});
+  const MeridianApp({
+    super.key,
+    required this.onboardingComplete,
+    this.userCallsign = '',
+    this.mapLat = 39.0,
+    this.mapLon = -77.0,
+    this.mapZoom = 9.0,
+  });
 
   final bool onboardingComplete;
+  final String userCallsign;
+  final double mapLat;
+  final double mapLon;
+  final double mapZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +58,14 @@ class MeridianApp extends StatelessWidget {
       themeMode: themeProvider.themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      home: onboardingComplete ? const MapScreen() : const OnboardingScreen(),
+      home: onboardingComplete
+          ? MapScreen(
+              callsign: userCallsign.isNotEmpty ? userCallsign : 'NOCALL',
+              initialLat: mapLat,
+              initialLon: mapLon,
+              initialZoom: mapZoom,
+            )
+          : const OnboardingScreen(),
     );
   }
 }

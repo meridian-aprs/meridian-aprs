@@ -25,6 +25,11 @@ class OnboardingScreen extends StatefulWidget {
 class _OnboardingScreenState extends State<OnboardingScreen> {
   final _pageController = PageController();
 
+  String _callsign = '';
+  int _ssid = 0;
+  String _passcode = '';
+  int _connectionMethod = 0;
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -34,10 +39,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _markCompleteAndNavigate() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(OnboardingScreen._prefKey, true);
+    if (_callsign.isNotEmpty) {
+      await prefs.setString('user_callsign', _callsign);
+    }
+    await prefs.setInt('user_ssid', _ssid);
+    await prefs.setString('user_passcode', _passcode);
+    await prefs.setInt('connection_method', _connectionMethod);
     if (mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MapScreen()),
+        MaterialPageRoute(
+          builder: (_) => MapScreen(callsign: _callsign.isNotEmpty ? _callsign : 'NOCALL'),
+        ),
       );
     }
   }
@@ -47,6 +60,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       duration: const Duration(milliseconds: 350),
       curve: Curves.easeInOut,
     );
+  }
+
+  void _onCallsignNext(String callsign, int ssid, String passcode) {
+    _callsign = callsign;
+    _ssid = ssid;
+    _passcode = passcode;
+    _nextPage();
+  }
+
+  void _onStartListening(int connectionMethod) {
+    _connectionMethod = connectionMethod;
+    _markCompleteAndNavigate();
   }
 
   @override
@@ -60,8 +85,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             onGetStarted: _nextPage,
             onSkip: _markCompleteAndNavigate,
           ),
-          OnboardingCallsignPage(onNext: _nextPage),
-          OnboardingConnectPage(onStartListening: _markCompleteAndNavigate),
+          OnboardingCallsignPage(onNext: _onCallsignNext),
+          OnboardingConnectPage(onStartListening: _onStartListening),
         ],
       ),
     );

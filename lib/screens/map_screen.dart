@@ -4,11 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/station.dart';
 import '../core/transport/aprs_is_transport.dart';
+import '../core/transport/aprs_transport.dart';
 import '../services/station_service.dart';
 import '../ui/layout/responsive_layout.dart';
+import '../ui/theme/app_theme.dart';
 import '../ui/theme/theme_provider.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/station_info_sheet.dart';
@@ -21,7 +24,18 @@ import 'settings_screen.dart';
 /// uses CartoDB dark tiles. The theme is read from [ThemeProvider] and the
 /// system brightness is used to resolve [ThemeMode.system].
 class MapScreen extends StatefulWidget {
-  const MapScreen({super.key});
+  const MapScreen({
+    super.key,
+    this.callsign = 'NOCALL',
+    this.initialLat = 39.0,
+    this.initialLon = -77.0,
+    this.initialZoom = 9.0,
+  });
+
+  final String callsign;
+  final double initialLat;
+  final double initialLon;
+  final double initialZoom;
 
   @override
   State<MapScreen> createState() => _MapScreenState();
@@ -33,6 +47,7 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _markers = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
+  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
 
   // Tile URL constants.
   static const _lightTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -42,13 +57,21 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    final callsign =
+        widget.callsign.isNotEmpty ? widget.callsign : 'NOCALL';
     final transport = AprsIsTransport(
-      loginLine: 'user NOCALL pass -1 vers meridian-aprs 0.1\r\n',
-      filterLine: '#filter r/39.0/-77.0/100\r\n',
+      loginLine: 'user $callsign pass -1 vers meridian-aprs 0.1\r\n',
+      filterLine:
+          '#filter r/${widget.initialLat.toStringAsFixed(1)}/${widget.initialLon.toStringAsFixed(1)}/100\r\n',
     );
     _service = StationService(transport);
     _service.stationUpdates.listen(_onStationsUpdated);
-    _service.start();
+    _service.connectionState.listen((status) {
+      if (mounted) setState(() => _connectionStatus = status);
+    });
+    _service.start().catchError((Object e) {
+      debugPrint('APRS-IS connection failed: $e');
+    });
     _mapController.mapEventStream
         .where((e) => e is MapEventMoveEnd)
         .cast<MapEventMoveEnd>()
@@ -67,8 +90,14 @@ class _MapScreenState extends State<MapScreen> {
     _filterDebounce?.cancel();
     _filterDebounce = Timer(const Duration(milliseconds: 800), () {
       final center = event.camera.center;
+      final zoom = event.camera.zoom;
       debugPrint('Filter update: ${center.latitude}, ${center.longitude}');
       _service.updateFilter(center.latitude, center.longitude);
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.setDouble('map_last_lat', center.latitude);
+        prefs.setDouble('map_last_lon', center.longitude);
+        prefs.setDouble('map_last_zoom', zoom);
+      });
     });
   }
 
@@ -90,12 +119,12 @@ class _MapScreenState extends State<MapScreen> {
       case 'P':
       case 'f':
       case 'd':
-        return Colors.red;
+        return AppColors.danger;
       // Weather
       case '_':
-        return Colors.blue;
+        return AppColors.accent;
       default:
-        return Colors.blueGrey;
+        return AppColors.primaryLight;
     }
   }
 
@@ -146,6 +175,9 @@ class _MapScreenState extends State<MapScreen> {
       markers: _markers,
       tileUrl: _tileUrl(context),
       onNavigateToSettings: _navigateToSettings,
+      connectionStatus: _connectionStatus,
+      initialCenter: LatLng(widget.initialLat, widget.initialLon),
+      initialZoom: widget.initialZoom,
     );
   }
 }

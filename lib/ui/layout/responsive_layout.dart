@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
+import '../../core/transport/aprs_transport.dart';
 import '../../services/station_service.dart';
 import 'desktop_scaffold.dart';
 import 'mobile_scaffold.dart';
@@ -20,6 +22,9 @@ class ResponsiveLayout extends StatelessWidget {
     required this.markers,
     required this.tileUrl,
     required this.onNavigateToSettings,
+    this.connectionStatus = ConnectionStatus.disconnected,
+    this.initialCenter = const LatLng(39.0, -77.0),
+    this.initialZoom = 9.0,
   });
 
   final StationService service;
@@ -27,6 +32,9 @@ class ResponsiveLayout extends StatelessWidget {
   final List<Marker> markers;
   final String tileUrl;
   final VoidCallback onNavigateToSettings;
+  final ConnectionStatus connectionStatus;
+  final LatLng initialCenter;
+  final double initialZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -39,6 +47,9 @@ class ResponsiveLayout extends StatelessWidget {
         markers: markers,
         tileUrl: tileUrl,
         onNavigateToSettings: onNavigateToSettings,
+        connectionStatus: connectionStatus,
+        initialCenter: initialCenter,
+        initialZoom: initialZoom,
       );
     }
     if (width < 1024) {
@@ -48,6 +59,9 @@ class ResponsiveLayout extends StatelessWidget {
         markers: markers,
         tileUrl: tileUrl,
         onNavigateToSettings: onNavigateToSettings,
+        connectionStatus: connectionStatus,
+        initialCenter: initialCenter,
+        initialZoom: initialZoom,
       );
     }
     return DesktopScaffold(
@@ -56,6 +70,9 @@ class ResponsiveLayout extends StatelessWidget {
       markers: markers,
       tileUrl: tileUrl,
       onNavigateToSettings: onNavigateToSettings,
+      connectionStatus: connectionStatus,
+      initialCenter: initialCenter,
+      initialZoom: initialZoom,
     );
   }
 }

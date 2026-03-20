@@ -19,24 +19,41 @@ class AprsIsTransport implements AprsTransport {
 
   Socket? _socket;
   final _controller = StreamController<String>.broadcast();
+  final _stateController = StreamController<ConnectionStatus>.broadcast();
 
   @override
   Stream<String> get lines => _controller.stream;
 
   @override
+  Stream<ConnectionStatus> get connectionState => _stateController.stream;
+
+  @override
   Future<void> connect() async {
-    _socket = await Socket.connect(host, port);
-    _socket!.write(loginLine);
-    if (filterLine != null) _socket!.write(filterLine);
-    _socket!
-        .cast<List<int>>()
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(
-          _controller.add,
-          onError: _controller.addError,
-          onDone: _controller.close,
-        );
+    _stateController.add(ConnectionStatus.connecting);
+    try {
+      _socket = await Socket.connect(host, port);
+      _socket!.write(loginLine);
+      if (filterLine != null) _socket!.write(filterLine);
+      _stateController.add(ConnectionStatus.connected);
+      _socket!
+          .cast<List<int>>()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            _controller.add,
+            onError: (e) {
+              _stateController.add(ConnectionStatus.disconnected);
+              _controller.addError(e);
+            },
+            onDone: () {
+              _stateController.add(ConnectionStatus.disconnected);
+              _controller.close();
+            },
+          );
+    } catch (e) {
+      _stateController.add(ConnectionStatus.disconnected);
+      rethrow;
+    }
   }
 
   @override
@@ -46,5 +63,6 @@ class AprsIsTransport implements AprsTransport {
   Future<void> disconnect() async {
     await _socket?.close();
     _socket = null;
+    await _stateController.close();
   }
 }

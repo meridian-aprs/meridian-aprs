@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../services/station_service.dart';
 import '../widgets/meridian_bottom_sheet.dart';
@@ -16,6 +17,9 @@ class TabletScaffold extends StatefulWidget {
     required this.markers,
     required this.tileUrl,
     required this.onNavigateToSettings,
+    this.connectionStatus = ConnectionStatus.disconnected,
+    this.initialCenter = const LatLng(39.0, -77.0),
+    this.initialZoom = 9.0,
   });
 
   final StationService service;
@@ -23,6 +27,9 @@ class TabletScaffold extends StatefulWidget {
   final List<Marker> markers;
   final String tileUrl;
   final VoidCallback onNavigateToSettings;
+  final ConnectionStatus connectionStatus;
+  final LatLng initialCenter;
+  final double initialZoom;
 
   @override
   State<TabletScaffold> createState() => _TabletScaffoldState();
@@ -53,7 +60,7 @@ class _TabletScaffoldState extends State<TabletScaffold> {
         title: const Text('Meridian'),
         actions: [
           MeridianStatusPill(
-            status: ConnectionStatus.disconnected,
+            status: widget.connectionStatus,
             label: 'APRS-IS',
             onTap: () => _showConnectionSheet(context),
           ),
@@ -114,6 +121,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                     mapController: widget.mapController,
                     markers: widget.markers,
                     tileUrl: widget.tileUrl,
+                    initialCenter: widget.initialCenter,
+                    initialZoom: widget.initialZoom,
                   ),
                 ),
                 // Collapsed bottom panel placeholder.

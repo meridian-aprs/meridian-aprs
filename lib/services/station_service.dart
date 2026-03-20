@@ -3,10 +3,9 @@ import 'package:flutter/foundation.dart' show debugPrint;
 
 import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
-import '../core/packet/position_parser.dart';
-import '../core/packet/result.dart';
 import '../core/packet/station.dart';
-import '../core/transport/aprs_transport.dart';
+import '../core/transport/aprs_transport.dart'
+    show AprsTransport, ConnectionStatus;
 
 /// Service that ingests raw APRS-IS lines from [AprsTransport], decodes them
 /// with [AprsParser], and exposes two streams:
@@ -52,13 +51,24 @@ class StationService {
   /// Rolling buffer of the 500 most recently decoded packets, newest first.
   List<AprsPacket> get recentPackets => List.unmodifiable(_recentPackets);
 
+  /// Forwards the transport's connection state stream.
+  Stream<ConnectionStatus> get connectionState => _transport.connectionState;
+
   // ---------------------------------------------------------------------------
   // Lifecycle
   // ---------------------------------------------------------------------------
 
   Future<void> start() async {
-    await _transport.connect();
-    _transport.lines.listen(_handleLine);
+    try {
+      await _transport.connect();
+    } catch (e) {
+      debugPrint('APRS-IS connection failed: $e');
+    }
+    _transport.lines.listen(
+      _handleLine,
+      onError: (e) => debugPrint('Transport error: $e'),
+      onDone: () => debugPrint('Transport connection closed'),
+    );
   }
 
   void updateFilter(double lat, double lon, {int radiusKm = 150}) {
@@ -101,20 +111,7 @@ class StationService {
       _stations[station.callsign] = station;
       _stationController.add(Map.unmodifiable(_stations));
     } else if (packet is UnknownPacket) {
-      // Fall back to the legacy parser for packets that the full parser could
-      // not decode — this gives the old position parser a second chance for
-      // any edge cases not yet handled.
-      final legacy = parseAprsLine(raw);
-      if (legacy is Ok<Station>) {
-        final station = legacy.value;
-        debugPrint(
-          'LEGACY PARSED: ${station.callsign} @ ${station.lat}, ${station.lon}',
-        );
-        _stations[station.callsign] = station;
-        _stationController.add(Map.unmodifiable(_stations));
-      } else {
-        debugPrint('SKIP: ${(packet).reason} -- $raw');
-      }
+      debugPrint('SKIP: ${packet.reason} -- $raw');
     }
   }
 

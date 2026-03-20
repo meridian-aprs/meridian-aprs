@@ -7,7 +7,8 @@ class OnboardingCallsignPage extends StatefulWidget {
   const OnboardingCallsignPage({super.key, required this.onNext});
 
   /// Called when the user validates input and taps "Next".
-  final VoidCallback onNext;
+  /// Provides the entered [callsign], [ssid], and [passcode].
+  final void Function(String callsign, int ssid, String passcode) onNext;
 
   @override
   State<OnboardingCallsignPage> createState() => _OnboardingCallsignPageState();
@@ -43,7 +44,11 @@ class _OnboardingCallsignPageState extends State<OnboardingCallsignPage> {
 
   void _onNext() {
     if (_formKey.currentState?.validate() ?? false) {
-      widget.onNext();
+      widget.onNext(
+        _callsignController.text.trim().toUpperCase(),
+        _ssid,
+        _passcodeController.text.trim(),
+      );
     }
   }
 

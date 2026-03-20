@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
 import '../../screens/packet_log_screen.dart';
 import '../../services/station_service.dart';
@@ -21,6 +22,9 @@ class MobileScaffold extends StatelessWidget {
     required this.markers,
     required this.tileUrl,
     required this.onNavigateToSettings,
+    this.connectionStatus = ConnectionStatus.disconnected,
+    this.initialCenter = const LatLng(39.0, -77.0),
+    this.initialZoom = 9.0,
   });
 
   final StationService service;
@@ -28,6 +32,9 @@ class MobileScaffold extends StatelessWidget {
   final List<Marker> markers;
   final String tileUrl;
   final VoidCallback onNavigateToSettings;
+  final ConnectionStatus connectionStatus;
+  final LatLng initialCenter;
+  final double initialZoom;
 
   void _showConnectionSheet(BuildContext context) {
     showModalBottomSheet(
@@ -51,7 +58,7 @@ class MobileScaffold extends StatelessWidget {
         title: const Text('Meridian'),
         actions: [
           MeridianStatusPill(
-            status: ConnectionStatus.disconnected,
+            status: connectionStatus,
             label: 'APRS-IS',
             onTap: () => _showConnectionSheet(context),
           ),
@@ -69,6 +76,8 @@ class MobileScaffold extends StatelessWidget {
             mapController: mapController,
             markers: markers,
             tileUrl: tileUrl,
+            initialCenter: initialCenter,
+            initialZoom: initialZoom,
           ),
           // FAB cluster — bottom-right above system navigation bar.
           SafeArea(

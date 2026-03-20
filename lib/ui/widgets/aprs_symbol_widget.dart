@@ -31,14 +31,37 @@ class AprsSymbolWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(_iconData(symbolCode), size: size, color: color);
+    return Icon(
+      _iconData(symbolTable, symbolCode),
+      size: size,
+      color: color,
+    );
   }
 
-  /// Maps an APRS symbol code to the best available Material icon.
-  static IconData iconDataForSymbol(String symbolCode) => _iconData(symbolCode);
+  /// Maps an APRS symbol table and code to the best available Material icon.
+  static IconData iconDataForSymbol(String symbolTable, String symbolCode) =>
+      _iconData(symbolTable, symbolCode);
 }
 
-IconData _iconData(String symbolCode) {
+IconData _iconData(String symbolTable, String symbolCode) {
+  // Alternate table ('\') — use a radio icon as the generic fallback since
+  // alternate-table symbols are overlaid symbols and don't map 1:1 to primary.
+  if (symbolTable == '\\') {
+    switch (symbolCode) {
+      case '-':
+        return Icons.home;
+      case '>':
+        return Icons.directions_car;
+      case '_':
+        return Icons.wb_cloudy;
+      case '[':
+        return Icons.directions_walk;
+      default:
+        return Icons.radio;
+    }
+  }
+
+  // Primary table ('/') and any unrecognised table value.
   switch (symbolCode) {
     case '-':
       return Icons.home;

@@ -11,7 +11,9 @@ import '../../ui/theme/app_theme.dart';
 class OnboardingConnectPage extends StatefulWidget {
   const OnboardingConnectPage({super.key, required this.onStartListening});
 
-  final VoidCallback onStartListening;
+  /// Called when the user taps "Start Listening".
+  /// Provides the selected connection method index (0=APRS-IS, 1=BLE, 2=USB).
+  final void Function(int connectionMethod) onStartListening;
 
   @override
   State<OnboardingConnectPage> createState() => _OnboardingConnectPageState();
@@ -88,11 +90,11 @@ class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: widget.onStartListening,
+                onPressed: () => widget.onStartListening(_selectedOption),
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                   backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.white,
+                  foregroundColor: AppColors.surfaceLight,
                 ),
                 child: const Text('Start Listening'),
               ),

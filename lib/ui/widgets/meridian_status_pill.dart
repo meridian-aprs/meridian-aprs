@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../theme/app_theme.dart';
 
-/// The connection state shown in the top app bar.
-enum ConnectionStatus { connected, connecting, disconnected }
+export '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 
 /// A compact status indicator pill for the top app bar.
 ///
