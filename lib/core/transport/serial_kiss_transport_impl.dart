@@ -26,7 +26,7 @@ import 'tnc_config.dart';
 /// Pass a custom [SerialPortAdapter] to inject a fake in tests.
 class SerialKissTransport implements AprsTransport {
   SerialKissTransport(this._config, {SerialPortAdapter? adapter})
-      : _adapter = adapter ?? DefaultSerialPortAdapter(_config.port);
+    : _adapter = adapter ?? DefaultSerialPortAdapter(_config.port);
 
   final TncConfig _config;
   final SerialPortAdapter _adapter;

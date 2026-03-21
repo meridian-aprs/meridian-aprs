@@ -57,21 +57,24 @@ class Ax25Parser {
 
       final destination = addresses[0];
       final source = addresses[1];
-      final digipeaters =
-          addresses.length > 2 ? addresses.sublist(2) : <Ax25Address>[];
+      final digipeaters = addresses.length > 2
+          ? addresses.sublist(2)
+          : <Ax25Address>[];
 
       final control = bytes[offset];
       final pid = bytes[offset + 1];
       final info = bytes.sublist(offset + 2).toList();
 
-      return Ax25Ok(Ax25Frame(
-        destination: destination,
-        source: source,
-        digipeaters: digipeaters,
-        control: control,
-        pid: pid,
-        info: info,
-      ));
+      return Ax25Ok(
+        Ax25Frame(
+          destination: destination,
+          source: source,
+          digipeaters: digipeaters,
+          control: control,
+          pid: pid,
+          info: info,
+        ),
+      );
     } catch (e) {
       return Ax25Err('Unexpected decode error: $e');
     }

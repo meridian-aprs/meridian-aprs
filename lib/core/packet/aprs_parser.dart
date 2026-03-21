@@ -25,15 +25,27 @@ class AprsParser {
   }) {
     // Ignore blank lines and server comment lines.
     if (line.isEmpty || line.startsWith('#')) {
-      return _unknown(line, '', '', [], 'Server comment or empty line',
-          transportSource: transportSource);
+      return _unknown(
+        line,
+        '',
+        '',
+        [],
+        'Server comment or empty line',
+        transportSource: transportSource,
+      );
     }
 
     // Split header from info field at the first colon.
     final colonIdx = line.indexOf(':');
     if (colonIdx < 0 || colonIdx + 1 > line.length) {
-      return _unknown(line, '', '', [], 'No colon separator found',
-          transportSource: transportSource);
+      return _unknown(
+        line,
+        '',
+        '',
+        [],
+        'No colon separator found',
+        transportSource: transportSource,
+      );
     }
 
     final header = line.substring(0, colonIdx);
@@ -42,8 +54,14 @@ class AprsParser {
     // Parse header: SOURCE>DEST,p1,p2,...
     final gtIdx = header.indexOf('>');
     if (gtIdx <= 0) {
-      return _unknown(line, '', '', [], 'No > in header',
-          transportSource: transportSource);
+      return _unknown(
+        line,
+        '',
+        '',
+        [],
+        'No > in header',
+        transportSource: transportSource,
+      );
     }
     final source = header.substring(0, gtIdx);
     final destAndPath = header.substring(gtIdx + 1);
@@ -52,8 +70,14 @@ class AprsParser {
     final path = pathParts.length > 1 ? pathParts.sublist(1) : <String>[];
 
     if (info.isEmpty) {
-      return _unknown(line, source, destination, path, 'Empty info field',
-          transportSource: transportSource);
+      return _unknown(
+        line,
+        source,
+        destination,
+        path,
+        'Empty info field',
+        transportSource: transportSource,
+      );
     }
 
     final dti = info[0];
@@ -107,8 +131,7 @@ class AprsParser {
     }
     final frame = (result as Ax25Ok).frame;
     final infoStr = utf8.decode(frame.info, allowMalformed: true);
-    final pathStr =
-        frame.pathString.isEmpty ? '' : ',${frame.pathString}';
+    final pathStr = frame.pathString.isEmpty ? '' : ',${frame.pathString}';
     final reconstructed =
         '${frame.source}>${frame.destination}$pathStr:$infoStr';
     return parse(reconstructed, transportSource: transportSource);

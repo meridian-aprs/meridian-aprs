@@ -75,9 +75,7 @@ class _TabletScaffoldState extends State<TabletScaffold> {
             onTap: () => _showConnectionSheet(context),
           ),
           if (!kIsWeb &&
-              (Platform.isLinux ||
-                  Platform.isMacOS ||
-                  Platform.isWindows))
+              (Platform.isLinux || Platform.isMacOS || Platform.isWindows))
             MeridianStatusPill(
               label: 'TNC',
               status: widget.tncConnectionStatus,

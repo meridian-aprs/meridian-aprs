@@ -51,10 +51,7 @@ class MobileScaffold extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       builder: (_) => MeridianBottomSheet(
-        child: ConnectionSheet(
-          stationService: service,
-          tncService: tncService,
-        ),
+        child: ConnectionSheet(stationService: service, tncService: tncService),
       ),
     );
   }
@@ -71,9 +68,7 @@ class MobileScaffold extends StatelessWidget {
             onTap: () => _showConnectionSheet(context),
           ),
           if (!kIsWeb &&
-              (Platform.isLinux ||
-                  Platform.isMacOS ||
-                  Platform.isWindows))
+              (Platform.isLinux || Platform.isMacOS || Platform.isWindows))
             MeridianStatusPill(
               label: 'TNC',
               status: tncConnectionStatus,

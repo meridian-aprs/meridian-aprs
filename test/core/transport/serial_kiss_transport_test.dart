@@ -115,16 +115,12 @@ void main() {
 
     // 2 -----------------------------------------------------------------------
     test('connect() transitions through connecting → connected', () async {
-      final statesFuture =
-          transport.connectionState.take(2).toList();
+      final statesFuture = transport.connectionState.take(2).toList();
 
       await transport.connect();
 
       final states = await statesFuture;
-      expect(states, [
-        ConnectionStatus.connecting,
-        ConnectionStatus.connected,
-      ]);
+      expect(states, [ConnectionStatus.connecting, ConnectionStatus.connected]);
       expect(fakeAdapter.openCalled, isTrue);
       expect(fakeAdapter.configureCalled, isTrue);
     });
@@ -149,37 +145,40 @@ void main() {
     });
 
     // 5 -----------------------------------------------------------------------
-    test('lines stream emits decoded APRS line when valid KISS frame received',
-        () async {
-      await transport.connect();
+    test(
+      'lines stream emits decoded APRS line when valid KISS frame received',
+      () async {
+        await transport.connect();
 
-      final lines = <String>[];
-      final sub = transport.lines.listen(lines.add);
+        final lines = <String>[];
+        final sub = transport.lines.listen(lines.add);
 
-      final kissFrameBytes = _buildKissFrame(
-        'W1AW',
-        'APRS',
-        '!4903.50N/07201.75W-Test',
-      );
-      fakeAdapter.pushBytes(kissFrameBytes);
+        final kissFrameBytes = _buildKissFrame(
+          'W1AW',
+          'APRS',
+          '!4903.50N/07201.75W-Test',
+        );
+        fakeAdapter.pushBytes(kissFrameBytes);
 
-      // Allow microtasks to propagate through the stream pipeline.
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+        // Allow microtasks to propagate through the stream pipeline.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
 
-      await sub.cancel();
+        await sub.cancel();
 
-      expect(lines, isNotEmpty);
-      expect(lines.first, contains('W1AW'));
-    });
+        expect(lines, isNotEmpty);
+        expect(lines.first, contains('W1AW'));
+      },
+    );
 
     // 6 -----------------------------------------------------------------------
     test('port disconnect (stream done) transitions to disconnected', () async {
       await transport.connect();
 
       // Listen for the state change triggered by the done event.
-      final stateAfterDoneFuture = transport.connectionState
-          .firstWhere((s) => s == ConnectionStatus.disconnected);
+      final stateAfterDoneFuture = transport.connectionState.firstWhere(
+        (s) => s == ConnectionStatus.disconnected,
+      );
 
       await fakeAdapter.simulateDisconnect();
       await Future<void>.delayed(Duration.zero);

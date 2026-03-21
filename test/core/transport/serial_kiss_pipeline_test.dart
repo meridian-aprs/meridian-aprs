@@ -99,12 +99,7 @@ void main() {
     });
 
     test('decodes a status packet end-to-end', () async {
-      final kissBytes = buildKissFrame(
-        'KD9ABC',
-        'APRS',
-        [],
-        '>Net control',
-      );
+      final kissBytes = buildKissFrame('KD9ABC', 'APRS', [], '>Net control');
 
       final frames = <Uint8List>[];
       final sub = framer.frames.listen(frames.add);
@@ -119,26 +114,23 @@ void main() {
       expect(packet.source, equals('KD9ABC'));
     });
 
-    test('produces UnknownPacket for valid KISS/AX.25 but invalid APRS info',
-        () async {
-      final kissBytes = buildKissFrame(
-        'W1AW',
-        'APRS',
-        [],
-        'XXXXXXXXXX',
-      );
+    test(
+      'produces UnknownPacket for valid KISS/AX.25 but invalid APRS info',
+      () async {
+        final kissBytes = buildKissFrame('W1AW', 'APRS', [], 'XXXXXXXXXX');
 
-      final frames = <Uint8List>[];
-      final sub = framer.frames.listen(frames.add);
-      framer.addBytes(kissBytes);
-      await Future<void>.delayed(Duration.zero);
-      await sub.cancel();
+        final frames = <Uint8List>[];
+        final sub = framer.frames.listen(frames.add);
+        framer.addBytes(kissBytes);
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
 
-      expect(frames, hasLength(1));
+        expect(frames, hasLength(1));
 
-      final packet = AprsParser().parseFrame(frames[0]);
-      expect(packet, isA<UnknownPacket>());
-    });
+        final packet = AprsParser().parseFrame(frames[0]);
+        expect(packet, isA<UnknownPacket>());
+      },
+    );
 
     test('pipeline is robust to malformed KISS frame (missing FEND)', () async {
       // No FEND delimiters — framer must not emit any frame.
@@ -152,12 +144,7 @@ void main() {
     });
 
     test('pipeline handles frame with digipeater path', () async {
-      final kissBytes = buildKissFrame(
-        'W1AW',
-        'APRS',
-        ['RELAY'],
-        '>Hello',
-      );
+      final kissBytes = buildKissFrame('W1AW', 'APRS', ['RELAY'], '>Hello');
 
       final frames = <Uint8List>[];
       final sub = framer.frames.listen(frames.add);

@@ -77,16 +77,14 @@ class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
               subtitle: 'Connect via USB serial cable',
               dimmed:
                   kIsWeb ||
-                  !(Platform.isLinux ||
-                      Platform.isMacOS ||
-                      Platform.isWindows),
+                  !(Platform.isLinux || Platform.isMacOS || Platform.isWindows),
               onTap:
                   (!kIsWeb &&
-                          (Platform.isLinux ||
-                              Platform.isMacOS ||
-                              Platform.isWindows))
-                      ? () => setState(() => _selectedOption = 2)
-                      : null,
+                      (Platform.isLinux ||
+                          Platform.isMacOS ||
+                          Platform.isWindows))
+                  ? () => setState(() => _selectedOption = 2)
+                  : null,
             ),
             const SizedBox(height: 32),
             SizedBox(

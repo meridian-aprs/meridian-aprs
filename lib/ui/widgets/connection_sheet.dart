@@ -44,8 +44,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
   int _tncCount = 0;
 
   static bool get _isTncPlatform =>
-      !kIsWeb &&
-      (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+      !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
 
   @override
   void initState() {
@@ -156,7 +155,10 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
 
           // ── TNC section ──────────────────────────────────────────────────
           _SectionHeader('TNC'),
-          if (!_isTncPlatform) _TncUnavailableCard() else _buildTncCard(theme, tncStatus),
+          if (!_isTncPlatform)
+            _TncUnavailableCard()
+          else
+            _buildTncCard(theme, tncStatus),
         ],
       ),
     );
@@ -201,7 +203,9 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
                     )
                   : FilledButton(
                       onPressed: isConnecting ? null : _onAprsConnectTap,
-                      child: Text(isConnecting ? 'Connecting\u2026' : 'Connect'),
+                      child: Text(
+                        isConnecting ? 'Connecting\u2026' : 'Connect',
+                      ),
                     ),
             ),
           ],
@@ -247,10 +251,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Preset',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  child: Text('Preset', style: theme.textTheme.bodyMedium),
                 ),
                 DropdownButton<TncPreset>(
                   value: _selectedPreset,
@@ -276,10 +277,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
             Row(
               children: [
                 Expanded(
-                  child: Text(
-                    'Port',
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  child: Text('Port', style: theme.textTheme.bodyMedium),
                 ),
                 DropdownButton<String>(
                   value: _selectedPort,
@@ -311,8 +309,8 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
                   onPressed: isConnecting
                       ? null
                       : () => setState(() {
-                            _refreshPorts(initial: _selectedPort);
-                          }),
+                          _refreshPorts(initial: _selectedPort);
+                        }),
                 ),
               ],
             ),

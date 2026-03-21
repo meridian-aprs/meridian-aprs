@@ -50,7 +50,10 @@ void main() {
       expect(restored.dataBits, equals(original.dataBits));
       expect(restored.stopBits, equals(original.stopBits));
       expect(restored.parity, equals(original.parity));
-      expect(restored.hardwareFlowControl, equals(original.hardwareFlowControl));
+      expect(
+        restored.hardwareFlowControl,
+        equals(original.hardwareFlowControl),
+      );
       expect(restored.kissTxDelayMs, equals(original.kissTxDelayMs));
       expect(restored.kissPersistence, equals(original.kissPersistence));
       expect(restored.kissSlotTimeMs, equals(original.kissSlotTimeMs));

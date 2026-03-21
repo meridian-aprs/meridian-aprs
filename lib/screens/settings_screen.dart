@@ -234,25 +234,28 @@ class _TncSectionState extends State<_TncSection> {
 
     // Read initial values from TncService.activeConfig, or fall back to
     // Custom preset defaults.
-    final config =
-        context.read<TncService>().activeConfig;
+    final config = context.read<TncService>().activeConfig;
 
     if (config != null) {
       final presetMatch = TncPreset.all.where((p) => p.id == config.presetId);
-      _selectedPreset =
-          presetMatch.isNotEmpty ? presetMatch.first : TncPreset.custom;
+      _selectedPreset = presetMatch.isNotEmpty
+          ? presetMatch.first
+          : TncPreset.custom;
       _selectedPort = config.port;
       _baudRate = config.baudRate;
       _dataBits = config.dataBits;
       _stopBits = config.stopBits;
       _parity = config.parity;
       _hwFlow = config.hardwareFlowControl;
-      _txDelayController =
-          TextEditingController(text: '${config.kissTxDelayMs}');
-      _persistenceController =
-          TextEditingController(text: '${config.kissPersistence}');
-      _slotTimeController =
-          TextEditingController(text: '${config.kissSlotTimeMs}');
+      _txDelayController = TextEditingController(
+        text: '${config.kissTxDelayMs}',
+      );
+      _persistenceController = TextEditingController(
+        text: '${config.kissPersistence}',
+      );
+      _slotTimeController = TextEditingController(
+        text: '${config.kissSlotTimeMs}',
+      );
     } else {
       _selectedPreset = TncPreset.custom;
       _selectedPort = null;
@@ -319,9 +322,9 @@ class _TncSectionState extends State<_TncSection> {
     await tncService.updateConfig(newConfig);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('TNC settings saved')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('TNC settings saved')));
     }
   }
 
@@ -332,7 +335,9 @@ class _TncSectionState extends State<_TncSection> {
     final ports = tncService.availablePorts();
 
     // Ensure the selected port is still valid after a refresh.
-    if (_selectedPort != null && ports.isNotEmpty && !ports.contains(_selectedPort)) {
+    if (_selectedPort != null &&
+        ports.isNotEmpty &&
+        !ports.contains(_selectedPort)) {
       _selectedPort = null;
     }
 
@@ -418,10 +423,8 @@ class _TncSectionState extends State<_TncSection> {
                       isExpanded: true,
                       items: _baudRates
                           .map(
-                            (b) => DropdownMenuItem(
-                              value: b,
-                              child: Text('$b'),
-                            ),
+                            (b) =>
+                                DropdownMenuItem(value: b, child: Text('$b')),
                           )
                           .toList(),
                       onChanged: _isCustom
@@ -439,10 +442,8 @@ class _TncSectionState extends State<_TncSection> {
                       isExpanded: true,
                       items: _dataBitsOptions
                           .map(
-                            (d) => DropdownMenuItem(
-                              value: d,
-                              child: Text('$d'),
-                            ),
+                            (d) =>
+                                DropdownMenuItem(value: d, child: Text('$d')),
                           )
                           .toList(),
                       onChanged: _isCustom
@@ -460,10 +461,8 @@ class _TncSectionState extends State<_TncSection> {
                       isExpanded: true,
                       items: _stopBitsOptions
                           .map(
-                            (s) => DropdownMenuItem(
-                              value: s,
-                              child: Text('$s'),
-                            ),
+                            (s) =>
+                                DropdownMenuItem(value: s, child: Text('$s')),
                           )
                           .toList(),
                       onChanged: _isCustom
@@ -481,10 +480,7 @@ class _TncSectionState extends State<_TncSection> {
                       isExpanded: true,
                       items: _parityOptions
                           .map(
-                            (p) => DropdownMenuItem(
-                              value: p,
-                              child: Text(p),
-                            ),
+                            (p) => DropdownMenuItem(value: p, child: Text(p)),
                           )
                           .toList(),
                       onChanged: _isCustom
