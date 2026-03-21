@@ -43,7 +43,17 @@ class ThemeController extends ChangeNotifier {
   /// Loads persisted preferences and returns a ready [ThemeController].
   static Future<ThemeController> create() async {
     final prefs = await SharedPreferences.getInstance();
-    final modeInt = prefs.getInt(_themeModeKey);
+
+    // getInt throws a type cast exception if the stored value is a String.
+    // The previous ThemeProvider stored theme_mode as a string ("system",
+    // "light", "dark") under the same key. Remove it so future reads work.
+    int? modeInt;
+    try {
+      modeInt = prefs.getInt(_themeModeKey);
+    } catch (_) {
+      await prefs.remove(_themeModeKey);
+    }
+
     final seedInt = prefs.getInt(_seedColorKey);
     final mode = _modeFromInt(modeInt);
     final seed = seedInt != null ? Color(seedInt) : MeridianColors.primary;
