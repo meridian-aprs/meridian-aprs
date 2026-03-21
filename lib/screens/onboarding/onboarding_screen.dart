@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/transport/aprs_is_transport.dart';
 import '../../services/station_service.dart';
+import '../../services/tnc_service.dart';
 import '../map_screen.dart';
 import 'onboarding_callsign_page.dart';
 import 'onboarding_connect_page.dart';
@@ -66,6 +67,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
     );
     final service = StationService(transport);
+    final tncService = TncService(service);
 
     if (mounted) {
       Navigator.pushReplacement(
@@ -73,6 +75,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         MaterialPageRoute(
           builder: (_) => MapScreen(
             service: service,
+            tncService: tncService,
             callsign: effectiveCallsign,
             ssid: _ssid,
             initialLat: mapLat,

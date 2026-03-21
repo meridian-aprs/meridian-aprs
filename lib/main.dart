@@ -6,6 +6,7 @@ import 'core/transport/aprs_is_transport.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'services/station_service.dart';
+import 'services/tnc_service.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/theme/theme_provider.dart';
 
@@ -36,10 +37,15 @@ Future<void> main() async {
         '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
   );
   final service = StationService(transport);
+  final tncService = TncService(service);
+  await tncService.loadPersistedConfig();
 
   runApp(
-    ChangeNotifierProvider<ThemeProvider>.value(
-      value: themeProvider,
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider<ThemeProvider>.value(value: themeProvider),
+        ChangeNotifierProvider<TncService>.value(value: tncService),
+      ],
       child: MeridianApp(
         onboardingComplete: onboardingComplete,
         userCallsign: effectiveCallsign,
@@ -48,6 +54,7 @@ Future<void> main() async {
         mapLon: mapLon,
         mapZoom: mapZoom,
         service: service,
+        tncService: tncService,
       ),
     ),
   );
@@ -63,6 +70,7 @@ class MeridianApp extends StatelessWidget {
     this.mapLon = -77.0,
     this.mapZoom = 9.0,
     required this.service,
+    required this.tncService,
   });
 
   final bool onboardingComplete;
@@ -72,6 +80,7 @@ class MeridianApp extends StatelessWidget {
   final double mapLon;
   final double mapZoom;
   final StationService service;
+  final TncService tncService;
 
   @override
   Widget build(BuildContext context) {
@@ -85,6 +94,7 @@ class MeridianApp extends StatelessWidget {
       home: onboardingComplete
           ? MapScreen(
               service: service,
+              tncService: tncService,
               callsign: userCallsign,
               ssid: userSsid,
               initialLat: mapLat,

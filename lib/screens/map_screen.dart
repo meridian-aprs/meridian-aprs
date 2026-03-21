@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/packet/station.dart';
 import '../core/transport/aprs_transport.dart';
 import '../services/station_service.dart';
+import '../services/tnc_service.dart';
 import '../ui/layout/responsive_layout.dart';
 import '../ui/theme/app_theme.dart';
 import '../ui/theme/theme_provider.dart';
@@ -26,6 +27,7 @@ class MapScreen extends StatefulWidget {
   const MapScreen({
     super.key,
     required this.service,
+    required this.tncService,
     this.callsign = 'NOCALL',
     this.ssid = 0,
     this.initialLat = 39.0,
@@ -34,6 +36,7 @@ class MapScreen extends StatefulWidget {
   });
 
   final StationService service;
+  final TncService tncService;
   final String callsign;
 
   /// SSID suffix (0 = no suffix, 1–15 appended as `-N`).
@@ -54,6 +57,8 @@ class _MapScreenState extends State<MapScreen> {
   Timer? _filterDebounce;
   Timer? _markerDebounce;
   late ConnectionStatus _connectionStatus;
+  ConnectionStatus _tncConnectionStatus = ConnectionStatus.disconnected;
+  StreamSubscription<ConnectionStatus>? _tncStatusSub;
 
   // Tile URL constants.
   static const _lightTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -79,6 +84,10 @@ class _MapScreenState extends State<MapScreen> {
         );
       }
     });
+    _tncStatusSub = widget.tncService.connectionState.listen((status) {
+      if (!mounted) return;
+      setState(() => _tncConnectionStatus = status);
+    });
     _service.start().catchError((Object e) {
       debugPrint('APRS-IS connection failed: $e');
     });
@@ -92,6 +101,7 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _filterDebounce?.cancel();
     _markerDebounce?.cancel();
+    _tncStatusSub?.cancel();
     _service.stop();
     super.dispose();
   }
@@ -184,11 +194,13 @@ class _MapScreenState extends State<MapScreen> {
   Widget build(BuildContext context) {
     return ResponsiveLayout(
       service: _service,
+      tncService: widget.tncService,
       mapController: _mapController,
       markers: _markers,
       tileUrl: _tileUrl(context),
       onNavigateToSettings: _navigateToSettings,
       connectionStatus: _connectionStatus,
+      tncConnectionStatus: _tncConnectionStatus,
       initialCenter: LatLng(widget.initialLat, widget.initialLon),
       initialZoom: widget.initialZoom,
     );

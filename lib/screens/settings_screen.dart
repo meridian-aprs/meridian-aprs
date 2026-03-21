@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../core/transport/tnc_preset.dart';
+import '../services/tnc_service.dart';
 import '../ui/theme/theme_provider.dart';
 
 /// Application settings screen.
@@ -16,18 +18,19 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView.separated(
-        itemCount: 8,
+        itemCount: 9,
         separatorBuilder: (context, index) =>
             const Divider(indent: 16, endIndent: 16),
-        itemBuilder: (context, index) => const [
-          _AppearanceSection(),
-          _MyStationSection(),
-          _BeaconingSection(),
-          _ConnectionSection(),
-          _DisplaySection(),
-          _NotificationsSection(),
-          _AccountSection(),
-          _AboutSection(),
+        itemBuilder: (context, index) => [
+          const _AppearanceSection(),
+          const _MyStationSection(),
+          const _BeaconingSection(),
+          const _ConnectionSection(),
+          const _TncSection(),
+          const _DisplaySection(),
+          const _NotificationsSection(),
+          const _AccountSection(),
+          const _AboutSection(),
         ][index],
       ),
     );
@@ -181,6 +184,90 @@ class _ConnectionSection extends StatelessWidget {
           subtitle: Text('Range filter around current position'),
           trailing: Icon(Icons.chevron_right),
         ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TNC
+// ---------------------------------------------------------------------------
+
+class _TncSection extends StatelessWidget {
+  const _TncSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final tncService = context.watch<TncService>();
+    final config = tncService.activeConfig;
+
+    // Find preset name from presetId, if available.
+    String presetName = 'Custom';
+    if (config?.presetId != null) {
+      final match = TncPreset.all.where((p) => p.id == config!.presetId);
+      if (match.isNotEmpty) presetName = match.first.displayName;
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('TNC'),
+        if (config == null)
+          const ListTile(
+            title: Text('No TNC configured'),
+            subtitle: Text(
+              'Use the connection sheet to configure and connect a TNC.',
+            ),
+          )
+        else ...[
+          ListTile(
+            title: const Text('Preset'),
+            subtitle: Text(presetName),
+          ),
+          ListTile(
+            title: const Text('Port'),
+            subtitle: Text(config.port),
+          ),
+          ListTile(
+            title: const Text('Baud rate'),
+            subtitle: Text('${config.baudRate}'),
+          ),
+          ListTile(
+            title: const Text('Data bits'),
+            subtitle: Text('${config.dataBits}'),
+          ),
+          ListTile(
+            title: const Text('Stop bits'),
+            subtitle: Text('${config.stopBits}'),
+          ),
+          ListTile(
+            title: const Text('Parity'),
+            subtitle: Text(config.parity),
+          ),
+          SwitchListTile(
+            title: const Text('Hardware flow control'),
+            value: config.hardwareFlowControl,
+            onChanged: null, // Read-only in v0.3 — editing via connection sheet.
+          ),
+          ExpansionTile(
+            title: const Text('Advanced KISS parameters'),
+            initiallyExpanded: false,
+            children: [
+              ListTile(
+                title: const Text('TX delay (ms)'),
+                subtitle: Text('${config.kissTxDelayMs}'),
+              ),
+              ListTile(
+                title: const Text('Persistence (0–255)'),
+                subtitle: Text('${config.kissPersistence}'),
+              ),
+              ListTile(
+                title: const Text('Slot time (ms)'),
+                subtitle: Text('${config.kissSlotTimeMs}'),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }

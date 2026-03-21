@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../ui/theme/app_theme.dart';
@@ -71,9 +74,19 @@ class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
               selectedIndex: _selectedOption,
               icon: Icons.usb,
               title: 'USB TNC',
-              subtitle: 'Coming in v0.3',
-              dimmed: true,
-              onTap: null,
+              subtitle: 'Connect via USB serial cable',
+              dimmed:
+                  kIsWeb ||
+                  !(Platform.isLinux ||
+                      Platform.isMacOS ||
+                      Platform.isWindows),
+              onTap:
+                  (!kIsWeb &&
+                          (Platform.isLinux ||
+                              Platform.isMacOS ||
+                              Platform.isWindows))
+                      ? () => setState(() => _selectedOption = 2)
+                      : null,
             ),
             const SizedBox(height: 32),
             SizedBox(

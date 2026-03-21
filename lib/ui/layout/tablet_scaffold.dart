@@ -1,3 +1,6 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,6 +9,8 @@ import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/station_service.dart';
+import '../../services/tnc_service.dart';
+import '../widgets/connection_sheet.dart';
 import '../widgets/meridian_bottom_sheet.dart';
 import '../widgets/meridian_status_pill.dart';
 import 'meridian_map.dart';
@@ -16,21 +21,25 @@ class TabletScaffold extends StatefulWidget {
   const TabletScaffold({
     super.key,
     required this.service,
+    required this.tncService,
     required this.mapController,
     required this.markers,
     required this.tileUrl,
     required this.onNavigateToSettings,
     this.connectionStatus = ConnectionStatus.disconnected,
+    this.tncConnectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
   });
 
   final StationService service;
+  final TncService tncService;
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
   final VoidCallback onNavigateToSettings;
   final ConnectionStatus connectionStatus;
+  final ConnectionStatus tncConnectionStatus;
   final LatLng initialCenter;
   final double initialZoom;
 
@@ -46,11 +55,9 @@ class _TabletScaffoldState extends State<TabletScaffold> {
       context: context,
       isScrollControlled: true,
       builder: (_) => MeridianBottomSheet(
-        child: const Center(
-          child: Padding(
-            padding: EdgeInsets.all(32),
-            child: Text('Connection settings coming soon'),
-          ),
+        child: ConnectionSheet(
+          stationService: widget.service,
+          tncService: widget.tncService,
         ),
       ),
     );
@@ -67,6 +74,15 @@ class _TabletScaffoldState extends State<TabletScaffold> {
             label: 'APRS-IS',
             onTap: () => _showConnectionSheet(context),
           ),
+          if (!kIsWeb &&
+              (Platform.isLinux ||
+                  Platform.isMacOS ||
+                  Platform.isWindows))
+            MeridianStatusPill(
+              label: 'TNC',
+              status: widget.tncConnectionStatus,
+              onTap: () => _showConnectionSheet(context),
+            ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',

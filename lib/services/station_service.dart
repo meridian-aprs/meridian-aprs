@@ -82,6 +82,10 @@ class StationService {
     _transport.sendLine(line);
   }
 
+  /// Ingest a pre-formatted APRS line from an external transport source
+  /// (e.g. a TNC). Delegates to [_handleLine].
+  void ingestLine(String raw) => _handleLine(raw);
+
   Future<void> stop() async {
     await _transport.disconnect();
     await _stationController.close();
