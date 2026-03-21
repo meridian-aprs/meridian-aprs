@@ -9,6 +9,8 @@ import 'package:flutter_libserialport/flutter_libserialport.dart';
 import '../packet/aprs_parser.dart';
 import 'aprs_transport.dart';
 import 'kiss_framer.dart';
+import 'serial_port_adapter.dart';
+import 'serial_port_adapter_impl.dart';
 import 'tnc_config.dart';
 
 /// USB serial KISS TNC transport.
@@ -20,12 +22,15 @@ import 'tnc_config.dart';
 ///
 /// Desktop only (Linux, macOS, Windows). Use the conditional import shim
 /// at `serial_kiss_transport.dart` rather than importing this file directly.
+///
+/// Pass a custom [SerialPortAdapter] to inject a fake in tests.
 class SerialKissTransport implements AprsTransport {
-  SerialKissTransport(this._config);
+  SerialKissTransport(this._config, {SerialPortAdapter? adapter})
+      : _adapter = adapter ?? DefaultSerialPortAdapter(_config.port);
 
   final TncConfig _config;
-  SerialPort? _port;
-  SerialPortReader? _reader;
+  final SerialPortAdapter _adapter;
+
   StreamSubscription<Uint8List>? _readerSub;
 
   final _kissFramer = KissFramer();
@@ -49,44 +54,30 @@ class SerialKissTransport implements AprsTransport {
   Future<void> connect() async {
     _setStatus(ConnectionStatus.connecting);
     try {
-      final port = SerialPort(_config.port);
-      _port = port;
-
-      if (!port.openReadWrite()) {
-        throw SerialPortError(
-          'Failed to open port ${_config.port}',
-          SerialPort.lastError?.errorCode ?? -1,
-        );
+      if (!_adapter.open()) {
+        throw Exception('Failed to open port ${_config.port}');
       }
 
-      // Apply serial port configuration.
-      final config = SerialPortConfig()
-        ..baudRate = _config.baudRate
-        ..bits = _config.dataBits
-        ..stopBits = _config.stopBits
-        ..parity = _parityConstant(_config.parity);
-      if (_config.hardwareFlowControl) {
-        config.setFlowControl(SerialPortFlowControl.rtsCts);
-      } else {
-        config.setFlowControl(SerialPortFlowControl.none);
-      }
-      port.config = config;
-      config.dispose();
+      _adapter.configure(
+        baudRate: _config.baudRate,
+        dataBits: _config.dataBits,
+        stopBits: _config.stopBits,
+        parity: _config.parity,
+        hardwareFlowControl: _config.hardwareFlowControl,
+      );
 
       // Subscribe KISS frames → APRS line emission.
       _frameSub = _kissFramer.frames.listen(_onFrame);
 
       // Subscribe serial reader → KISS framer.
-      final reader = SerialPortReader(port);
-      _reader = reader;
-      _readerSub = reader.stream.listen(
+      _readerSub = _adapter.byteStream.listen(
         (bytes) => _kissFramer.addBytes(bytes),
         onError: (Object e) {
           debugPrint('SerialKissTransport read error: $e');
           _setStatus(ConnectionStatus.error);
         },
         onDone: () {
-          debugPrint('SerialKissTransport stream closed');
+          debugPrint('SerialKissTransport: port closed');
           _setStatus(ConnectionStatus.disconnected);
         },
       );
@@ -103,14 +94,10 @@ class SerialKissTransport implements AprsTransport {
   Future<void> disconnect() async {
     await _readerSub?.cancel();
     _readerSub = null;
-    _reader?.close();
-    _reader = null;
     await _frameSub?.cancel();
     _frameSub = null;
     _kissFramer.dispose();
-    _port?.close();
-    _port?.dispose();
-    _port = null;
+    _adapter.close();
     _setStatus(ConnectionStatus.disconnected);
   }
 
@@ -132,16 +119,5 @@ class SerialKissTransport implements AprsTransport {
   void _setStatus(ConnectionStatus status) {
     _status = status;
     _stateController.add(status);
-  }
-
-  int _parityConstant(String parity) {
-    switch (parity) {
-      case 'odd':
-        return SerialPortParity.odd;
-      case 'even':
-        return SerialPortParity.even;
-      default:
-        return SerialPortParity.none;
-    }
   }
 }

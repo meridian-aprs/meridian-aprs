@@ -113,6 +113,11 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                     builder: (_) => StationListScreen(service: widget.service),
                   ),
                 );
+              } else if (i == 4) {
+                // Connection — transient action; open sheet without updating
+                // the persistent rail selection.
+                _showConnectionSheet(context);
+                return;
               } else if (i == 5) {
                 widget.onNavigateToSettings();
               } else {

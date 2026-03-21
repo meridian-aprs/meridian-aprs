@@ -120,6 +120,11 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                     builder: (_) => StationListScreen(service: widget.service),
                   ),
                 );
+              } else if (i == 3) {
+                // Connection — transient action; open sheet without updating
+                // the persistent rail selection.
+                _showConnectionSheet(context);
+                return;
               } else if (i == 4) {
                 widget.onNavigateToSettings();
               } else {
