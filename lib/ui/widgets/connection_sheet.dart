@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
+import '../../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
 import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../../core/transport/tnc_config.dart';
 import '../../core/transport/tnc_preset.dart';
@@ -38,6 +39,9 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
   String? _selectedPort;
   StreamSubscription<ConnectionStatus>? _tncSub;
   StreamSubscription<ConnectionStatus>? _aprsSub;
+  StreamSubscription<AprsPacket>? _packetSub;
+  int _aprsIsCount = 0;
+  int _tncCount = 0;
 
   static bool get _isTncPlatform =>
       !kIsWeb &&
@@ -70,12 +74,34 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
     _aprsSub = widget.stationService.connectionState.listen((status) {
       if (mounted) setState(() {});
     });
+
+    // Seed packet counters from the rolling buffer.
+    for (final p in widget.stationService.recentPackets) {
+      if (p.transportSource == PacketSource.tnc) {
+        _tncCount++;
+      } else {
+        _aprsIsCount++;
+      }
+    }
+
+    // Keep counters live as new packets arrive.
+    _packetSub = widget.stationService.packetStream.listen((p) {
+      if (!mounted) return;
+      setState(() {
+        if (p.transportSource == PacketSource.tnc) {
+          _tncCount++;
+        } else {
+          _aprsIsCount++;
+        }
+      });
+    });
   }
 
   @override
   void dispose() {
     _tncSub?.cancel();
     _aprsSub?.cancel();
+    _packetSub?.cancel();
     super.dispose();
   }
 
@@ -158,6 +184,13 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
                 MeridianStatusPill(label: 'APRS-IS', status: aprsStatus),
               ],
             ),
+            const SizedBox(height: 4),
+            Text(
+              '$_aprsIsCount packets received',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(height: 16),
             SizedBox(
               width: double.infinity,
@@ -200,6 +233,13 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
                 ),
                 MeridianStatusPill(label: 'TNC', status: tncStatus),
               ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '$_tncCount packets received',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 12),
 

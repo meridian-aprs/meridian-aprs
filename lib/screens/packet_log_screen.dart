@@ -253,6 +253,12 @@ class _PacketRow extends StatelessWidget {
 
             const SizedBox(width: 8),
 
+            // Source badge — only for TNC packets to avoid visual noise
+            if (packet.transportSource == PacketSource.tnc)
+              _SourceBadge(colorScheme: colorScheme),
+            if (packet.transportSource == PacketSource.tnc)
+              const SizedBox(width: 6),
+
             // Callsign + summary
             Expanded(
               child: Column(
@@ -362,6 +368,35 @@ class _TypeBadge extends StatelessWidget {
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           color: colorScheme.onSecondaryContainer,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Source badge
+// ---------------------------------------------------------------------------
+
+class _SourceBadge extends StatelessWidget {
+  const _SourceBadge({required this.colorScheme});
+
+  final ColorScheme colorScheme;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      decoration: BoxDecoration(
+        color: colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        'RF',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colorScheme.onTertiaryContainer,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.3,
         ),

@@ -93,7 +93,8 @@ class StationService {
 
   /// Ingest a pre-formatted APRS line from an external transport source
   /// (e.g. a TNC). Delegates to [_handleLine].
-  void ingestLine(String raw) => _handleLine(raw);
+  void ingestLine(String raw, {PacketSource source = PacketSource.tnc}) =>
+      _handleLine(raw, source: source);
 
   Future<void> stop() async {
     await _transport.disconnect();
@@ -105,13 +106,13 @@ class StationService {
   // Internal
   // ---------------------------------------------------------------------------
 
-  void _handleLine(String raw) {
+  void _handleLine(String raw, {PacketSource source = PacketSource.aprsIs}) {
     debugPrint(raw);
 
     // Skip server comment lines — not packets.
     if (raw.isEmpty || raw.startsWith('#')) return;
 
-    final packet = _parser.parse(raw);
+    final packet = _parser.parse(raw, transportSource: source);
 
     // Add to rolling buffer.
     _recentPackets.insert(0, packet);

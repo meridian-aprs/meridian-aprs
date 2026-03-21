@@ -1,3 +1,6 @@
+/// Identifies which transport delivered this packet.
+enum PacketSource { aprsIs, tnc }
+
 /// Typed APRS packet model hierarchy.
 ///
 /// Every decoded packet is one of the concrete subtypes below. Use pattern
@@ -22,12 +25,16 @@ sealed class AprsPacket {
   /// UTC timestamp at which this packet was received / parsed.
   final DateTime receivedAt;
 
+  /// Which transport delivered this packet.
+  final PacketSource transportSource;
+
   const AprsPacket({
     required this.rawLine,
     required this.source,
     required this.destination,
     required this.path,
     required this.receivedAt,
+    this.transportSource = PacketSource.aprsIs,
   });
 }
 
@@ -59,6 +66,7 @@ class PositionPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.lat,
     required this.lon,
     required this.symbolTable,
@@ -113,6 +121,7 @@ class WeatherPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     this.lat,
     this.lon,
     this.symbolTable = '_',
@@ -150,6 +159,7 @@ class MessagePacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.addressee,
     required this.message,
     this.messageId,
@@ -180,6 +190,7 @@ class ObjectPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.objectName,
     required this.lat,
     required this.lon,
@@ -213,6 +224,7 @@ class ItemPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.itemName,
     required this.lat,
     required this.lon,
@@ -240,6 +252,7 @@ class StatusPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.status,
     this.timestamp,
   });
@@ -270,6 +283,7 @@ class MicEPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.lat,
     required this.lon,
     this.altitude,
@@ -300,6 +314,7 @@ class UnknownPacket extends AprsPacket {
     required super.destination,
     required super.path,
     required super.receivedAt,
+    super.transportSource,
     required this.reason,
     this.rawInfo = '',
   });

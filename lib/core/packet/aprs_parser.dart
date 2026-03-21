@@ -19,16 +19,21 @@ class AprsParser {
   /// Parse one APRS-IS line.
   ///
   /// Format: `SOURCE>DEST,PATH:INFO`
-  AprsPacket parse(String line) {
+  AprsPacket parse(
+    String line, {
+    PacketSource transportSource = PacketSource.aprsIs,
+  }) {
     // Ignore blank lines and server comment lines.
     if (line.isEmpty || line.startsWith('#')) {
-      return _unknown(line, '', '', [], 'Server comment or empty line');
+      return _unknown(line, '', '', [], 'Server comment or empty line',
+          transportSource: transportSource);
     }
 
     // Split header from info field at the first colon.
     final colonIdx = line.indexOf(':');
     if (colonIdx < 0 || colonIdx + 1 > line.length) {
-      return _unknown(line, '', '', [], 'No colon separator found');
+      return _unknown(line, '', '', [], 'No colon separator found',
+          transportSource: transportSource);
     }
 
     final header = line.substring(0, colonIdx);
@@ -37,7 +42,8 @@ class AprsParser {
     // Parse header: SOURCE>DEST,p1,p2,...
     final gtIdx = header.indexOf('>');
     if (gtIdx <= 0) {
-      return _unknown(line, '', '', [], 'No > in header');
+      return _unknown(line, '', '', [], 'No > in header',
+          transportSource: transportSource);
     }
     final source = header.substring(0, gtIdx);
     final destAndPath = header.substring(gtIdx + 1);
@@ -46,7 +52,8 @@ class AprsParser {
     final path = pathParts.length > 1 ? pathParts.sublist(1) : <String>[];
 
     if (info.isEmpty) {
-      return _unknown(line, source, destination, path, 'Empty info field');
+      return _unknown(line, source, destination, path, 'Empty info field',
+          transportSource: transportSource);
     }
 
     final dti = info[0];
@@ -61,6 +68,7 @@ class AprsParser {
         destination: destination,
         path: path,
         receivedAt: now,
+        transportSource: transportSource,
       );
     } catch (_) {
       // Belt-and-suspenders: never propagate exceptions.
@@ -70,6 +78,7 @@ class AprsParser {
         destination: destination,
         path: path,
         receivedAt: now,
+        transportSource: transportSource,
         reason: 'Unhandled parse exception',
         rawInfo: info,
       );
@@ -80,7 +89,10 @@ class AprsParser {
   ///
   /// Stub implementation — returns [UnknownPacket] until AX.25 framing support
   /// is added in a future milestone.
-  AprsPacket parseFrame(Uint8List frameBytes) {
+  AprsPacket parseFrame(
+    Uint8List frameBytes, {
+    PacketSource transportSource = PacketSource.aprsIs,
+  }) {
     final result = const Ax25Parser().parseFrame(frameBytes);
     if (result is Ax25Err) {
       return UnknownPacket(
@@ -89,6 +101,7 @@ class AprsParser {
         destination: '',
         path: const [],
         receivedAt: DateTime.now().toUtc(),
+        transportSource: transportSource,
         reason: 'AX.25 decode failed: ${result.reason}',
       );
     }
@@ -98,7 +111,7 @@ class AprsParser {
         frame.pathString.isEmpty ? '' : ',${frame.pathString}';
     final reconstructed =
         '${frame.source}>${frame.destination}$pathStr:$infoStr';
-    return parse(reconstructed);
+    return parse(reconstructed, transportSource: transportSource);
   }
 
   // ---------------------------------------------------------------------------
@@ -113,6 +126,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     switch (dti) {
       // Position without timestamp — no messaging (!) or messaging (=)
@@ -127,6 +141,7 @@ class AprsParser {
           receivedAt: receivedAt,
           hasTimestamp: false,
           hasMessaging: dti == '=',
+          transportSource: transportSource,
         );
 
       // Position with timestamp — no messaging (/) or messaging (@)
@@ -141,6 +156,7 @@ class AprsParser {
           receivedAt: receivedAt,
           hasTimestamp: true,
           hasMessaging: dti == '@',
+          transportSource: transportSource,
         );
 
       case ';':
@@ -151,6 +167,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       case ')':
@@ -161,6 +178,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       case ':':
@@ -171,6 +189,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       case '_':
@@ -181,6 +200,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       case '>':
@@ -191,6 +211,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       // Mic-E
@@ -203,6 +224,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
         );
 
       // Telemetry — parsed as Unknown for now (v0.2 scope)
@@ -213,6 +235,7 @@ class AprsParser {
           destination: destination,
           path: path,
           receivedAt: receivedAt,
+          transportSource: transportSource,
           reason: 'Telemetry not yet implemented',
           rawInfo: info,
         );
@@ -224,7 +247,8 @@ class AprsParser {
           destination,
           path,
           'Unrecognised DTI: $dti',
-          info,
+          rawInfo: info,
+          transportSource: transportSource,
         );
     }
   }
@@ -259,6 +283,7 @@ class AprsParser {
     required DateTime receivedAt,
     required bool hasTimestamp,
     required bool hasMessaging,
+    required PacketSource transportSource,
   }) {
     // info[0] is the DTI. After that, optionally a 7-char timestamp, then position.
     String posStr;
@@ -273,7 +298,8 @@ class AprsParser {
           destination,
           path,
           'Timestamped position too short',
-          info,
+          rawInfo: info,
+          transportSource: transportSource,
         );
       }
       final tsStr = info.substring(1, 8); // 7 chars
@@ -290,7 +316,8 @@ class AprsParser {
         destination,
         path,
         'No position data after DTI/timestamp',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -316,6 +343,7 @@ class AprsParser {
         receivedAt: receivedAt,
         hasMessaging: hasMessaging,
         packetTimestamp: packetTimestamp,
+        transportSource: transportSource,
       );
     } else {
       return _parseUncompressedPosition(
@@ -328,6 +356,7 @@ class AprsParser {
         receivedAt: receivedAt,
         hasMessaging: hasMessaging,
         packetTimestamp: packetTimestamp,
+        transportSource: transportSource,
       );
     }
   }
@@ -352,6 +381,7 @@ class AprsParser {
     required DateTime receivedAt,
     required bool hasMessaging,
     required DateTime? packetTimestamp,
+    required PacketSource transportSource,
   }) {
     final m = _uncompressedPosRe.firstMatch(posStr);
     if (m == null) {
@@ -361,7 +391,8 @@ class AprsParser {
         destination,
         path,
         'Uncompressed position regex did not match',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -400,6 +431,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       lat: lat,
       lon: lon,
       symbolTable: symbolTable,
@@ -423,6 +455,7 @@ class AprsParser {
     required DateTime receivedAt,
     required bool hasMessaging,
     required DateTime? packetTimestamp,
+    required PacketSource transportSource,
   }) {
     // Compressed format (APRS spec chapter 9):
     // posStr: symTable(1) + latChars(4) + lonChars(4) + symCode(1) + csT(3) + comment
@@ -434,7 +467,8 @@ class AprsParser {
         destination,
         path,
         'Compressed position string too short',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -454,7 +488,8 @@ class AprsParser {
         destination,
         path,
         'Invalid base-91 encoding in compressed position',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -500,6 +535,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       lat: lat,
       lon: lon,
       symbolTable: symbolTable,
@@ -539,6 +575,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     // Minimum: ; + 9 name + alive/killed + 7 timestamp + position (~18 chars)
     if (info.length < 18) {
@@ -548,7 +585,8 @@ class AprsParser {
         destination,
         path,
         'Object packet too short',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -564,7 +602,8 @@ class AprsParser {
         destination,
         path,
         'Object packet missing timestamp/position',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -583,6 +622,7 @@ class AprsParser {
         path: path,
         receivedAt: receivedAt,
         info: info,
+        transportSource: transportSource,
       );
     }
 
@@ -595,6 +635,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       objectName: objectName,
       lat: lat,
       lon: lon,
@@ -615,6 +656,7 @@ class AprsParser {
     required List<String> path,
     required DateTime receivedAt,
     required String info,
+    required PacketSource transportSource,
   }) {
     if (posStr.length < 10) {
       return _unknown(
@@ -623,7 +665,8 @@ class AprsParser {
         destination,
         path,
         'Object compressed position too short',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
     final symbolTable = posStr[0];
@@ -641,7 +684,8 @@ class AprsParser {
         destination,
         path,
         'Object compressed position decode failed',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -651,6 +695,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       objectName: objectName,
       lat: 90.0 - latVal / 380926.0,
       lon: -180.0 + lonVal / 190463.0,
@@ -674,6 +719,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     if (info.length < 5) {
       return _unknown(
@@ -682,7 +728,8 @@ class AprsParser {
         destination,
         path,
         'Item packet too short',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -704,7 +751,8 @@ class AprsParser {
         destination,
         path,
         'Item name delimiter not found',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -719,7 +767,8 @@ class AprsParser {
         destination,
         path,
         'Item position parse failed',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -732,6 +781,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       itemName: itemName,
       lat: lat,
       lon: lon,
@@ -756,6 +806,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     // info[0] is ':', addressee is info[1..9], info[10] must be ':'.
     if (info.length < 11 || info[10] != ':') {
@@ -765,7 +816,8 @@ class AprsParser {
         destination,
         path,
         'Message format invalid (need :XXXXXXXXX:)',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -786,6 +838,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       addressee: addressee,
       message: messageText,
       messageId: messageId?.isEmpty == true ? null : messageId,
@@ -810,6 +863,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     // Skip DTI and 8-char timestamp (MMDDhhmm).
     // Some implementations omit the timestamp; handle both.
@@ -851,6 +905,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       temperature: temperature,
       humidity: humidity,
       pressure: pressure,
@@ -874,6 +929,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     var statusText = info.substring(1); // drop DTI
     DateTime? packetTimestamp;
@@ -894,6 +950,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       status: statusText,
       timestamp: packetTimestamp,
     );
@@ -934,6 +991,7 @@ class AprsParser {
     required String destination,
     required List<String> path,
     required DateTime receivedAt,
+    required PacketSource transportSource,
   }) {
     // Destination must be at least 6 chars.
     if (destination.length < 6 || info.length < 9) {
@@ -943,7 +1001,8 @@ class AprsParser {
         destination,
         path,
         'Mic-E packet too short',
-        info,
+        rawInfo: info,
+        transportSource: transportSource,
       );
     }
 
@@ -1071,6 +1130,7 @@ class AprsParser {
       destination: destination,
       path: path,
       receivedAt: receivedAt,
+      transportSource: transportSource,
       lat: lat,
       lon: lon,
       course: course == 0 ? null : course,
@@ -1142,15 +1202,17 @@ class AprsParser {
     String source,
     String destination,
     List<String> path,
-    String reason, [
+    String reason, {
     String rawInfo = '',
-  ]) {
+    PacketSource transportSource = PacketSource.aprsIs,
+  }) {
     return UnknownPacket(
       rawLine: rawLine,
       source: source,
       destination: destination,
       path: path,
       receivedAt: DateTime.now().toUtc(),
+      transportSource: transportSource,
       reason: reason,
       rawInfo: rawInfo,
     );
