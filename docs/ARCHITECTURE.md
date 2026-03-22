@@ -222,24 +222,61 @@ The map tile URL is theme-aware: light mode uses OSM standard tiles; dark mode u
 
 ---
 
-## TNC Transport (v0.3+)
+## TNC Transport (v0.3+, extended in v0.4)
 
-### SerialKissTransport
+### `KissTncTransport` Interface
 
-Implements `AprsTransport` (the same interface as `AprsIsTransport`). Uses `flutter_libserialport` for serial I/O on desktop (Linux, macOS, Windows).
+`KissTncTransport` (`lib/core/transport/kiss_tnc_transport.dart`) is the abstract interface for all hardware TNC transports. It operates at the raw byte level:
+
+```dart
+abstract interface class KissTncTransport {
+  Stream<Uint8List> get frameStream;        // raw AX.25 bytes (KISS header stripped)
+  Stream<ConnectionStatus> get connectionState;
+  ConnectionStatus get currentStatus;
+  bool get isConnected;
+  Future<void> connect();
+  Future<void> disconnect();
+  Future<void> sendFrame(Uint8List ax25Frame);
+}
+```
+
+Both `SerialKissTransport` (USB serial, desktop) and `BleTncTransport` (BLE, mobile) implement this interface. APRS parsing is **not** part of this interface — it is the service layer's responsibility.
+
+### `TransportManager`
+
+`TransportManager` (`lib/core/transport/transport_manager.dart`) is a `ChangeNotifier` that holds the currently active `KissTncTransport` and bridges its `frameStream` and `connectionState` to caller-facing broadcast streams. It provides `connectSerial(TncConfig)`, `connectBle(BluetoothDevice)`, and `disconnect()`. The `activeType` getter (`TransportType.none | .serial | .ble`) lets the UI show the correct label on the TNC status pill.
+
+### `SerialKissTransport`
+
+Implements `KissTncTransport`. Uses `flutter_libserialport` for serial I/O on desktop (Linux, macOS, Windows).
 
 Internal pipeline:
 
 ```
-serial bytes → KissFramer.addBytes → Ax25Parser.parseFrame → AprsParser.parseFrame
-  → APRS-IS format line (SOURCE>DEST,PATH:INFO) → lines stream
+serial bytes → KissFramer.addBytes → AX.25 frame bytes → frameStream
 ```
 
-Platform guard: conditional export (`dart.library.io`) with `UnsupportedError` stub for web/mobile. `StationService` is unchanged — it consumes the same `Stream<String> lines` it always has.
+Platform guard: conditional export (`dart.library.io`) with `UnsupportedError` stub for web/mobile.
+
+### `BleTncTransport` (v0.4)
+
+Implements `KissTncTransport`. Uses `flutter_blue_plus` for BLE I/O on iOS and Android. Targets Mobilinkd-compatible devices via Mobilinkd's UART-over-BLE GATT service (UUIDs in `lib/core/transport/ble_constants.dart`).
+
+Connection flow: `connect()` → negotiate MTU 512 → discover services → find TX/RX characteristics → subscribe to TX notifications → ready.
+
+Internal pipeline:
+
+```
+BLE notify chunks → KissFramer.addBytes → AX.25 frame bytes → frameStream
+```
+
+Outgoing frames: `KissFramer.encode(ax25Frame)` → split into MTU-sized chunks → `rxChar.write(chunk, withoutResponse: false)`.
+
+Platform guard: conditional export (`dart.library.io`) with `UnsupportedError` stub for web.
 
 ### KissFramer
 
-Pure Dart KISS protocol framer (`lib/core/transport/kiss_framer.dart`). Stateful byte accumulator — feed raw serial bytes via `addBytes`, receive decoded AX.25 payloads on `frames` stream. Static `encode` wraps a payload for transmission. FEND/FESC/TFEND/TFESC constants follow the KISS TNC spec.
+Pure Dart KISS protocol framer (`lib/core/transport/kiss_framer.dart`). Stateful byte accumulator — feed raw bytes via `addBytes`, receive decoded AX.25 payloads on `frames` stream. Static `encode` wraps a payload for transmission. FEND/FESC/TFEND/TFESC constants follow the KISS TNC spec. Shared by both serial and BLE transports.
 
 ### Ax25Parser
 
@@ -247,12 +284,12 @@ Pure Dart AX.25 UI frame byte decoder (`lib/core/ax25/ax25_parser.dart`). Decode
 
 ### TncPreset / TncConfig
 
-- `TncPreset` (`lib/core/transport/tnc_preset.dart`): immutable preset for known TNC hardware (Mobilinkd TNC4 + Custom sentinel). `TncPreset.all` is the full list used by UI dropdowns and is easily extended for v0.4 BLE presets.
+- `TncPreset` (`lib/core/transport/tnc_preset.dart`): immutable preset for known TNC hardware (Mobilinkd TNC4 + Custom sentinel). `TncPreset.all` is the registry used by UI dropdowns.
 - `TncConfig` (`lib/core/transport/tnc_config.dart`): runtime serial + KISS configuration. `fromPreset` factory, `toPrefsMap`/`fromPrefsMap` for SharedPreferences persistence.
 
 ### TncService
 
-`ChangeNotifier` service (`lib/services/tnc_service.dart`) that owns the `SerialKissTransport` lifecycle. Bridges decoded APRS lines into `StationService` via `StationService.ingestLine`. Persists `TncConfig` across restarts. Exposes `connectionState: Stream<ConnectionStatus>`, `currentStatus`, `lastErrorMessage`, and `availablePorts()`.
+`ChangeNotifier` service (`lib/services/tnc_service.dart`) that owns a `TransportManager` internally. On each raw AX.25 frame from `TransportManager.frameStream`, it calls `AprsParser.parseFrame(frameBytes)` and feeds the resulting APRS line to `StationService.ingestLine`. Exposes `connectBle(BluetoothDevice)` for the BLE scanner UI. Persists `TncConfig` across restarts. Exposes `connectionState`, `currentStatus`, `lastErrorMessage`, `availablePorts()`, and `activeTransportType`.
 
 ---
 

@@ -1,5 +1,3 @@
-import 'dart:io' show Platform;
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -7,7 +5,6 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/station_service.dart';
@@ -61,6 +58,12 @@ class MobileScaffold extends StatefulWidget {
 class _MobileScaffoldState extends State<MobileScaffold> {
   int _selectedIndex = 0;
 
+  static String _tncPillLabel(TransportType type) => switch (type) {
+    TransportType.ble => 'BLE TNC',
+    TransportType.serial => 'USB TNC',
+    TransportType.none => 'TNC',
+  };
+
   void _showConnectionSheet() {
     showModalBottomSheet(
       context: context,
@@ -109,9 +112,11 @@ class _MobileScaffoldState extends State<MobileScaffold> {
             onTap: _showConnectionSheet,
           ),
           if (!kIsWeb &&
-              (Platform.isLinux || Platform.isMacOS || Platform.isWindows))
+              (widget.tncConnectionStatus != ConnectionStatus.disconnected ||
+                  widget.tncService.activeTransportType !=
+                      TransportType.none))
             MeridianStatusPill(
-              label: 'TNC',
+              label: _tncPillLabel(widget.tncService.activeTransportType),
               status: widget.tncConnectionStatus,
               onTap: _showConnectionSheet,
             ),

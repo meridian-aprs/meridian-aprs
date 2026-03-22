@@ -8,7 +8,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/station.dart';
-import '../core/transport/aprs_transport.dart';
 import '../services/station_service.dart';
 import '../services/tnc_service.dart';
 import '../ui/layout/responsive_layout.dart';

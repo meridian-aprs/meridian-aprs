@@ -7,8 +7,8 @@
 | v0.1 — Foundation | Flutter scaffold, map, APRS-IS, station display with symbols | ✅ Complete |
 | v0.2 — Packets | AX.25/APRS parser, packet log, message decoding | ✅ Complete |
 | UI Foundation | Theme system, adaptive scaffold, core widgets, onboarding | ✅ Complete |
-| v0.3 — TNC | KISS over USB serial, desktop first | ▶ In Progress |
-| v0.4 — BLE | KISS over BLE, mobile platforms | ⬜ Planned |
+| v0.3 — TNC | KISS over USB serial, desktop first | ✅ Complete |
+| v0.4 — BLE | KISS over BLE, mobile platforms | ✅ Complete |
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending | ⬜ Planned |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding | ⬜ Planned |
 
@@ -82,11 +82,20 @@ Goal: Connect to a hardware TNC via KISS over USB serial on desktop.
 
 Goal: Connect to a BLE-capable TNC (e.g. Mobilinkd) on mobile. Extends the `TncPreset` system established in v0.3.
 
-- [ ] BLE transport via `flutter_blue_plus`
-- [ ] BLE device scan and pairing UI
-- [ ] KISS over BLE characteristic read/write
-- [ ] iOS and Android tested
-- [ ] Reconnect handling
+- [x] `KissTncTransport` abstract interface — raw AX.25 byte contract shared by serial and BLE
+- [x] `TransportManager` — lifecycle holder for the active transport; bridges `frameStream` and `connectionState`
+- [x] `SerialKissTransport` refactored to implement `KissTncTransport` (APRS parsing moved to service layer)
+- [x] `BleTncTransport` — BLE KISS TNC via `flutter_blue_plus`; MTU negotiation; KISS chunking; `KissFramer` reassembly
+- [x] `TncService` updated — owns `TransportManager`; parses AX.25 frames via `AprsParser.parseFrame`; exposes `connectBle()`
+- [x] BLE device scan and pairing UI (`BleScannerSheet`)
+- [x] `ConnectionSheet` updated — BLE section for iOS/Android, serial section for desktop
+- [x] `MobileScaffold` — TNC status pill enabled on non-web mobile; dynamic `TransportType` label
+- [x] Settings screen — BLE TNC section for iOS/Android
+- [x] Onboarding — BLE TNC option card enabled on iOS/Android
+- [x] Android BLE permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`)
+- [x] iOS Bluetooth usage descriptions (`NSBluetoothAlwaysUsageDescription`)
+- [x] Tests: `BleTncTransport`, `TransportManager`, `TncService` (141 tests total)
+- [ ] Physical device validation — iOS + Android with Mobilinkd TNC4 (pending hardware test)
 
 ---
 

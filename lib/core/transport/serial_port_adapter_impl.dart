@@ -45,6 +45,9 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
   }
 
   @override
+  void write(Uint8List data) => _port.write(data);
+
+  @override
   void close() {
     _reader?.close();
     _reader = null;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meridian_aprs/core/packet/aprs_parser.dart';
 import 'package:meridian_aprs/core/transport/aprs_transport.dart';
 import 'package:meridian_aprs/core/transport/kiss_framer.dart';
 import 'package:meridian_aprs/core/transport/serial_kiss_transport.dart';
@@ -64,6 +65,11 @@ class FakeSerialPortAdapter implements SerialPortAdapter {
 
   @override
   Stream<Uint8List> get byteStream => _byteController.stream;
+
+  final writtenBytes = <Uint8List>[];
+
+  @override
+  void write(Uint8List data) => writtenBytes.add(data);
 
   @override
   void close() {
@@ -146,12 +152,12 @@ void main() {
 
     // 5 -----------------------------------------------------------------------
     test(
-      'lines stream emits decoded APRS line when valid KISS frame received',
+      'frameStream emits raw AX.25 bytes when valid KISS frame received',
       () async {
         await transport.connect();
 
-        final lines = <String>[];
-        final sub = transport.lines.listen(lines.add);
+        final frames = <Uint8List>[];
+        final sub = transport.frameStream.listen(frames.add);
 
         final kissFrameBytes = _buildKissFrame(
           'W1AW',
@@ -166,10 +172,26 @@ void main() {
 
         await sub.cancel();
 
-        expect(lines, isNotEmpty);
-        expect(lines.first, contains('W1AW'));
+        // The frame arrived and can be parsed into an APRS packet.
+        expect(frames, isNotEmpty);
+        final packet = AprsParser().parseFrame(frames.first);
+        expect(packet.rawLine, contains('W1AW'));
       },
     );
+
+    // 5b ----------------------------------------------------------------------
+    test('sendFrame KISS-encodes and writes to adapter', () async {
+      await transport.connect();
+
+      final ax25Bytes = Uint8List.fromList([0x01, 0x02, 0x03]);
+      await transport.sendFrame(ax25Bytes);
+
+      expect(fakeAdapter.writtenBytes, isNotEmpty);
+      // Written bytes should start and end with KISS FEND (0xC0).
+      final written = fakeAdapter.writtenBytes.first;
+      expect(written.first, 0xC0);
+      expect(written.last, 0xC0);
+    });
 
     // 6 -----------------------------------------------------------------------
     test('port disconnect (stream done) transitions to disconnected', () async {

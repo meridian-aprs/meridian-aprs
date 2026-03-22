@@ -9,6 +9,8 @@ import 'package:provider/provider.dart';
 import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
 import '../services/tnc_service.dart';
+import '../ui/widgets/ble_scanner_sheet.dart';
+import '../ui/widgets/meridian_bottom_sheet.dart';
 import '../theme/meridian_colors.dart';
 import '../theme/theme_controller.dart';
 
@@ -519,10 +521,19 @@ class _TncSectionState extends State<_TncSection> {
       _selectedPort = null;
     }
 
+    final isBlePlatform =
+        !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader('TNC'),
+
+        // ── BLE TNC card (mobile only) ──────────────────────────────────────
+        if (isBlePlatform)
+          _BleTncCard(tncService: tncService),
+
+        // ── USB serial TNC card ─────────────────────────────────────────────
         Card(
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Column(
@@ -531,7 +542,7 @@ class _TncSectionState extends State<_TncSection> {
               ListTile(
                 leading: const Icon(Symbols.settings_input_component),
                 title: Text(
-                  'TNC',
+                  isBlePlatform ? 'USB Serial TNC' : 'TNC',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -742,6 +753,95 @@ class _TncSectionState extends State<_TncSection> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// BLE TNC card shown in Settings → TNC on iOS and Android.
+class _BleTncCard extends StatelessWidget {
+  const _BleTncCard({required this.tncService});
+
+  final TncService tncService;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isBleConnected = tncService.currentStatus == ConnectionStatus.connected &&
+        tncService.activeTransportType == TransportType.ble;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Symbols.bluetooth),
+                const SizedBox(width: 12),
+                Text(
+                  'BLE TNC',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const Spacer(),
+                if (isBleConnected)
+                  Chip(
+                    label: const Text('Connected'),
+                    side: BorderSide.none,
+                    backgroundColor: theme.colorScheme.secondaryContainer,
+                  ),
+              ],
+            ),
+            if (isBleConnected) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Mobilinkd or compatible device',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => tncService.disconnect(),
+                  child: const Text('Disconnect BLE TNC'),
+                ),
+              ),
+            ] else ...[
+              const SizedBox(height: 8),
+              Text(
+                'Connect to a Mobilinkd or compatible KISS TNC via Bluetooth.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => _openBleScanner(context),
+                  icon: const Icon(Symbols.bluetooth_searching),
+                  label: const Text('Scan & Connect'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openBleScanner(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => MeridianBottomSheet(
+        child: BleScannerSheet(tncService: tncService),
+      ),
     );
   }
 }

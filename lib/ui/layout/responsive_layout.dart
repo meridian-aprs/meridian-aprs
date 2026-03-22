@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/transport/aprs_transport.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
 import 'desktop_scaffold.dart';

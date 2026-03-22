@@ -1,18 +1,24 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/transport/aprs_transport.dart' show ConnectionStatus;
+import '../core/packet/aprs_packet.dart' show PacketSource;
+import '../core/packet/aprs_parser.dart';
 import '../core/transport/serial_kiss_transport.dart';
 import '../core/transport/tnc_config.dart';
+import '../core/transport/transport_manager.dart';
 import 'station_service.dart';
 
-/// Manages the USB serial TNC connection lifecycle.
+export '../core/transport/transport_manager.dart' show TransportType, ConnectionStatus;
+
+/// Manages the TNC connection lifecycle and bridges decoded packets to
+/// [StationService].
 ///
-/// Wraps [SerialKissTransport], exposes connection state and decoded APRS
-/// packets, and bridges received packets into [StationService] via
-/// [StationService.ingestLine].
+/// Owns a [TransportManager] that holds the currently active [KissTncTransport]
+/// (serial or BLE). Raw AX.25 frames from the transport are parsed here via
+/// [AprsParser.parseFrame] and forwarded to [StationService.ingestLine].
 ///
 /// Register as a [ChangeNotifierProvider] in main.dart. Call
 /// [loadPersistedConfig] once on startup.
@@ -20,12 +26,12 @@ class TncService extends ChangeNotifier {
   TncService(this._stationService);
 
   final StationService _stationService;
+  final _transportManager = TransportManager();
+  final _aprsParser = AprsParser();
 
-  SerialKissTransport? _transport;
-  StreamSubscription<String>? _linesSub;
+  StreamSubscription<Uint8List>? _frameSub;
   StreamSubscription<ConnectionStatus>? _stateSub;
 
-  ConnectionStatus _status = ConnectionStatus.disconnected;
   TncConfig? _activeConfig;
 
   /// Platform-guidance or error description. Set when status == error.
@@ -35,42 +41,51 @@ class TncService extends ChangeNotifier {
   // Public API
   // ---------------------------------------------------------------------------
 
-  ConnectionStatus get currentStatus => _status;
+  ConnectionStatus get currentStatus => _transportManager.currentStatus;
   TncConfig? get activeConfig => _activeConfig;
   String? get lastErrorMessage => _lastErrorMessage;
+  TransportType get activeTransportType => _transportManager.activeType;
 
-  /// Stream of [ConnectionStatus] changes.
+  /// Expose the transport manager for widgets that need direct access
+  /// (e.g. BLE scanner passing a device to connect).
+  TransportManager get transportManager => _transportManager;
+
+  /// Stream of [ConnectionStatus] changes (serial or BLE).
   Stream<ConnectionStatus> get connectionState => _stateController.stream;
   final _stateController = StreamController<ConnectionStatus>.broadcast();
 
-  /// Connect to the TNC described by [config].
+  /// Connect to the serial TNC described by [config].
   ///
-  /// Saves the config to SharedPreferences so it can be restored on the next
-  /// launch. On failure, transitions to [ConnectionStatus.error] and sets
-  /// [lastErrorMessage].
+  /// Saves the config to SharedPreferences. On failure, transitions to
+  /// [ConnectionStatus.error] and sets [lastErrorMessage].
   Future<void> connect(TncConfig config) async {
-    await disconnect();
+    await _cancelBridge();
     _activeConfig = config;
     await _saveConfig(config);
 
-    final transport = SerialKissTransport(config);
-    _transport = transport;
-
-    // Mirror transport state into our own stream.
-    _stateSub = transport.connectionState.listen((s) {
-      _status = s;
-      _stateController.add(s);
-      notifyListeners();
-    });
-
-    // Pipe decoded APRS lines into StationService.
-    _linesSub = transport.lines.listen(_stationService.ingestLine);
+    _attachBridge();
 
     try {
-      await transport.connect();
+      await _transportManager.connectSerial(config);
     } catch (e) {
-      _lastErrorMessage = _errorMessage(e.toString(), config.port);
-      _status = ConnectionStatus.error;
+      _lastErrorMessage = _serialErrorMessage(e.toString(), config.port);
+      _stateController.add(ConnectionStatus.error);
+      notifyListeners();
+    }
+  }
+
+  /// Connect to a BLE TNC device.
+  ///
+  /// On failure, transitions to [ConnectionStatus.error] and sets
+  /// [lastErrorMessage].
+  Future<void> connectBle(BluetoothDevice device) async {
+    await _cancelBridge();
+    _attachBridge();
+
+    try {
+      await _transportManager.connectBle(device);
+    } catch (e) {
+      _lastErrorMessage = _bleErrorMessage(e.toString(), device.platformName);
       _stateController.add(ConnectionStatus.error);
       notifyListeners();
     }
@@ -78,17 +93,8 @@ class TncService extends ChangeNotifier {
 
   /// Disconnect and release resources.
   Future<void> disconnect() async {
-    await _linesSub?.cancel();
-    _linesSub = null;
-    await _stateSub?.cancel();
-    _stateSub = null;
-    await _transport?.disconnect();
-    _transport = null;
-    if (_status != ConnectionStatus.disconnected) {
-      _status = ConnectionStatus.disconnected;
-      _stateController.add(ConnectionStatus.disconnected);
-      notifyListeners();
-    }
+    await _cancelBridge();
+    await _transportManager.disconnect();
   }
 
   /// Returns available serial port names. Empty on non-desktop platforms.
@@ -96,9 +102,7 @@ class TncService extends ChangeNotifier {
 
   /// Persist [config] as the active TNC configuration without connecting.
   ///
-  /// Use this to save settings changes from the Settings screen. The new
-  /// config becomes [activeConfig] and is persisted to SharedPreferences.
-  /// Does not affect an in-progress connection — [disconnect] first if needed.
+  /// Use this to save settings changes from the Settings screen.
   Future<void> updateConfig(TncConfig config) async {
     _activeConfig = config;
     await _saveConfig(config);
@@ -107,8 +111,7 @@ class TncService extends ChangeNotifier {
 
   /// Load the previously-persisted [TncConfig] from SharedPreferences.
   ///
-  /// Call once on app startup. Does not automatically connect — the user
-  /// must tap Connect in the UI.
+  /// Call once on app startup. Does not automatically connect.
   Future<void> loadPersistedConfig() async {
     final prefs = await SharedPreferences.getInstance();
     final map = {
@@ -121,13 +124,45 @@ class TncService extends ChangeNotifier {
 
   @override
   void dispose() {
-    disconnect();
+    _cancelBridge();
+    _transportManager.dispose();
     _stateController.close();
     super.dispose();
   }
 
   // ---------------------------------------------------------------------------
-  // Internal
+  // Internal — frame bridge
+  // ---------------------------------------------------------------------------
+
+  /// Subscribe to the transport manager's streams.
+  ///
+  /// Must be called before connecting (to capture state transitions from
+  /// `connecting` onward).
+  void _attachBridge() {
+    _stateSub = _transportManager.connectionState.listen((s) {
+      _stateController.add(s);
+      notifyListeners();
+    });
+    _frameSub = _transportManager.frameStream.listen(_onFrame);
+  }
+
+  Future<void> _cancelBridge() async {
+    await _frameSub?.cancel();
+    _frameSub = null;
+    await _stateSub?.cancel();
+    _stateSub = null;
+  }
+
+  void _onFrame(Uint8List frameBytes) {
+    final packet = _aprsParser.parseFrame(frameBytes);
+    // An empty rawLine means AX.25 decode failed; skip silently.
+    if (packet.rawLine.isNotEmpty) {
+      _stationService.ingestLine(packet.rawLine, source: PacketSource.tnc);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal — persistence
   // ---------------------------------------------------------------------------
 
   Future<void> _saveConfig(TncConfig config) async {
@@ -140,8 +175,7 @@ class TncService extends ChangeNotifier {
     }
   }
 
-  String _errorMessage(String error, String port) {
-    // Provide platform-specific guidance for permission errors.
+  String _serialErrorMessage(String error, String port) {
     final lower = error.toLowerCase();
     if (lower.contains('permission') ||
         lower.contains('access denied') ||
@@ -164,5 +198,19 @@ class TncService extends ChangeNotifier {
       return 'Port $port not found. Is the TNC plugged in?';
     }
     return 'Could not connect to $port: $error';
+  }
+
+  String _bleErrorMessage(String error, String deviceName) {
+    final lower = error.toLowerCase();
+    if (lower.contains('permission') || lower.contains('unauthorized')) {
+      return 'Bluetooth permission is required to connect a TNC.';
+    }
+    if (lower.contains('timeout') || lower.contains('canceled')) {
+      return 'Could not connect to $deviceName. Try again.';
+    }
+    if (lower.contains('service') && lower.contains('not found')) {
+      return '$deviceName does not appear to be a compatible KISS TNC.';
+    }
+    return 'Could not connect to $deviceName: $error';
   }
 }

@@ -261,3 +261,29 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 **Rationale:** `DynamicColorBuilder` returns null schemes on all desktop platforms (Windows, macOS, Linux); the wallpaper color extraction API is Android-only. Previously desktop fell through to the Android branch, which handled null schemes via the seed fallback — functional but implicit. Giving desktop its own explicit branch in `MeridianApp.build()` (`Platform.isWindows || Platform.isMacOS || Platform.isLinux`) makes the three-tier architecture fully explicit and removes the `DynamicColorBuilder` overhead on platforms where it does nothing. The desktop seed color is always `MeridianColors.primary` — there is no user-configurable color picker on desktop (the App Color section in Settings is Android-only).
 
 **Consequences:** The three-tier platform theme architecture is now fully implemented. All three tiers — Android, iOS, Desktop — have dedicated `build*Theme()` functions and explicit platform branches at the app root. `DynamicColorBuilder` is used only in the Android branch.
+
+---
+
+## ADR-019: `KissTncTransport` — raw-frame interface for hardware TNCs (v0.4)
+
+**Status:** Accepted
+**Date:** 2026-03-22
+
+**Decision:** Introduced `KissTncTransport` (`lib/core/transport/kiss_tnc_transport.dart`) as the contract for all hardware TNC transports. The interface emits `Stream<Uint8List>` (raw AX.25 bytes, KISS header stripped) rather than decoded APRS lines. APRS parsing (`AprsParser.parseFrame`) was moved from the transport layer into `TncService`.
+
+**Rationale:** Transports should not know about APRS application semantics. A byte-level interface allows both serial and BLE transports to be tested at the framing layer without coupling to APRS logic. It also enables future transports (e.g., TCP KISS, soundcard TNC) to plug in without touching the service layer. `TransportManager` was introduced as the single holder of the active `KissTncTransport`, bridging its streams to callers and managing lifecycle (connect/disconnect, type tracking).
+
+**Consequences:** `SerialKissTransport` now implements `KissTncTransport` (was `AprsTransport`). `TncService` owns a `TransportManager` and an `AprsParser` — it calls `parseFrame(frameBytes)` on each AX.25 frame received from the active transport and feeds the resulting APRS line to `StationService`. The `AprsTransport` interface is now used exclusively by `AprsIsTransport` (APRS-IS over TCP/WebSocket).
+
+---
+
+## ADR-020: BLE chunking via MTU negotiation (v0.4)
+
+**Status:** Accepted
+**Date:** 2026-03-22
+
+**Decision:** `BleTncTransport` requests MTU 512 during `connect()`. The effective outgoing chunk size is `max(20, negotiatedMtu - 3)` (subtracting 3 bytes of ATT overhead). If MTU negotiation fails the transport falls back to 20-byte chunks. Outgoing KISS frames are split into MTU-sized chunks and written sequentially with `withoutResponse: false` (write-with-response) for backpressure. Incoming BLE notification chunks are reassembled by the existing `KissFramer` — no new framing logic.
+
+**Rationale:** BLE GATT write operations are bounded by the ATT MTU. Mobilinkd TNC4 supports MTU 512, giving ~509-byte write payloads — large enough for any single AX.25 frame without chunking in practice. The fallback to 20 bytes ensures compatibility with devices that do not negotiate a larger MTU. Using write-with-response prevents flooding the TNC's receive buffer. Reusing `KissFramer` for reassembly means the BLE path has the same reassembly correctness guarantees as the serial path (verified by 23 existing KissFramer tests).
+
+**Consequences:** `BleTncTransport` is the primary TNC transport for iOS and Android. Mobilinkd TNC4 is the primary tested device. `BleDeviceAdapter` (an abstract interface mirroring `SerialPortAdapter`) allows `BleTncTransport` to be unit-tested with a `FakeBleDeviceAdapter` without requiring a physical BLE stack.

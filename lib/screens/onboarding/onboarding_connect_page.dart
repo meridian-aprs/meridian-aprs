@@ -21,8 +21,7 @@ class OnboardingConnectPage extends StatefulWidget {
 }
 
 class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
-  int _selectedOption =
-      0; // 0=APRS-IS only — BLE/USB coming in future milestones
+  int _selectedOption = 0; // 0=APRS-IS, 1=BLE TNC, 2=USB TNC
 
   @override
   Widget build(BuildContext context) {
@@ -63,9 +62,15 @@ class _OnboardingConnectPageState extends State<OnboardingConnectPage> {
               selectedIndex: _selectedOption,
               icon: Symbols.bluetooth,
               title: 'BLE TNC',
-              subtitle: 'Coming in v0.4',
-              dimmed: true,
-              onTap: null,
+              subtitle:
+                  (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
+                  ? 'Connect wirelessly to a Mobilinkd or compatible TNC.'
+                  : 'Available on iOS and Android.',
+              dimmed: kIsWeb || !(Platform.isAndroid || Platform.isIOS),
+              onTap:
+                  (!kIsWeb && (Platform.isAndroid || Platform.isIOS))
+                  ? () => setState(() => _selectedOption = 1)
+                  : null,
             ),
             const SizedBox(height: 12),
             _OptionCard(

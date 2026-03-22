@@ -52,7 +52,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding |
 
-**Current status: v0.3 TNC merged. Three-tier platform theme architecture complete — Android (M3 Expressive + Dynamic Color), iOS (Cupertino, pending iOS simulator validation), Desktop (M3 static brand). All three tiers implemented; desktop branch at app root active on Linux/macOS/Windows.**
+**Current status: v0.4 BLE complete. `KissTncTransport` interface and `TransportManager` introduced; `BleTncTransport` (flutter_blue_plus, Mobilinkd-compatible) implemented for iOS/Android. Physical device validation with Mobilinkd TNC4 pending. Three-tier platform theme architecture complete — Android (M3 Expressive + Dynamic Color), iOS (Cupertino, pending iOS simulator validation), Desktop (M3 static brand).**
 
 See `docs/ROADMAP.md` for per-milestone task breakdowns.
 
@@ -173,16 +173,21 @@ All three tiers fully implemented. iOS pending simulator validation.
 
 ## Service Layer (`lib/services/`, `lib/core/transport/`, `lib/core/ax25/`)
 
-### Transport and TNC files (v0.3+)
+### Transport and TNC files (v0.3+, extended in v0.4)
 
 | File | Class / Symbol | Description |
 |---|---|---|
+| `lib/core/transport/kiss_tnc_transport.dart` | `KissTncTransport` | Abstract interface for hardware TNCs; emits `Stream<Uint8List>` (raw AX.25 bytes) |
+| `lib/core/transport/transport_manager.dart` | `TransportManager`, `TransportType` | ChangeNotifier; holds active `KissTncTransport`; bridges `frameStream` + `connectionState`; `connectSerial`/`connectBle`/`disconnect` |
 | `lib/core/transport/tnc_preset.dart` | `TncPreset` | Immutable static preset model + `TncPreset.all` registry of known TNC hardware |
 | `lib/core/transport/tnc_config.dart` | `TncConfig` | Runtime serial + KISS configuration; `fromPreset` factory; `toPrefsMap`/`fromPrefsMap` for SharedPreferences persistence |
 | `lib/core/transport/kiss_framer.dart` | `KissFramer` | Pure Dart KISS framer; stateful `addBytes` stream processor; static `encode` method |
 | `lib/core/ax25/ax25_parser.dart` | `Ax25Parser` | Pure Dart AX.25 UI frame decoder; sealed `Ax25ParseResult` (`Ax25Ok` \| `Ax25Err`); never throws |
-| `lib/core/transport/serial_kiss_transport.dart` | `SerialKissTransport` | Implements `AprsTransport`; platform-conditional export; desktop only (Linux/macOS/Windows) |
-| `lib/services/tnc_service.dart` | `TncService` | ChangeNotifier; owns `SerialKissTransport` lifecycle; bridges decoded lines to `StationService.ingestLine` |
+| `lib/core/transport/serial_kiss_transport.dart` | `SerialKissTransport` | Implements `KissTncTransport`; platform-conditional export; desktop only (Linux/macOS/Windows) |
+| `lib/core/transport/ble_tnc_transport.dart` | `BleTncTransport` | Implements `KissTncTransport`; platform-conditional export; mobile only (iOS/Android); Mobilinkd-compatible |
+| `lib/core/transport/ble_constants.dart` | `kMobilinkdServiceUuid` etc. | Mobilinkd UART-over-BLE GATT service/characteristic UUIDs |
+| `lib/services/tnc_service.dart` | `TncService` | ChangeNotifier; owns `TransportManager`; parses AX.25 frames via `AprsParser`; bridges to `StationService.ingestLine` |
+| `lib/ui/widgets/ble_scanner_sheet.dart` | `BleScannerSheet` | BLE scan + connect UI; filters to Mobilinkd devices; device list with RSSI icons |
 
 ---
 

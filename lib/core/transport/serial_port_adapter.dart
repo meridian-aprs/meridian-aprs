@@ -25,6 +25,9 @@ abstract interface class SerialPortAdapter {
   /// The stream ends (onDone) when the port is closed or disconnected.
   Stream<Uint8List> get byteStream;
 
+  /// Write raw bytes to the port.
+  void write(Uint8List data);
+
   /// Close the port and release resources.
   void close();
 }

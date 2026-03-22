@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Meridian APRS uses Bluetooth to connect to a KISS TNC for radio packet reception.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>Meridian APRS uses Bluetooth to connect to a KISS TNC for radio packet reception.</string>
 </dict>
 </plist>

@@ -6,11 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import '../../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
-import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../../core/transport/tnc_config.dart';
 import '../../core/transport/tnc_preset.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
+import 'ble_scanner_sheet.dart';
+import 'meridian_bottom_sheet.dart';
 import 'meridian_status_pill.dart';
 
 /// Bottom sheet content for managing APRS-IS and TNC connection settings.
@@ -44,8 +45,11 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
   int _aprsIsCount = 0;
   int _tncCount = 0;
 
-  static bool get _isTncPlatform =>
+  static bool get _isSerialPlatform =>
       !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
+
+  static bool get _isBlePlatform =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
   @override
   void initState() {
@@ -106,7 +110,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
   }
 
   void _refreshPorts({String? initial}) {
-    final ports = _isTncPlatform ? widget.tncService.availablePorts() : [];
+    final ports = _isSerialPlatform ? widget.tncService.availablePorts() : [];
     _availablePorts = List<String>.from(ports);
     if (_availablePorts.isNotEmpty) {
       if (initial != null && _availablePorts.contains(initial)) {
@@ -156,10 +160,12 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
 
           // ── TNC section ──────────────────────────────────────────────────
           _SectionHeader('TNC'),
-          if (!_isTncPlatform)
-            _TncUnavailableCard()
+          if (_isSerialPlatform)
+            _buildTncCard(theme, tncStatus)
+          else if (_isBlePlatform)
+            _buildBleTncCard(theme, tncStatus)
           else
-            _buildTncCard(theme, tncStatus),
+            _TncUnavailableCard(),
         ],
       ),
     );
@@ -349,6 +355,87 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
       ),
     );
   }
+
+  Widget _buildBleTncCard(ThemeData theme, ConnectionStatus tncStatus) {
+    final isBleConnected = tncStatus == ConnectionStatus.connected &&
+        widget.tncService.activeTransportType == TransportType.ble;
+    final isBleConnecting = tncStatus == ConnectionStatus.connecting &&
+        widget.tncService.activeTransportType == TransportType.ble;
+    final errorMessage = isBleConnected || isBleConnecting
+        ? null
+        : widget.tncService.lastErrorMessage;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Bluetooth TNC',
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                if (isBleConnected || isBleConnecting)
+                  MeridianStatusPill(label: 'BLE TNC', status: tncStatus),
+              ],
+            ),
+            if (isBleConnected) ...[
+              const SizedBox(height: 4),
+              Text(
+                '$_tncCount packets received',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                errorMessage,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: isBleConnected
+                  ? OutlinedButton(
+                      onPressed: _onDisconnectTap,
+                      child: const Text('Disconnect BLE TNC'),
+                    )
+                  : FilledButton.icon(
+                      onPressed: isBleConnecting
+                          ? null
+                          : () => _openBleScanner(theme),
+                      icon: const Icon(Symbols.bluetooth_searching),
+                      label: Text(
+                        isBleConnecting ? 'Connecting…' : 'Scan & Connect',
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _openBleScanner(ThemeData theme) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => MeridianBottomSheet(
+        child: BleScannerSheet(tncService: widget.tncService),
+      ),
+    );
+  }
+
 }
 
 class _TncUnavailableCard extends StatelessWidget {

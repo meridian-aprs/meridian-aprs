@@ -1,19 +1,21 @@
 library;
 
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'aprs_transport.dart';
+import 'aprs_transport.dart' show ConnectionStatus;
+import 'kiss_tnc_transport.dart';
 import 'serial_port_adapter.dart';
 import 'tnc_config.dart';
 
 /// Stub [SerialKissTransport] for platforms where flutter_libserialport
 /// is not available (web, and as a compile-time safety net for mobile).
-class SerialKissTransport implements AprsTransport {
+class SerialKissTransport implements KissTncTransport {
   // ignore: avoid_unused_constructor_parameters
   SerialKissTransport(TncConfig config, {SerialPortAdapter? adapter});
 
   @override
-  Stream<String> get lines =>
+  Stream<Uint8List> get frameStream =>
       throw UnsupportedError('Serial port not supported on this platform');
 
   @override
@@ -24,6 +26,9 @@ class SerialKissTransport implements AprsTransport {
   ConnectionStatus get currentStatus => ConnectionStatus.disconnected;
 
   @override
+  bool get isConnected => false;
+
+  @override
   Future<void> connect() =>
       throw UnsupportedError('Serial port not supported on this platform');
 
@@ -31,7 +36,8 @@ class SerialKissTransport implements AprsTransport {
   Future<void> disconnect() async {}
 
   @override
-  void sendLine(String line) {}
+  Future<void> sendFrame(Uint8List ax25Frame) =>
+      throw UnsupportedError('Serial port not supported on this platform');
 
   static List<String> availablePorts() => const [];
 }
