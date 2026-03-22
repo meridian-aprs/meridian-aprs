@@ -501,6 +501,75 @@ void main() {
       );
       expect(packet, anyOf(isA<MicEPacket>(), isA<UnknownPacket>()));
     });
+
+    // -------------------------------------------------------------------------
+    // P-Y encoding (custom message) — Bug 2 regression tests
+    // -------------------------------------------------------------------------
+    //
+    // Packet: N0CALL-9>SX5E0A,WIDE1-1:`i<N Ol>/
+    // Destination SX5E0A encodes:
+    //   'S' (0x53) = P+3 → digit=3, msgBit=true  (custom, A-bit set)
+    //   'X' (0x58) = P+8 → digit=8, msgBit=true  (custom, B-bit set)
+    //   '5'        → digit=5, msgBit=false         (C-bit clear)
+    //   'E' (0x45) = A+4 → digit=4, msgBit=true   (North)
+    //   '0'        → digit=0, msgBit=false          (no lon offset)
+    //   'A' (0x41) = A+0 → digit=0, msgBit=true   (West)
+    // messageBits = 0b110 = 6 → En Route (custom)
+    // lat = 38°54.00' N = 38.9000 N
+    // lon: info[1]='i'(105-28=77), info[2]='<'(60-28=32), info[3]='N'(78-28=50)
+    //      → 77°32.50' W = -77.5417
+    test('P-Y destination decodes lat, lon, hemisphere, and message type', () {
+      // All printable ASCII; info field is exactly 9 bytes.
+      final packet = parser.parse('N0CALL-9>SX5E0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      final p = packet as MicEPacket;
+      expect(p.lat, closeTo(38.9, 0.001));
+      expect(p.lon, closeTo(-77.5417, 0.001));
+      expect(p.lat, isPositive, reason: 'should be North (positive)');
+      expect(p.lon, isNegative, reason: 'should be West (negative)');
+      expect(p.micEMessage, equals('En Route'));
+    });
+
+    // -------------------------------------------------------------------------
+    // _micEMessages table ordering — Bug 3 regression tests
+    // -------------------------------------------------------------------------
+    //
+    // These use the same constructible packet above but we only need a packet
+    // that decodes to a specific messageBits value.  We use a helper that
+    // calls _parseMicE indirectly through parse().
+    //
+    // messageBits=7 (0b111) → Off Duty
+    //   All three bits set: positions 0,1,2 must all be letters.
+    //   'S'(P+3),  'X'(P+8),  'T'(P+4)  → digits 3,8,4 / bits 1,1,1
+    //   Position 3 North: 'E'(A+4), Position 4 no offset: '0', Position 5 West: 'A'
+    //   Destination: SXT E0A → SXTE0A  (6 chars)
+    //   lat = 38°84.00' — latMin=84 is out of range; that is fine, the parser
+    //   does no range validation on lat.  We only check micEMessage here.
+    test('messageBits=7 decodes to Off Duty', () {
+      final packet = parser.parse('N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
+    });
+
+    // messageBits=0 (0b000) → Emergency
+    //   All three bits clear: positions 0,1,2 must all be plain digits.
+    //   '3', '8', '5' → bits 0,0,0
+    //   North: 'E', no offset: '0', West: 'A'  → Destination: 385E0A
+    test('messageBits=0 decodes to Emergency', () {
+      final packet = parser.parse('N0CALL-9>385E0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Emergency'));
+    });
+
+    // messageBits=5 (0b101) → In Service
+    //   Bits: A=1, B=0, C=1 → pos0=letter, pos1=digit, pos2=letter
+    //   'S'(P+3), '8', 'T'(P+4) → bits 1,0,1 = 0b101 = 5
+    //   Destination: S8TE0A
+    test('messageBits=5 decodes to In Service', () {
+      final packet = parser.parse('N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('In Service'));
+    });
   });
 
   // ---------------------------------------------------------------------------

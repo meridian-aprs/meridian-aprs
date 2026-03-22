@@ -997,14 +997,14 @@ class AprsParser {
   // header parser as [destination].
 
   static const _micEMessages = [
-    'Off Duty',
-    'En Route',
-    'In Service',
-    'Returning',
-    'Committed',
-    'Special',
-    'Priority',
-    'Emergency',
+    'Emergency', // 0b000
+    'Priority',  // 0b001
+    'Special',   // 0b010
+    'Committed', // 0b011
+    'Returning', // 0b100
+    'In Service', // 0b101
+    'En Route',  // 0b110
+    'Off Duty',  // 0b111
   ];
 
   AprsPacket _parseMicE({
@@ -1031,11 +1031,14 @@ class AprsParser {
 
     // Decode latitude and message bits from destination chars 0-5.
     // Each char encodes one BCD digit of latitude (0-9) and flags.
-    // Digits: 0-9 → '0'-'9', space → ambiguous 0. A-J → 0-9 (message bit set).
-    // K, L, Z → 0 (with flag bits).
-    // N/S: char 3, 0 = North if digit is a letter (A-K), South otherwise.
-    // Lon offset: char 4, if letter add 100 to lon degrees.
-    // E/W: char 5, if letter West else East.
+    // Three character sets encode a digit with message bit set:
+    //   'A'-'J' (0x41-0x4A): standard message, digits 0-9
+    //   'P'-'Y' (0x50-0x59): custom message, digits 0-9
+    // '0'-'9': standard digit, message bit clear.
+    // 'K', 'L', 'Z': ambiguous position placeholder, digit=0, message bit clear.
+    // N/S: char 3, letter (msgBit set) = North, digit = South.
+    // Lon offset: char 4, letter (msgBit set) = +100 lon degrees.
+    // E/W: char 5, letter (msgBit set) = West, digit = East.
     final dest = destination;
     final latDigits = List<int>.filled(6, 0);
     int messageBits = 0;
@@ -1049,20 +1052,20 @@ class AprsParser {
       bool msgBit = false;
 
       if (c >= 0x30 && c <= 0x39) {
-        // '0'-'9': standard digit, message bit 0
+        // '0'-'9': standard digit, message bit clear
         digit = c - 0x30;
         msgBit = false;
-      } else if (c >= 0x41 && c <= 0x4B) {
-        // 'A'-'K': digit 0-9 with message bit set (custom message)
+      } else if (c >= 0x41 && c <= 0x4A) {
+        // 'A'-'J': digits 0-9 with message bit set (standard message)
         digit = c - 0x41;
         msgBit = true;
-      } else if (c == 0x4C || c == 0x5A) {
-        // 'L' or 'Z': 0, no message bit (ambiguous position)
+      } else if (c == 0x4B || c == 0x4C || c == 0x5A) {
+        // 'K', 'L', or 'Z': ambiguous position, digit=0, message bit clear
         digit = 0;
         msgBit = false;
-      } else if (c == 0x50) {
-        // 'P': space → 0 (some implementations)
-        digit = 0;
+      } else if (c >= 0x50 && c <= 0x59) {
+        // 'P'-'Y': digits 0-9 with message bit set (custom message)
+        digit = c - 0x50;
         msgBit = true;
       } else {
         // Space or other
