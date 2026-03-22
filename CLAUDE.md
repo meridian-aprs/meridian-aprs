@@ -52,7 +52,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding |
 
-**Current status: v0.3 TNC merged. iOS theme tier structurally complete (`feat/ios-theme`): `buildIosTheme()` implemented, `CupertinoApp`/`MaterialApp` branching in place at app root. Pending iOS simulator validation.**
+**Current status: v0.3 TNC merged. Three-tier platform theme architecture complete — Android (M3 Expressive + Dynamic Color), iOS (Cupertino, pending iOS simulator validation), Desktop (M3 static brand). All three tiers implemented; desktop branch at app root active on Linux/macOS/Windows.**
 
 See `docs/ROADMAP.md` for per-milestone task breakdowns.
 
@@ -123,7 +123,7 @@ Keep these files current as the project evolves:
 
 ### Theme System (`lib/theme/`) — Three-Tier Platform Architecture
 
-Android tier implemented; iOS tier structurally complete (pending simulator validation); desktop stub in place for future PR.
+All three tiers fully implemented. iOS pending simulator validation.
 
 | File | Class | Description |
 |---|---|---|
@@ -131,7 +131,7 @@ Android tier implemented; iOS tier structurally complete (pending simulator vali
 | `theme_controller.dart` | `ThemeController` | ChangeNotifier for `themeMode` + `seedColor`; persists both to SharedPreferences |
 | `android_theme.dart` | `buildAndroidTheme()` | Builds Android ThemeData pair; uses `DynamicColorBuilder` schemes or seed fallback; applies M3 Expressive via `m3e_design` |
 | `ios_theme.dart` | `buildIosTheme()` | Returns `CupertinoThemeData` for given brightness; `primaryColor` = Meridian Blue; structurally complete, pending iOS simulator validation |
-| `desktop_theme.dart` | — | Stub — M3 static brand tier, implement in `feat/desktop-theme` |
+| `desktop_theme.dart` | `buildDesktopTheme()` | Returns M3 static brand ThemeData pair; fixed `MeridianColors.primary` seed; no dynamic color; Windows/macOS/Linux |
 
 ### Layout System (`lib/ui/layout/`)
 

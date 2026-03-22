@@ -148,7 +148,7 @@ The UI layer uses three scaffold variants selected at runtime by window width:
 
 ## Theme System — Three-Tier Platform Architecture
 
-Meridian uses a three-tier platform theme architecture. Each tier can evolve independently while sharing a common brand identity. The Android tier is implemented; iOS and desktop stubs are in place for future PRs.
+Meridian uses a three-tier platform theme architecture. Each tier can evolve independently while sharing a common brand identity. All three tiers are fully implemented.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -189,10 +189,23 @@ Semantic tokens (`signal`, `warning`, `danger`) carry APRS protocol meaning and 
 if (!kIsWeb && Platform.isIOS) {
   // Returns CupertinoApp with buildIosTheme(brightness: resolvedBrightness)
 }
-// Android + Desktop: DynamicColorBuilder + MaterialApp with buildAndroidTheme()
+if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+  // Returns MaterialApp with buildDesktopTheme(seedColor: MeridianColors.primary)
+  // No DynamicColorBuilder — desktop platforms do not support wallpaper color extraction
+}
+// Android: DynamicColorBuilder + MaterialApp with buildAndroidTheme()
 ```
 
 `_resolveIosBrightness(ThemeMode)` maps `ThemeController.themeMode` to a `Brightness` for `CupertinoThemeData`. `ThemeMode.system` reads `WidgetsBinding.instance.platformDispatcher.platformBrightness`.
+
+### Desktop Tier (`lib/theme/desktop_theme.dart`)
+
+`buildDesktopTheme({required Color seedColor})` builds the light/dark `ThemeData` pair for Windows, macOS, and Linux:
+
+- Material 3 (`useMaterial3: true`) with `ColorScheme.fromSeed(seedColor: seedColor)`.
+- Fixed seed: callers always pass `MeridianColors.primary` — no user-configurable color picker on desktop.
+- No `DynamicColorBuilder` wrapper, no M3 Expressive `ThemeExtension`.
+- `themeMode` from `ThemeController` is respected for light/dark/system switching, identical to the Android branch.
 
 ### Android Tier (`lib/theme/android_theme.dart`)
 

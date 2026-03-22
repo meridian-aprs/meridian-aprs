@@ -59,6 +59,7 @@ Goal: A complete design system, adaptive layouts, core widget library, settings 
 - [x] Settings screen shell (Appearance section functional — theme switching works; all other sections stubbed)
 - [x] Onboarding flow (3-screen PageView, first-launch gated via SharedPreferences)
 - [x] MapScreen updated to use ResponsiveLayout; service lifecycle remains in MapScreen
+- [x] Three-tier platform theme architecture — Android (M3 Expressive + Dynamic Color), iOS (Cupertino), Desktop (M3 static brand) — all tiers complete
 
 ---
 

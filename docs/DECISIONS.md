@@ -248,3 +248,16 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 **Rationale:** Flutter's framework support for Liquid Glass is not yet available in the stable channel. The `docs/THEME_PLATFORM_STRATEGY.md` document outlines the intended upgrade path once stable framework APIs land.
 
 **Consequences:** iOS UI uses standard Cupertino styling (system backgrounds, SF Pro) until an `ios-liquid-glass` feature branch is opened. No changes to the theme architecture are required when upgrading — `buildIosTheme()` will be extended in place.
+
+---
+
+## ADR-018: Desktop theme tier bypasses DynamicColorBuilder
+
+**Status:** Accepted
+**Date:** 2026-03-22
+
+**Decision:** The desktop branch in `MeridianApp.build()` calls `buildDesktopTheme(seedColor: MeridianColors.primary)` directly without wrapping it in `DynamicColorBuilder`.
+
+**Rationale:** `DynamicColorBuilder` returns null schemes on all desktop platforms (Windows, macOS, Linux); the wallpaper color extraction API is Android-only. Previously desktop fell through to the Android branch, which handled null schemes via the seed fallback — functional but implicit. Giving desktop its own explicit branch in `MeridianApp.build()` (`Platform.isWindows || Platform.isMacOS || Platform.isLinux`) makes the three-tier architecture fully explicit and removes the `DynamicColorBuilder` overhead on platforms where it does nothing. The desktop seed color is always `MeridianColors.primary` — there is no user-configurable color picker on desktop (the App Color section in Settings is Android-only).
+
+**Consequences:** The three-tier platform theme architecture is now fully implemented. All three tiers — Android, iOS, Desktop — have dedicated `build*Theme()` functions and explicit platform branches at the app root. `DynamicColorBuilder` is used only in the Android branch.

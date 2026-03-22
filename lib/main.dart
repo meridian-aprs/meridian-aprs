@@ -14,7 +14,9 @@ import 'screens/onboarding/onboarding_screen.dart';
 import 'services/station_service.dart';
 import 'services/tnc_service.dart';
 import 'theme/android_theme.dart';
+import 'theme/desktop_theme.dart';
 import 'theme/ios_theme.dart';
+import 'theme/meridian_colors.dart';
 import 'theme/theme_controller.dart';
 
 const String _kVersion = '0.1.0';
@@ -109,6 +111,35 @@ class MeridianApp extends StatelessWidget {
       return CupertinoApp(
         title: 'Meridian APRS',
         theme: buildIosTheme(brightness: brightness),
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('en', 'US')],
+        home: onboardingComplete
+            ? MapScreen(
+                service: service,
+                tncService: tncService,
+                callsign: userCallsign,
+                ssid: userSsid,
+                initialLat: mapLat,
+                initialLon: mapLon,
+                initialZoom: mapZoom,
+              )
+            : const OnboardingScreen(),
+      );
+    }
+
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
+      final themes = buildDesktopTheme(seedColor: MeridianColors.primary);
+      return MaterialApp(
+        title: 'Meridian APRS',
+        themeMode: controller.themeMode,
+        theme: themes.light,
+        darkTheme: themes.dark,
         debugShowCheckedModeBanner: false,
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
