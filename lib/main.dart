@@ -1,8 +1,12 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:io' show Platform;
 
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/transport/aprs_is_transport.dart';
 import 'screens/map_screen.dart';
@@ -10,9 +14,21 @@ import 'screens/onboarding/onboarding_screen.dart';
 import 'services/station_service.dart';
 import 'services/tnc_service.dart';
 import 'theme/android_theme.dart';
+import 'theme/ios_theme.dart';
 import 'theme/theme_controller.dart';
 
 const String _kVersion = '0.1.0';
+
+/// Resolves the active [Brightness] from [ThemeMode] for [CupertinoApp].
+///
+/// [ThemeMode.system] reads [WidgetsBinding.instance.platformDispatcher.platformBrightness]
+/// directly. Full reactive brightness for [ThemeMode.system] will be verified
+/// during iOS simulator testing.
+Brightness _resolveIosBrightness(ThemeMode mode) {
+  if (mode == ThemeMode.light) return Brightness.light;
+  if (mode == ThemeMode.dark) return Brightness.dark;
+  return WidgetsBinding.instance.platformDispatcher.platformBrightness;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -87,6 +103,32 @@ class MeridianApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ThemeController>();
+
+    if (!kIsWeb && Platform.isIOS) {
+      final brightness = _resolveIosBrightness(controller.themeMode);
+      return CupertinoApp(
+        title: 'Meridian APRS',
+        theme: buildIosTheme(brightness: brightness),
+        debugShowCheckedModeBanner: false,
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        supportedLocales: const [Locale('en', 'US')],
+        home: onboardingComplete
+            ? MapScreen(
+                service: service,
+                tncService: tncService,
+                callsign: userCallsign,
+                ssid: userSsid,
+                initialLat: mapLat,
+                initialLon: mapLon,
+                initialZoom: mapZoom,
+              )
+            : const OnboardingScreen(),
+      );
+    }
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {

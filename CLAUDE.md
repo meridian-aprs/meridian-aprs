@@ -52,7 +52,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding |
 
-**Current status: v0.3 TNC in progress on `feat/v0.3-serial-tnc`.**
+**Current status: v0.3 TNC merged. iOS theme tier structurally complete (`feat/ios-theme`): `buildIosTheme()` implemented, `CupertinoApp`/`MaterialApp` branching in place at app root. Pending iOS simulator validation.**
 
 See `docs/ROADMAP.md` for per-milestone task breakdowns.
 
@@ -123,14 +123,14 @@ Keep these files current as the project evolves:
 
 ### Theme System (`lib/theme/`) — Three-Tier Platform Architecture
 
-Android tier implemented; iOS and desktop stubs in place for future PRs.
+Android tier implemented; iOS tier structurally complete (pending simulator validation); desktop stub in place for future PR.
 
 | File | Class | Description |
 |---|---|---|
 | `meridian_colors.dart` | `MeridianColors` | Brand color constants: `primary`, `primaryDark`, `signal`, `warning`, `danger` |
 | `theme_controller.dart` | `ThemeController` | ChangeNotifier for `themeMode` + `seedColor`; persists both to SharedPreferences |
 | `android_theme.dart` | `buildAndroidTheme()` | Builds Android ThemeData pair; uses `DynamicColorBuilder` schemes or seed fallback; applies M3 Expressive via `m3e_design` |
-| `ios_theme.dart` | — | Stub — Cupertino tier, implement in `feat/ios-theme` |
+| `ios_theme.dart` | `buildIosTheme()` | Returns `CupertinoThemeData` for given brightness; `primaryColor` = Meridian Blue; structurally complete, pending iOS simulator validation |
 | `desktop_theme.dart` | — | Stub — M3 static brand tier, implement in `feat/desktop-theme` |
 
 ### Layout System (`lib/ui/layout/`)

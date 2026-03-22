@@ -181,6 +181,19 @@ Semantic tokens (`signal`, `warning`, `danger`) carry APRS protocol meaning and 
 
 `ThemeController extends ChangeNotifier` manages two pieces of state: `themeMode` (`ThemeMode`, persisted as int under key `'theme_mode'`) and `seedColor` (`Color`, persisted as `toARGB32()` int under key `'seed_color'`). Provided at the app root via `provider`.
 
+### App Root Platform Branching
+
+`MeridianApp.build()` in `lib/main.dart` branches on platform before constructing the app widget:
+
+```dart
+if (!kIsWeb && Platform.isIOS) {
+  // Returns CupertinoApp with buildIosTheme(brightness: resolvedBrightness)
+}
+// Android + Desktop: DynamicColorBuilder + MaterialApp with buildAndroidTheme()
+```
+
+`_resolveIosBrightness(ThemeMode)` maps `ThemeController.themeMode` to a `Brightness` for `CupertinoThemeData`. `ThemeMode.system` reads `WidgetsBinding.instance.platformDispatcher.platformBrightness`.
+
 ### Android Tier (`lib/theme/android_theme.dart`)
 
 `buildAndroidTheme({ColorScheme? dynamicLight, ColorScheme? dynamicDark, required Color seedColor})` builds the light/dark `ThemeData` pair:

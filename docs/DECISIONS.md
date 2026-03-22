@@ -235,3 +235,16 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 | `dynamic_color` | Android | Wallpaper-derived ColorScheme on Android 12+ |
 | `m3e_design` | Android | M3 Expressive ThemeExtension tokens |
 | `flutter_m3shapes` | Android | M3 Expressive shape library |
+
+---
+
+## ADR-017: iOS Liquid Glass deferred pending Flutter framework support
+
+**Status:** Accepted
+**Date:** 2026-03-22
+
+**Decision:** iOS Liquid Glass (Apple's glassmorphism design language, shipping with iOS 26 / visionOS 3) is intentionally not implemented in the v0.x iOS theme tier. The current `buildIosTheme()` function in `lib/theme/ios_theme.dart` provides the structural Cupertino foundation — `CupertinoApp`, `CupertinoThemeData`, Meridian brand primary color — without any Liquid Glass-specific APIs.
+
+**Rationale:** Flutter's framework support for Liquid Glass is not yet available in the stable channel. The `docs/THEME_PLATFORM_STRATEGY.md` document outlines the intended upgrade path once stable framework APIs land.
+
+**Consequences:** iOS UI uses standard Cupertino styling (system backgrounds, SF Pro) until an `ios-liquid-glass` feature branch is opened. No changes to the theme architecture are required when upgrading — `buildIosTheme()` will be extended in place.
