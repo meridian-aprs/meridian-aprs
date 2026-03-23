@@ -65,11 +65,8 @@ class StationService {
 
   Future<void> start() async {
     // Wire up the line stream once — persists across reconnects.
-    _transport.lines.listen(
-      _handleLine,
-      onError: (e) => debugPrint('Transport error: $e'),
-      onDone: () => debugPrint('Transport connection closed'),
-    );
+    // Errors are handled inside AprsIsTransport and do not propagate here.
+    _transport.lines.listen(_handleLine);
     await connectAprsIs();
   }
 
@@ -97,7 +94,7 @@ class StationService {
       _handleLine(raw, source: source);
 
   Future<void> stop() async {
-    await _transport.disconnect();
+    await _transport.dispose();
     await _stationController.close();
     await _packetController.close();
   }
@@ -126,17 +123,38 @@ class StationService {
     // If this is a position packet, also update the station map.
     if (packet is PositionPacket) {
       debugPrint('PARSED: ${packet.source} @ ${packet.lat}, ${packet.lon}');
-      final station = _stationFromPosition(packet);
+      final station = _mergeStation(_stationFromPosition(packet));
       _stations[station.callsign] = station;
       _stationController.add(Map.unmodifiable(_stations));
     } else if (packet is MicEPacket) {
       debugPrint('MIC-E: ${packet.source} @ ${packet.lat}, ${packet.lon}');
-      final station = _stationFromMicE(packet);
+      final station = _mergeStation(_stationFromMicE(packet));
       _stations[station.callsign] = station;
       _stationController.add(Map.unmodifiable(_stations));
     } else if (packet is UnknownPacket) {
       debugPrint('SKIP: ${packet.reason} -- $raw');
     }
+  }
+
+  /// Carry forward non-empty fields from the previous [Station] record for the
+  /// same callsign when the incoming station has empty values.
+  ///
+  /// Currently preserves: comment (never blank out a previously seen comment),
+  /// device (keep the last successfully identified device).
+  Station _mergeStation(Station incoming) {
+    final prev = _stations[incoming.callsign];
+    if (prev == null) return incoming;
+    return Station(
+      callsign: incoming.callsign,
+      lat: incoming.lat,
+      lon: incoming.lon,
+      rawPacket: incoming.rawPacket,
+      lastHeard: incoming.lastHeard,
+      symbolTable: incoming.symbolTable,
+      symbolCode: incoming.symbolCode,
+      comment: incoming.comment.isNotEmpty ? incoming.comment : prev.comment,
+      device: incoming.device ?? prev.device,
+    );
   }
 
   /// Convert a [PositionPacket] to a [Station] for the legacy station map.
@@ -150,6 +168,7 @@ class StationService {
       symbolTable: p.symbolTable,
       symbolCode: p.symbolCode,
       comment: p.comment,
+      device: p.device,
     );
   }
 
@@ -164,6 +183,7 @@ class StationService {
       symbolTable: p.symbolTable,
       symbolCode: p.symbolCode,
       comment: p.comment,
+      device: p.device,
     );
   }
 }

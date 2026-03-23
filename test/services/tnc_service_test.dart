@@ -87,6 +87,9 @@ class FakeAprsTransport implements AprsTransport {
   Future<void> disconnect() async {}
 
   @override
+  Future<void> dispose() async {}
+
+  @override
   void sendLine(String line) {}
 }
 

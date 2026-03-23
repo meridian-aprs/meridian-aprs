@@ -18,6 +18,11 @@ abstract class AprsTransport {
   Future<void> connect();
   Future<void> disconnect();
 
+  /// Permanently release all resources (stream controllers, subscriptions).
+  /// Call only when the owning service is being destroyed.
+  /// Default implementation delegates to [disconnect].
+  Future<void> dispose() => disconnect();
+
   /// Send a raw line to the server (e.g. a new #filter command).
   void sendLine(String line);
 }

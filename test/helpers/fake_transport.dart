@@ -26,5 +26,8 @@ class FakeTransport implements AprsTransport {
   }
 
   @override
+  Future<void> dispose() => disconnect();
+
+  @override
   void sendLine(String line) {}
 }
