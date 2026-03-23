@@ -8,6 +8,10 @@ class Station {
   final String symbolCode;
   final String comment;
 
+  /// Human-readable device or software name (e.g. "APRSdroid", "Dire Wolf"),
+  /// or null if not resolved.
+  final String? device;
+
   const Station({
     required this.callsign,
     required this.lat,
@@ -17,6 +21,7 @@ class Station {
     required this.symbolTable,
     required this.symbolCode,
     required this.comment,
+    this.device,
   });
 
   /// Backward-compat alias for [lastHeard].

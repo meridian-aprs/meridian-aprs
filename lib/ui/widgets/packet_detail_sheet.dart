@@ -162,6 +162,7 @@ class PacketDetailSheet extends StatelessWidget {
           m['Altitude'] = '${p.altitude!.toStringAsFixed(0)} m';
         }
         m['Messaging'] = p.hasMessaging ? 'Yes' : 'No';
+        if (p.device != null) m['Device'] = p.device!;
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
         if (p.timestamp != null) m['Packet time'] = p.timestamp.toString();
 
@@ -208,6 +209,7 @@ class PacketDetailSheet extends StatelessWidget {
         m['Symbol table'] = p.symbolTable;
         m['Symbol code'] = p.symbolCode;
         m['Alive'] = p.isAlive ? 'Yes' : 'No (killed)';
+        if (p.device != null) m['Device'] = p.device!;
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
 
       case ItemPacket():
@@ -218,6 +220,7 @@ class PacketDetailSheet extends StatelessWidget {
         m['Symbol table'] = p.symbolTable;
         m['Symbol code'] = p.symbolCode;
         m['Alive'] = p.isAlive ? 'Yes' : 'No (killed)';
+        if (p.device != null) m['Device'] = p.device!;
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
 
       case StatusPacket():
@@ -237,6 +240,7 @@ class PacketDetailSheet extends StatelessWidget {
         if (p.altitude != null) {
           m['Altitude'] = '${p.altitude!.toStringAsFixed(0)} m';
         }
+        if (p.device != null) m['Device'] = p.device!;
         if (p.comment.isNotEmpty) m['Comment'] = p.comment;
 
       case UnknownPacket():

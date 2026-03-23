@@ -60,6 +60,10 @@ class PositionPacket extends AprsPacket {
   /// Timestamp encoded inside the APRS info field (not the receive time).
   final DateTime? timestamp;
 
+  /// Human-readable device or software name resolved from the tocall field,
+  /// or null if unknown.
+  final String? device;
+
   const PositionPacket({
     required super.rawLine,
     required super.source,
@@ -77,6 +81,7 @@ class PositionPacket extends AprsPacket {
     this.speed,
     required this.hasMessaging,
     this.timestamp,
+    this.device,
   });
 }
 
@@ -184,6 +189,10 @@ class ObjectPacket extends AprsPacket {
   /// it has been killed (underscore).
   final bool isAlive;
 
+  /// Human-readable device or software name resolved from the tocall field,
+  /// or null if unknown.
+  final String? device;
+
   const ObjectPacket({
     required super.rawLine,
     required super.source,
@@ -198,6 +207,7 @@ class ObjectPacket extends AprsPacket {
     required this.symbolCode,
     required this.comment,
     required this.isAlive,
+    this.device,
   });
 }
 
@@ -218,6 +228,10 @@ class ItemPacket extends AprsPacket {
   /// True when the item is alive (`!`), false when killed (`_`).
   final bool isAlive;
 
+  /// Human-readable device or software name resolved from the tocall field,
+  /// or null if unknown.
+  final String? device;
+
   const ItemPacket({
     required super.rawLine,
     required super.source,
@@ -232,6 +246,7 @@ class ItemPacket extends AprsPacket {
     required this.symbolCode,
     required this.comment,
     required this.isAlive,
+    this.device,
   });
 }
 
@@ -277,6 +292,10 @@ class MicEPacket extends AprsPacket {
   /// (e.g. "En Route", "In Service", "Off Duty").
   final String micEMessage;
 
+  /// Human-readable device or software name resolved from the Mic-E comment
+  /// suffix (e.g. "Kenwood TH-D72A", "Yaesu FT3D series"), or null if unknown.
+  final String? device;
+
   const MicEPacket({
     required super.rawLine,
     required super.source,
@@ -293,6 +312,7 @@ class MicEPacket extends AprsPacket {
     required this.symbolCode,
     required this.comment,
     required this.micEMessage,
+    this.device,
   });
 }
 

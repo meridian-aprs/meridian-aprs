@@ -100,6 +100,27 @@ class StationInfoSheet extends StatelessWidget {
               ),
             ],
 
+            // Device (conditional)
+            if (station.device != null) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(
+                    Icons.memory,
+                    size: 14,
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    station.device!,
+                    style: textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
             const SizedBox(height: 12),
 
             // Last heard

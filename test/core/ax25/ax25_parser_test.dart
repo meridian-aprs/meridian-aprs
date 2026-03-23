@@ -173,5 +173,41 @@ void main() {
       expect(frame.source.callsign, equals('W1AW'));
       expect(frame.source.callsign, isNot(contains(' ')));
     });
+
+    // -------------------------------------------------------------------------
+    // M7: control/PID validation
+    // -------------------------------------------------------------------------
+
+    test('non-UI control byte (0x13) returns Ax25Err with descriptive reason', () {
+      final raw = buildFrame(
+        dst: 'APRS',
+        src: 'W1AW',
+        control: 0x13,
+        pid: 0xF0,
+        info: [0x21],
+      );
+      final result = parser.parseFrame(raw);
+      expect(result, isA<Ax25Err>());
+      expect(
+        (result as Ax25Err).reason,
+        contains('Not a UI/APRS frame'),
+      );
+    });
+
+    test('non-APRS PID (0xCF) returns Ax25Err with descriptive reason', () {
+      final raw = buildFrame(
+        dst: 'APRS',
+        src: 'W1AW',
+        control: 0x03,
+        pid: 0xCF,
+        info: [0x21],
+      );
+      final result = parser.parseFrame(raw);
+      expect(result, isA<Ax25Err>());
+      expect(
+        (result as Ax25Err).reason,
+        contains('Not a UI/APRS frame'),
+      );
+    });
   });
 }

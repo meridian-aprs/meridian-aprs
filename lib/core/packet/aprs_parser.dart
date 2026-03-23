@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 import '../ax25/ax25_parser.dart';
 import 'aprs_packet.dart';
+import 'device_resolver.dart';
 
 /// Full APRS packet parser.
 ///
@@ -130,7 +132,7 @@ class AprsParser {
       );
     }
     final frame = (result as Ax25Ok).frame;
-    final infoStr = utf8.decode(frame.info, allowMalformed: true);
+    final infoStr = latin1.decode(frame.info);
     final pathStr = frame.pathString.isEmpty ? '' : ',${frame.pathString}';
     final reconstructed =
         '${frame.source}>${frame.destination}$pathStr:$infoStr';
@@ -435,6 +437,7 @@ class AprsParser {
       if (c != null && s != null && !(c == 0 && s == 0)) {
         course = c;
         speed = s.toDouble(); // knots
+        comment = comment.substring(csMatch.end);
       }
     }
 
@@ -465,6 +468,7 @@ class AprsParser {
       speed: speed,
       hasMessaging: hasMessaging,
       timestamp: packetTimestamp,
+      device: DeviceResolver.resolve(tocall: destination),
     );
   }
 
@@ -523,8 +527,12 @@ class AprsParser {
     // remainder[2] = compression-type byte.
     int? course;
     double? speed;
+    double? altitude;
     String comment = remainder;
-    if (remainder.length >= 3) {
+    if (remainder.isNotEmpty && remainder.codeUnitAt(0) == 0x20) {
+      // Space c byte: csT bytes carry no data — skip them if present.
+      comment = remainder.length > 3 ? remainder.substring(3) : '';
+    } else if (remainder.length >= 3) {
       final csType = remainder[2].codeUnitAt(0) - 33;
       // Bits 4-5 of csType byte indicate what c and s represent.
       // If bit 5 set: GGA altitude; if bits 4-5 = 01: course/speed.
@@ -534,20 +542,17 @@ class AprsParser {
         final cByte = remainder[0].codeUnitAt(0) - 33;
         final sByte = remainder[1].codeUnitAt(0) - 33;
         final c = cByte * 4; // degrees (0-360 encoded as 0-90 * 4)
-        // Spec: speed = 1.08^sByte - 1 knots. Simplified safe calc:
+        // Spec: speed = 1.08^sByte - 1 knots.
         if (cByte != 0 || sByte != 0) {
           course = c == 360 ? 0 : c;
-          // Compute 1.08^sByte
-          double spd = 0;
-          for (int i = 0; i < sByte; i++) {
-            spd = spd == 0 ? 1.08 : spd * 1.08;
-          }
-          speed = spd - 1;
+          speed = pow(1.08, sByte).toDouble() - 1;
         }
         comment = remainder.length > 3 ? remainder.substring(3) : '';
       } else if (comprType == 2) {
-        // Altitude encoded in cs bytes (1.002^altVal feet).
-        // Skipped for now — advance past the 3 cs bytes.
+        // GGA altitude: 1.002^(cByte*91 + sByte) feet (APRS 1.0.1 ch.9 p.40)
+        final cByte = remainder[0].codeUnitAt(0) - 33;
+        final sByte = remainder[1].codeUnitAt(0) - 33;
+        altitude = pow(1.002, cByte * 91 + sByte).toDouble();
         comment = remainder.length > 3 ? remainder.substring(3) : '';
       }
     }
@@ -564,11 +569,12 @@ class AprsParser {
       symbolTable: symbolTable,
       symbolCode: symbolCode,
       comment: comment,
-      altitude: null,
+      altitude: altitude,
       course: course,
       speed: speed,
       hasMessaging: hasMessaging,
       timestamp: packetTimestamp,
+      device: DeviceResolver.resolve(tocall: destination),
     );
   }
 
@@ -666,6 +672,7 @@ class AprsParser {
       symbolCode: m.group(6)!,
       comment: m.group(7)!,
       isAlive: isAlive,
+      device: DeviceResolver.resolve(tocall: destination),
     );
   }
 
@@ -726,6 +733,7 @@ class AprsParser {
       symbolCode: symbolCode,
       comment: comment,
       isAlive: isAlive,
+      device: DeviceResolver.resolve(tocall: destination),
     );
   }
 
@@ -760,7 +768,7 @@ class AprsParser {
     final nameField = info.substring(1);
     int delimIdx = -1;
     bool isAlive = true;
-    for (int i = 2; i < nameField.length && i <= 9; i++) {
+    for (int i = 3; i < nameField.length && i <= 9; i++) {
       if (nameField[i] == '!' || nameField[i] == '_') {
         delimIdx = i;
         isAlive = nameField[i] == '!';
@@ -812,6 +820,7 @@ class AprsParser {
       symbolCode: m.group(6)!,
       comment: m.group(7)!,
       isAlive: isAlive,
+      device: DeviceResolver.resolve(tocall: destination),
     );
   }
 
@@ -1007,6 +1016,17 @@ class AprsParser {
     'Off Duty',  // 0b111
   ];
 
+  static const _micECustomMessages = [
+    'Emergency', // 0b000 — Emergency regardless of table
+    'Custom-0',  // 0b001
+    'Custom-1',  // 0b010
+    'Custom-2',  // 0b011
+    'Custom-3',  // 0b100
+    'Custom-4',  // 0b101
+    'Custom-5',  // 0b110
+    'Custom-6',  // 0b111
+  ];
+
   AprsPacket _parseMicE({
     required String info,
     required String rawLine,
@@ -1032,8 +1052,8 @@ class AprsParser {
     // Decode latitude and message bits from destination chars 0-5.
     // Each char encodes one BCD digit of latitude (0-9) and flags.
     // Three character sets encode a digit with message bit set:
-    //   'A'-'J' (0x41-0x4A): standard message, digits 0-9
-    //   'P'-'Y' (0x50-0x59): custom message, digits 0-9
+    //   'A'-'J' (0x41-0x4A): custom message bit, digits 0-9
+    //   'P'-'Y' (0x50-0x59): standard message bit, digits 0-9
     // '0'-'9': standard digit, message bit clear.
     // 'K', 'L', 'Z': ambiguous position placeholder, digit=0, message bit clear.
     // N/S: char 3, letter (msgBit set) = North, digit = South.
@@ -1041,7 +1061,8 @@ class AprsParser {
     // E/W: char 5, letter (msgBit set) = West, digit = East.
     final dest = destination;
     final latDigits = List<int>.filled(6, 0);
-    int messageBits = 0;
+    int stdBits = 0;
+    int custBits = 0;
     bool isNorth = false;
     bool addLonOffset = false;
     bool isWest = false;
@@ -1056,7 +1077,7 @@ class AprsParser {
         digit = c - 0x30;
         msgBit = false;
       } else if (c >= 0x41 && c <= 0x4A) {
-        // 'A'-'J': digits 0-9 with message bit set (standard message)
+        // 'A'-'J': digits 0-9 with message bit set (custom message)
         digit = c - 0x41;
         msgBit = true;
       } else if (c == 0x4B || c == 0x4C || c == 0x5A) {
@@ -1064,7 +1085,7 @@ class AprsParser {
         digit = 0;
         msgBit = false;
       } else if (c >= 0x50 && c <= 0x59) {
-        // 'P'-'Y': digits 0-9 with message bit set (custom message)
+        // 'P'-'Y': digits 0-9 with message bit set (standard message)
         digit = c - 0x50;
         msgBit = true;
       } else {
@@ -1074,7 +1095,13 @@ class AprsParser {
       }
 
       latDigits[i] = digit;
-      if (i < 3 && msgBit) messageBits |= (1 << (2 - i));
+      if (i < 3 && msgBit) {
+        if (c >= 0x41 && c <= 0x4A) {      // A-J → Custom message bit
+          custBits |= (1 << (2 - i));
+        } else if (c >= 0x50 && c <= 0x59) { // P-Y → Standard message bit
+          stdBits |= (1 << (2 - i));
+        }
+      }
 
       // Flag bits from specific positions.
       if (i == 3) isNorth = msgBit; // letter = North
@@ -1134,21 +1161,120 @@ class AprsParser {
     final symbolCode = info.length > 7 ? info[7] : '>';
     final symbolTable = info.length > 8 ? info[8] : '/';
 
-    // Comment (everything after the 9 fixed bytes, excluding any telemetry prefix)
+    // Comment (everything after the 9 fixed bytes).
     var comment = info.length > 9 ? info.substring(9) : '';
-    // Strip leading Mic-E telemetry sequence indicators if present.
-    if (comment.startsWith("'") ||
-        comment.startsWith('`') ||
-        comment.startsWith('"')) {
-      // Optional status/telemetry text marker — leave it in comment as-is.
+
+    // Strip telemetry prefix / device-type prefix from the Mic-E comment.
+    //
+    // APRS 1.0.1 ch.10 p.54 defines two telemetry flag bytes:
+    //   0x60 (`) = 2-channel telemetry: flag + 4 printable hex digits → strip 5
+    //   0x27 (') = 5-channel telemetry: flag + 10 printable hex digits → strip 11
+    //
+    // Crucially, the hex digits that follow MUST be [0-9a-fA-F]. When they are
+    // not (e.g. the FT3DR uses backtick as a 1-byte device-type prefix followed
+    // by plain user text), only the flag byte itself is stripped.
+    //
+    // This matches the behaviour of aprslib (regex '^(`[0-9a-f]{4}|\'[0-9a-f]{10})')
+    // and Dire Wolf's deviceid_decode_mice(), which all other popular APRS
+    // clients follow — they never cut characters from a user comment.
+    if (comment.isNotEmpty &&
+        (comment.codeUnitAt(0) == 0x60 || comment.codeUnitAt(0) == 0x27)) {
+      final isBacktick = comment.codeUnitAt(0) == 0x60;
+      final hexCount = isBacktick ? 4 : 10;
+      if (comment.length > hexCount &&
+          comment.substring(1, hexCount + 1).split('').every(
+            (c) => (c.codeUnitAt(0) >= 0x30 && c.codeUnitAt(0) <= 0x39) ||
+                   (c.codeUnitAt(0) >= 0x41 && c.codeUnitAt(0) <= 0x46) ||
+                   (c.codeUnitAt(0) >= 0x61 && c.codeUnitAt(0) <= 0x66),
+          )) {
+        // Valid telemetry block — strip flag + hex digits.
+        comment = comment.substring(hexCount + 1);
+      } else {
+        // Not valid hex telemetry — backtick/apostrophe is a device-type prefix.
+        // Strip only 1 byte.
+        comment = comment.substring(1);
+      }
+    }
+    // Trim leading whitespace after prefix removal.
+    comment = comment.trimLeft();
+
+    // Base-91 altitude in Mic-E comment (APRS 1.0.1 ch.10 p.55):
+    // Three base-91 chars [!-{] followed by '}' encode altitude.
+    // altitude_feet = (c1-33)*91² + (c2-33)*91 + (c3-33) - 10000
+    // Checked before Yaesu block stripping because both start with 0x22.
+    double? micEAltitude;
+    if (comment.length >= 4) {
+      final c1 = comment.codeUnitAt(0);
+      final c2 = comment.codeUnitAt(1);
+      final c3 = comment.codeUnitAt(2);
+      final c4 = comment.codeUnitAt(3);
+      if (c1 >= 0x21 && c1 <= 0x7B &&
+          c2 >= 0x21 && c2 <= 0x7B &&
+          c3 >= 0x21 && c3 <= 0x7B &&
+          c4 == 0x7D) {  // 0x7D = '}'
+        micEAltitude = ((c1 - 33) * 91 * 91 +
+                        (c2 - 33) * 91 +
+                        (c3 - 33) - 10000).toDouble();
+        comment = comment.substring(4);
+      }
     }
 
-    // Mic-E message from the 3 message bits (standard messages).
+    // Yaesu proprietary block: starts with 0x22 (") and is terminated by
+    // the first '}' character.  Only reached if the altitude check above did
+    // not consume a 4-char block ending in '}'.
+    if (comment.isNotEmpty && comment.codeUnitAt(0) == 0x22) {
+      final closeIdx = comment.indexOf('}');
+      if (closeIdx >= 0) {
+        comment = comment.substring(closeIdx + 1);
+      } else if (comment.length >= 3) {
+        comment = comment.substring(3);
+      } else {
+        comment = '';
+      }
+    }
+
+    // Trim both ends before suffix detection so that a trailing space in the
+    // info field (common on Yaesu radios) doesn't prevent `_\d$` from matching.
+    comment = comment.trim();
+
+    // Resolve device from comment suffix before stripping the suffix.
+    final device = DeviceResolver.resolve(micECommentSuffix: comment);
+
+    // Strip device-indicator suffixes from the comment.
+    if (comment.endsWith(']=')) {
+      comment = comment.substring(0, comment.length - 2);
+    } else if (comment.endsWith(']\x22')) {
+      comment = comment.substring(0, comment.length - 2);
+    } else if (comment.endsWith(']') ||
+        comment.endsWith('^') ||
+        comment.endsWith('~')) {
+      comment = comment.substring(0, comment.length - 1);
+    } else if (_micEFt3dRe.hasMatch(comment)) {
+      // Strip trailing _\d
+      comment = comment.substring(0, comment.length - 2);
+    } else {
+      // Check for generic > suffix: strip from last > onward if valid.
+      final gtIdx = comment.lastIndexOf('>');
+      if (gtIdx >= 0 && gtIdx < comment.length - 1) {
+        final suffix = comment.substring(gtIdx + 1);
+        if (_micEGenericSuffixRe.hasMatch(suffix)) {
+          comment = comment.substring(0, gtIdx);
+        }
+      }
+    }
+    // Mic-E message from the 3 message bits.
     // Bits 2-0: A B C where A is most significant.
-    // Values 0-7 map to the 8 standard messages.
-    final micEMsg = _micEMessages.length > messageBits
-        ? _micEMessages[messageBits]
-        : 'Custom';
+    // stdBits accumulate P-Y chars, custBits accumulate A-J chars.
+    final String micEMsg;
+    if (stdBits == 0 && custBits == 0) {
+      micEMsg = 'Emergency';
+    } else if (stdBits > 0 && custBits > 0) {
+      micEMsg = 'Unknown';
+    } else if (stdBits > 0) {
+      micEMsg = _micEMessages[stdBits];
+    } else {
+      micEMsg = _micECustomMessages[custBits];
+    }
 
     return MicEPacket(
       rawLine: rawLine,
@@ -1159,14 +1285,21 @@ class AprsParser {
       transportSource: transportSource,
       lat: lat,
       lon: lon,
+      altitude: micEAltitude,
       course: course == 0 ? null : course,
       speed: speedKnots.toDouble(),
       symbolTable: symbolTable,
       symbolCode: symbolCode,
       comment: comment.trim(),
       micEMessage: micEMsg,
+      device: device,
     );
   }
+
+  // Regexes reused in Mic-E comment suffix stripping (mirrors DeviceResolver).
+  static final _micEFt3dRe = RegExp(r'_\d$');
+  // Alphanumeric only — prevents false positives on user comments containing '>'.
+  static final _micEGenericSuffixRe = RegExp(r'^[A-Za-z0-9]{2,10}$');
 
   // ---------------------------------------------------------------------------
   // Timestamp helpers

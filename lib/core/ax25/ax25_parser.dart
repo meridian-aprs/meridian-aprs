@@ -65,6 +65,13 @@ class Ax25Parser {
       final pid = bytes[offset + 1];
       final info = bytes.sublist(offset + 2).toList();
 
+      if (control != 0x03 || pid != 0xF0) {
+        return Ax25Err(
+          'Not a UI/APRS frame: control=0x${control.toRadixString(16)}, '
+          'pid=0x${pid.toRadixString(16)}',
+        );
+      }
+
       return Ax25Ok(
         Ax25Frame(
           destination: destination,

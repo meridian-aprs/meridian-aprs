@@ -96,6 +96,7 @@ Project-scoped sub-agents are defined in `.claude/agents/`. Delegate to them by 
 | `meridian-transport` | APRS-IS TCP, KISS/USB serial, KISS/BLE, transport abstractions — `lib/core/transport/` |
 | `meridian-ui` | All UI work — screens, widgets, map integration, design system — `lib/ui/`, `lib/screens/` |
 | `meridian-infra` | CI/CD, GitHub configuration, tooling, automation — `.github/` |
+| `aprs-auditor` | APRS/AX.25 protocol correctness audits — verifies parsers against APRS 1.0.1 + addenda, Mic-E errata, aprs-deviceid, and Dire Wolf; research-only, never modifies code |
 
 ---
 

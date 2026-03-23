@@ -1,6 +1,44 @@
+import 'dart:typed_data';
+
 import 'package:meridian_aprs/core/packet/aprs_packet.dart';
 import 'package:meridian_aprs/core/packet/aprs_parser.dart';
 import 'package:test/test.dart';
+
+// ---------------------------------------------------------------------------
+// AX.25 frame builder (mirrors the helper in ax25_parser_test.dart)
+// ---------------------------------------------------------------------------
+
+List<int> _encodeAddr(
+  String callsign,
+  int ssid, {
+  bool last = false,
+}) {
+  final bytes = List<int>.filled(7, 0);
+  final padded = callsign.padRight(6);
+  for (int i = 0; i < 6; i++) {
+    bytes[i] = padded.codeUnitAt(i) << 1;
+  }
+  bytes[6] = ((ssid & 0x0F) << 1) | (last ? 0x01 : 0x00);
+  return bytes;
+}
+
+Uint8List _buildAprsFrame({
+  required String dst,
+  int dstSsid = 0,
+  required String src,
+  int srcSsid = 0,
+  int control = 0x03,
+  int pid = 0xF0,
+  required List<int> info,
+}) {
+  final bytes = <int>[];
+  bytes.addAll(_encodeAddr(dst, dstSsid, last: false));
+  bytes.addAll(_encodeAddr(src, srcSsid, last: true));
+  bytes.add(control);
+  bytes.add(pid);
+  bytes.addAll(info);
+  return Uint8List.fromList(bytes);
+}
 
 void main() {
   late AprsParser parser;
@@ -697,6 +735,443 @@ void main() {
       expect(p.source, equals('WB4APR-14'));
       expect(p.destination, equals('APWW10'));
       expect(p.path, contains('TCPIP*'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Device resolution — PositionPacket
+  // ---------------------------------------------------------------------------
+
+  group('device resolution — PositionPacket', () {
+    test('destination APDR15 → device is APRSdroid', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APDR15,WIDE1-1:!4903.50N/07201.75W-Test',
+      );
+      expect(p.device, equals('APRSdroid'));
+    });
+
+    test('destination APDW2 → device is Dire Wolf', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APDW2,WIDE1-1:!4903.50N/07201.75W-Test',
+      );
+      expect(p.device, equals('Dire Wolf'));
+    });
+
+    test('unknown destination → device is null', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APXXX:!4903.50N/07201.75W-Test',
+      );
+      expect(p.device, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Device resolution and comment cleaning — MicEPacket
+  // ---------------------------------------------------------------------------
+
+  group('device resolution and comment cleaning — MicEPacket', () {
+    // Baseline Mic-E info: "`i<N Ol>/" (9 bytes), destination SX5E0A decodes
+    // to a valid position. We append comment bytes after the 9-byte fixed block.
+
+    // Yaesu proprietary prefix: '"' + 2 data bytes + '}' (terminator).
+    // Strip everything up to and including '}', then suffix _0 →
+    // comment should be 'comment', device 'Yaesu FT3D series'.
+    test('strips Yaesu 0x22 prefix (}-terminated) and detects _0 device suffix', () {
+      // Build raw line: 9-byte info prefix + '"4G}' (Yaesu block) + 'comment_0'
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x224G}comment_0';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('comment'));
+        expect(packet.device, equals('Yaesu FT3D series'));
+      }
+    });
+
+    // Backtick 2-channel telemetry: flag + exactly 4 hex digits → strip 5 bytes.
+    // Per APRS 1.0.1 ch.10: 2 channels × 2 hex digits = "a1b2" here.
+    test('strips backtick 2-channel telemetry (4 hex digits) and detects ] suffix', () {
+      // comment field: \x60 + "a1b2" (valid hex) + "comment]"
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2comment]';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('comment'));
+        expect(packet.device, equals('Kenwood (TH-D7x/TM-D7x)'));
+      }
+    });
+
+    // Apostrophe 5-channel telemetry: flag + exactly 10 hex digits → strip 11 bytes.
+    // Per APRS 1.0.1 ch.10: 5 channels × 2 hex digits = "a1b2c3d4e5" here.
+    // Followed by ]" (Kenwood TM-D710 suffix).
+    test('strips apostrophe 5-channel telemetry (10 hex digits) and detects ]" suffix (TM-D710)', () {
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x27a1b2c3d4e5comment]\x22';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('comment'));
+        expect(packet.device, equals('Kenwood TM-D710'));
+      }
+    });
+
+    // Apostrophe 5-channel telemetry + ]= suffix (Kenwood TH-D72A).
+    test('strips apostrophe 5-channel telemetry (10 hex digits) and detects ]= suffix', () {
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x27a1b2c3d4e5comment]=';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('comment'));
+        expect(packet.device, equals('Kenwood TH-D72A'));
+      }
+    });
+
+    // Real-world Yaesu FT3D packet: "`"3x}_0"
+    // Backtick followed by '"' (0x22) — not a hex digit → strip only 1 byte.
+    // The altitude decoder then sees '"3x}' → 6 ft.  After altitude strip the
+    // only remaining bytes are '_0' which the device resolver strips as
+    // FT3D suffix → empty comment, device 'Yaesu FT3D series', altitude ≈ 6 ft.
+    test('backtick + Yaesu altitude block: `"3x}_0 yields empty comment and altitude', () {
+      // Exact comment bytes from: KM4TJO-7>S6TU8R,...:`h&Vl!b[/`"3x}_0
+      // We use the same format but with the known-good SX5E0A destination.
+      // Comment field (after 9-byte position block): \x60\x22\x33\x78\x7D\x5F\x30
+      // = backtick + '"' + '3' + 'x' + '}' + '_' + '0'
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60\x22\x33\x78\x7D\x5F\x30';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals(''));
+        expect(packet.device, equals('Yaesu FT3D series'));
+        // altitude = (0x22-33)*91^2 + (0x33-33)*91 + (0x78-33) - 10000
+        //          = (1)*8281 + (18)*91 + (87) - 10000
+        //          = 8281 + 1638 + 87 - 10000 = 6
+        expect(packet.altitude, closeTo(6.0, 1.0));
+      }
+    });
+
+    // Real-world Yaesu FT3D with user text in the comment: the radio uses
+    // backtick (symbol table = ` at byte 8) + backtick comment prefix (byte 9)
+    // + user text + `_0` device suffix + trailing space.
+    // The 3-byte telemetry strip eats `\x60` + first 2 chars of user text.
+    // The trailing space must be trimmed BEFORE suffix detection so `_\d$`
+    // can match `_0`, giving stripped comment = remaining text without `_0`.
+    // Real-world Yaesu FT3D with user text: radio prepends a backtick before
+    // the user text and appends `_0` + trailing space.
+    // Comment bytes: \x60 + "Eric's FT3DR_0 " (trailing space after suffix).
+    // "Er" are NOT hex digits, so backtick is a 1-byte device-type prefix.
+    // Strip 1 byte → "Eric's FT3DR_0 " → trim → "Eric's FT3DR_0".
+    // _\d$ matches → strip "_0" → "Eric's FT3DR"; device = Yaesu FT3D series.
+    test('backtick + non-hex text + _0 suffix + trailing space: full comment preserved', () {
+      final rawLine =
+          "N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60Eric's FT3DR_0 ";
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals("Eric's FT3DR"));
+        expect(packet.device, equals('Yaesu FT3D series'));
+      }
+    });
+
+    // Actual 2-channel telemetry: backtick + 4 hex digits + remaining comment.
+    // "a1b2" are valid hex → strip flag + 4 hex = 5 bytes.
+    test('backtick + 4 hex digits = telemetry stripped, remainder kept', () {
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2rest]';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('rest'));
+        expect(packet.device, equals('Kenwood (TH-D7x/TM-D7x)'));
+      }
+    });
+
+    test('comment with no prefix and no suffix is unchanged', () {
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/plain comment';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('plain comment'));
+        expect(packet.device, isNull);
+      }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // B4: parseFrame latin1 decode
+  // ---------------------------------------------------------------------------
+
+  group('parseFrame — latin1 decode', () {
+    // Build a Mic-E AX.25 frame with info[1] = 0xB7 (183 decimal).
+    // utf8.decode(allowMalformed:true) would corrupt 0xB7 to U+FFFD (65533),
+    // causing b1 = 65533 - 28 = 65505 — a hopelessly invalid longitude.
+    // latin1.decode preserves it as 183, giving b1 = 183 - 28 = 155,
+    // lonDeg = 155 → after wrap correction a valid result.
+    //
+    // Destination SX5E0A: S=P+3 stdBit, X=P+8 stdBit, 5=digit, E=North,
+    // 0=no offset, A=West. This is the same destination used in other tests.
+    // Info bytes: [0x60, 0xB7, 0x4C, 0x50, 0x20, 0x4C, 0x6C, 0x3E, 0x2F]
+    // (backtick DTI, 0xB7 lon byte, then remaining Mic-E bytes)
+
+    test('parseFrame with latin1 byte 0xB7 produces MicEPacket', () {
+      final infoBytes = [0x60, 0xB7, 0x4C, 0x50, 0x20, 0x4C, 0x6C, 0x3E, 0x2F];
+      final frame = _buildAprsFrame(
+        dst: 'SX5E0A',
+        src: 'N0CALL',
+        srcSsid: 9,
+        info: infoBytes,
+      );
+      final packet = parser.parseFrame(frame);
+      expect(packet, isA<MicEPacket>());
+      expect(
+        (packet as MicEPacket).lon,
+        inInclusiveRange(-180.0, 180.0),
+      );
+    });
+
+    test('parseFrame and parse produce consistent lat/lon for latin1 0xB7', () {
+      // APRS-IS string with same destination/info using latin1 char 0xB7.
+      const rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60\xB7LPN Ol>/';
+      final fromString = parser.parse(rawLine);
+      expect(fromString, isA<MicEPacket>());
+
+      final infoBytes = [0x60, 0xB7, 0x4C, 0x50, 0x20, 0x4C, 0x6C, 0x3E, 0x2F];
+      final frame = _buildAprsFrame(
+        dst: 'SX5E0A',
+        src: 'N0CALL',
+        srcSsid: 9,
+        info: infoBytes,
+      );
+      final fromFrame = parser.parseFrame(frame);
+      expect(fromFrame, isA<MicEPacket>());
+
+      final p1 = fromString as MicEPacket;
+      final p2 = fromFrame as MicEPacket;
+      expect(p1.lat, closeTo(p2.lat, 1e-6));
+      expect(p1.lon, closeTo(p2.lon, 1e-6));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // B5: Item minimum name length (3-char minimum)
+  // ---------------------------------------------------------------------------
+
+  group('ItemPacket — minimum name length', () {
+    test('2-char item name (delimiter at index 2) is rejected', () {
+      final packet = parser.parse('W1ABC>APRS:)AB!4903.50N/07201.75W-');
+      expect(packet, isA<UnknownPacket>());
+    });
+
+    test('3-char item name is accepted', () {
+      final p = expectPacketType<ItemPacket>(
+        'W1ABC>APRS:)ABC!4903.50N/07201.75W-',
+      );
+      expect(p.itemName, equals('ABC'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // M7: AX.25 control/PID validation
+  // ---------------------------------------------------------------------------
+
+  group('AX.25 control/PID validation (via parseFrame)', () {
+    test('non-UI control byte (0x13) returns UnknownPacket', () {
+      final infoBytes = [0x21, 0x41]; // minimal info
+      final frame = _buildAprsFrame(
+        dst: 'APRS',
+        src: 'W1AW',
+        control: 0x13,
+        pid: 0xF0,
+        info: infoBytes,
+      );
+      final packet = parser.parseFrame(frame);
+      expect(packet, isA<UnknownPacket>());
+      expect(
+        (packet as UnknownPacket).reason,
+        contains('Not a UI/APRS frame'),
+      );
+    });
+
+    test('non-APRS PID (0xCF) returns UnknownPacket', () {
+      final infoBytes = [0x21, 0x41];
+      final frame = _buildAprsFrame(
+        dst: 'APRS',
+        src: 'W1AW',
+        control: 0x03,
+        pid: 0xCF,
+        info: infoBytes,
+      );
+      final packet = parser.parseFrame(frame);
+      expect(packet, isA<UnknownPacket>());
+      expect(
+        (packet as UnknownPacket).reason,
+        contains('Not a UI/APRS frame'),
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // M2: Compressed speed — pow formula (sByte=0 → speed=0.0, not -1.0)
+  // ---------------------------------------------------------------------------
+
+  group('PositionPacket compressed — speed formula', () {
+    // cByte=3 → course=12; sByte=0 → speed = pow(1.08,0)-1 = 0.0
+    // T byte: comprType=1 (course/speed) → bits 5-4 of (T-33) = 0b0001_0000 = 16
+    //   T = 33+16 = 49 = '1'
+    // c byte: cByte+33 = 36 = '$'
+    // s byte: sByte+33 = 33 = '!'
+    // Packet uses existing compressed pos base '/5L!!<*e7>' with csT='$!1'
+    test('sByte=0 produces speed=0.0 not -1.0', () {
+      final p = expectPacketType<PositionPacket>(
+        r'N0CALL>APRS:=/5L!!<*e7>$!1Comment',
+      );
+      expect(p.speed, equals(0.0));
+      expect(p.course, equals(12));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // M6: Compressed position — space c byte leaves course/speed null
+  // ---------------------------------------------------------------------------
+
+  group('PositionPacket compressed — space c byte', () {
+    // First csT char is 0x20 (space): no course/speed data.
+    // Using the same base '/5L!!<*e7>' with csT=' AB' (space + two data bytes).
+    test('space c byte produces null course and speed', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APRS:=/5L!!<*e7> ABComment',
+      );
+      expect(p.course, isNull);
+      expect(p.speed, isNull);
+      expect(p.comment, equals('Comment'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // M8: Uncompressed position — course/speed stripped from comment
+  // ---------------------------------------------------------------------------
+
+  group('PositionPacket uncompressed — course/speed stripped from comment', () {
+    test('course/speed prefix stripped from comment', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APRS:!4903.50N/07201.75W>059/030My comment',
+      );
+      expect(p.comment, equals('My comment'));
+    });
+
+    test('000/000 course/speed leaves comment unchanged', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APRS:!4903.50N/07201.75W>000/000My comment',
+      );
+      expect(p.comment, equals('000/000My comment'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // B1: Mic-E Standard vs Custom message type
+  // ---------------------------------------------------------------------------
+
+  group('MicEPacket — Standard vs Custom message bits', () {
+    // Destination ABJE0A:
+    //   'A'(0x41=A+0) i=0 → custBits |= 0b100 (4)
+    //   'B'(0x42=A+1) i=1 → custBits |= 0b010 (2)
+    //   'J'(0x4A=A+9) i=2 → custBits |= 0b001 (1)
+    //   'E'(A+4) i=3 → isNorth, '0' i=4 → no offset, 'A'(A+0) i=5 → isWest
+    //   custBits = 0b111 = 7, stdBits = 0 → _micECustomMessages[7] = 'Custom-6'
+    test('Mic-E Custom message bits (A-J) decode to Custom-6', () {
+      final rawLine = 'N0CALL-9>ABJE0A,WIDE1-1:\x60i<N Ol>/';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Custom-6'));
+    });
+
+    // Destination ASRE0A:
+    //   'A'(0x41) i=0 → custBits |= 0b100
+    //   'S'(0x53=P+3) i=1 → stdBits |= 0b010
+    //   'R'(0x52=P+2) i=2 → stdBits |= 0b001
+    //   custBits=0b100≠0, stdBits=0b011≠0 → mixed → 'Unknown'
+    test('Mic-E mixed Standard+Custom bits decode to Unknown', () {
+      final rawLine = 'N0CALL-9>ASRE0A,WIDE1-1:\x60i<N Ol>/';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Unknown'));
+    });
+
+    // Regression: P-Y only → stdBits → standard table (Off Duty, In Service)
+    test('regression: Off Duty still decodes correctly', () {
+      final packet = parser.parse('N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
+    });
+
+    test('regression: In Service still decodes correctly', () {
+      final packet = parser.parse('N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('In Service'));
+    });
+
+    // All digits → stdBits=0, custBits=0 → Emergency
+    test('regression: Emergency (all digits) still decodes correctly', () {
+      final packet = parser.parse('N0CALL-9>385E0A,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Emergency'));
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // B2: Mic-E base-91 altitude from comment
+  // ---------------------------------------------------------------------------
+
+  group('MicEPacket — base-91 altitude', () {
+    // 10000 ft: altFeet+10000=20000
+    //   c1=2 → char 35='#', c2=37 → char 70='F', c3=71 → char 104='h', c4='}'
+    //   Verify: (2)*8281 + (37)*91 + (71) - 10000 = 16562+3367+71-10000 = 10000
+    //   c1 is '#' (0x23), not '"' (0x22), so the Yaesu stripper is not triggered.
+    test('base-91 altitude 10000 ft decoded from comment', () {
+      final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x23Fh}';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).altitude, closeTo(10000.0, 0.5));
+    });
+
+    // -1720 ft: altFeet+10000=8280
+    //   c1=0 → char 33='!', c2=90 → char 123='{', c3=90 → char 123='{', c4='}'
+    //   Verify: (0)*8281 + (90)*91 + (90) - 10000 = 0+8190+90-10000 = -1720
+    //   c1 is '!' (0x21), not '"' (0x22), so Yaesu stripper is not triggered.
+    test('base-91 altitude -1720 ft (below sea level) decoded from comment', () {
+      // info comment bytes: '!' '{' '{' '}' = 0x21 0x7B 0x7B 0x7D
+      final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/!\x7B\x7B\x7D';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).altitude, closeTo(-1720.0, 0.5));
+    });
+
+    test('comment with no altitude prefix leaves altitude null', () {
+      final rawLine =
+          'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/plain comment';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).altitude, isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // B3: Compressed position GGA altitude
+  // ---------------------------------------------------------------------------
+
+  group('PositionPacket compressed — GGA altitude', () {
+    // altitude ≈ 1000 ft: pow(1.002, x) = 1000 → x ≈ 3453
+    //   3453 = 37*91 + 86 → cByte=37 → char 70='F', sByte=86 → char 119='w'
+    //   T byte: comprType=2 → bits 5-4 of (T-33) = 0b10 = 0x20 → T=65='A'
+    test('GGA altitude ~1000 ft decoded from compressed position', () {
+      final p = expectPacketType<PositionPacket>(
+        r'N0CALL>APRS:=/5L!!<*e7>FwAMy comment',
+      );
+      expect(p.altitude, isNotNull);
+      expect(p.altitude!, closeTo(1000.0, 50.0));
     });
   });
 }
