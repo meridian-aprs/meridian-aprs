@@ -104,6 +104,7 @@ class AprsIsTransport implements AprsTransport {
 
   /// Permanently shut down this transport and release all resources.
   /// Call this only when the owning service is being destroyed.
+  @override
   Future<void> dispose() async {
     await disconnect();
     await _controller.close();

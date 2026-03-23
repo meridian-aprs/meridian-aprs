@@ -93,8 +93,9 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   @override
   Future<List<BluetoothService>> discoverServices() async {
     discoverCallCount++;
-    if (discoverThrows)
+    if (discoverThrows) {
       throw Exception('FakeBleDeviceAdapter: discoverServices failed');
+    }
     return services;
   }
 
