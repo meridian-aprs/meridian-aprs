@@ -118,7 +118,10 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
                       horizontal: 8,
                     ),
                     itemCount: messages.length,
-                    itemBuilder: (_, i) => _MessageBubble(entry: messages[i]),
+                    itemBuilder: (_, i) => _MessageBubble(
+                      entry: messages[i],
+                      peerCallsign: widget.peerCallsign,
+                    ),
                   ),
           ),
           _ComposeBar(controller: _inputCtrl, onSend: _send),
@@ -129,9 +132,10 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.entry});
+  const _MessageBubble({required this.entry, required this.peerCallsign});
 
   final MessageEntry entry;
+  final String peerCallsign;
 
   String _formatTime(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -170,7 +174,65 @@ class _MessageBubble extends StatelessWidget {
         size: 14,
         color: Colors.red,
       ),
+      MessageStatus.cancelled => Icon(
+        Symbols.do_not_disturb_on,
+        size: 14,
+        color: Colors.grey.shade500,
+      ),
     };
+  }
+
+  /// Shows a context menu anchored to [globalPosition] with actions relevant
+  /// to the current message status. No-ops for incoming messages or messages
+  /// in a terminal/unactionable state.
+  void _showContextMenu(BuildContext context, Offset globalPosition) {
+    if (!entry.isOutgoing) return;
+
+    final canCancel =
+        entry.status == MessageStatus.pending ||
+        entry.status == MessageStatus.retrying;
+    final canResend = entry.status == MessageStatus.failed;
+    if (!canCancel && !canResend) return;
+
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final position = RelativeRect.fromRect(
+      globalPosition & Size.zero,
+      Offset.zero & overlay.size,
+    );
+
+    showMenu<String>(
+      context: context,
+      position: position,
+      items: [
+        if (canCancel)
+          const PopupMenuItem(
+            value: 'cancel',
+            child: ListTile(
+              leading: Icon(Symbols.cancel_schedule_send),
+              title: Text('Cancel'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+        if (canResend)
+          const PopupMenuItem(
+            value: 'resend',
+            child: ListTile(
+              leading: Icon(Symbols.send),
+              title: Text('Resend'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+      ],
+    ).then((action) {
+      if (!context.mounted) return;
+      final svc = context.read<MessageService>();
+      if (action == 'cancel') {
+        svc.cancelMessage(entry.localId, peerCallsign);
+      } else if (action == 'resend') {
+        svc.resendMessage(entry.localId, peerCallsign);
+      }
+    });
   }
 
   @override
@@ -185,7 +247,7 @@ class _MessageBubble extends StatelessWidget {
         ? theme.colorScheme.onPrimary
         : theme.colorScheme.onSurface;
 
-    return Align(
+    final bubble = Align(
       alignment: isOut ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -237,6 +299,21 @@ class _MessageBubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+
+    // Only outgoing messages in an actionable state get the context menu.
+    final canCancel =
+        entry.status == MessageStatus.pending ||
+        entry.status == MessageStatus.retrying;
+    final canResend = entry.status == MessageStatus.failed;
+    if (!isOut || (!canCancel && !canResend)) return bubble;
+
+    return GestureDetector(
+      // Mobile: long press
+      onLongPressStart: (d) => _showContextMenu(context, d.globalPosition),
+      // Desktop: right click
+      onSecondaryTapUp: (d) => _showContextMenu(context, d.globalPosition),
+      child: bubble,
     );
   }
 }

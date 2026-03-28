@@ -21,7 +21,7 @@ import 'station_service.dart';
 import 'tx_service.dart';
 
 /// Delivery state of an outgoing message.
-enum MessageStatus { pending, acked, retrying, failed, rejected }
+enum MessageStatus { pending, acked, retrying, failed, rejected, cancelled }
 
 /// A single message in a conversation thread.
 class MessageEntry {
@@ -133,6 +133,50 @@ class MessageService extends ChangeNotifier {
     await _transmitMessage(peer, text, wireId);
     _scheduleRetry(entry, peer, attempt: 0);
     notifyListeners();
+  }
+
+  /// Cancel a pending or retrying outgoing message.
+  ///
+  /// Stops the retry timer. If an ACK arrives later it is still applied so the
+  /// message will transition to [MessageStatus.acked] (the remote station may
+  /// have received it before we gave up waiting).
+  void cancelMessage(String localId, String peerCallsign) {
+    _retryTimers[localId]?.cancel();
+    _retryTimers.remove(localId);
+
+    final conv = _conversations[peerCallsign.toUpperCase()];
+    if (conv == null) return;
+    for (final entry in conv.messages) {
+      if (entry.localId == localId &&
+          (entry.status == MessageStatus.pending ||
+              entry.status == MessageStatus.retrying)) {
+        entry.status = MessageStatus.cancelled;
+        break;
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Re-send a message that has reached [MessageStatus.failed].
+  ///
+  /// Resets retry state and transmits immediately, restarting the full retry
+  /// schedule from the beginning.
+  Future<void> resendMessage(String localId, String peerCallsign) async {
+    final peer = peerCallsign.toUpperCase();
+    final conv = _conversations[peer];
+    if (conv == null) return;
+    for (final entry in conv.messages) {
+      if (entry.localId == localId && entry.status == MessageStatus.failed) {
+        entry.status = MessageStatus.pending;
+        entry.retryCount = 0;
+        notifyListeners();
+        if (entry.wireId != null) {
+          await _transmitMessage(peer, entry.text, entry.wireId!);
+        }
+        _scheduleRetry(entry, peer, attempt: 0);
+        break;
+      }
+    }
   }
 
   /// Mark all messages in [peerCallsign]'s thread as read.
@@ -263,9 +307,10 @@ class MessageService extends ChangeNotifier {
 
     final delay = Duration(seconds: _retryDelays[attempt]);
     _retryTimers[entry.localId] = Timer(delay, () async {
-      // Check if already acked/rejected since scheduling.
+      // Check if already settled since scheduling.
       if (entry.status == MessageStatus.acked ||
-          entry.status == MessageStatus.rejected) {
+          entry.status == MessageStatus.rejected ||
+          entry.status == MessageStatus.cancelled) {
         return;
       }
 
