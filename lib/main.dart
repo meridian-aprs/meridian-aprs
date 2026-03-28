@@ -61,6 +61,7 @@ Future<void> main() async {
         '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
   );
   final service = StationService(transport);
+  await service.loadPersistedHistory(prefs);
   final tncService = TncService(service);
   await tncService.loadPersistedConfig();
 
@@ -78,6 +79,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider<ThemeController>.value(value: themeController),
+        ChangeNotifierProvider<StationService>.value(value: service),
         ChangeNotifierProvider<TncService>.value(value: tncService),
         ChangeNotifierProvider<StationSettingsService>.value(
           value: stationSettings,

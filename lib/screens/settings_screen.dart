@@ -12,6 +12,7 @@ import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
 import '../services/beaconing_service.dart';
 import 'location_picker_screen.dart';
+import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../services/tnc_service.dart';
 import '../services/tx_service.dart';
@@ -34,7 +35,7 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView.separated(
-        itemCount: 10,
+        itemCount: 11,
         separatorBuilder: (context, index) =>
             const Divider(indent: 16, endIndent: 16),
         itemBuilder: (context, index) => [
@@ -44,6 +45,7 @@ class SettingsScreen extends StatelessWidget {
           const _BeaconingSection(),
           const _ConnectionSection(),
           const _TncSection(),
+          const _HistorySection(),
           const _DisplaySection(),
           const _NotificationsSection(),
           const _AccountSection(),
@@ -1543,6 +1545,106 @@ class _FieldLabel extends StatelessWidget {
           color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+class _HistorySection extends StatelessWidget {
+  const _HistorySection();
+
+  static const _packetOptions = [100, 250, 500, 1000, 2500];
+  static const _stationOptions = [100, 250, 500, 1000, 5000];
+
+  @override
+  Widget build(BuildContext context) {
+    final svc = context.watch<StationService>();
+
+    // Clamp the stored value to the nearest option in case the default
+    // changed between versions.
+    int nearest(int value, List<int> options) {
+      return options.reduce(
+        (a, b) => (a - value).abs() <= (b - value).abs() ? a : b,
+      );
+    }
+
+    final packetValue = nearest(svc.maxPackets, _packetOptions);
+    final stationValue = nearest(svc.maxStations, _stationOptions);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('History'),
+
+        // Packet log limit
+        ListTile(
+          title: const Text('Packet log limit'),
+          subtitle: const Text('Max packets retained in the log and on disk.'),
+          trailing: DropdownButton<int>(
+            value: packetValue,
+            underline: const SizedBox.shrink(),
+            items: _packetOptions
+                .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
+                .toList(),
+            onChanged: (n) {
+              if (n != null) svc.setMaxPackets(n);
+            },
+          ),
+        ),
+
+        // Station history limit
+        ListTile(
+          title: const Text('Station history limit'),
+          subtitle: const Text('Max stations retained in memory and on disk.'),
+          trailing: DropdownButton<int>(
+            value: stationValue,
+            underline: const SizedBox.shrink(),
+            items: _stationOptions
+                .map((n) => DropdownMenuItem(value: n, child: Text('$n')))
+                .toList(),
+            onChanged: (n) {
+              if (n != null) svc.setMaxStations(n);
+            },
+          ),
+        ),
+
+        // Clear actions
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Wrap(
+            spacing: 8,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Symbols.delete_sweep, size: 18),
+                label: const Text('Clear packet log'),
+                onPressed: () async {
+                  await context.read<StationService>().clearPacketLog();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Packet log cleared')),
+                    );
+                  }
+                },
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Symbols.location_off, size: 18),
+                label: const Text('Clear stations'),
+                onPressed: () async {
+                  await context.read<StationService>().clearStationHistory();
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Station history cleared')),
+                    );
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
