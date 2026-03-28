@@ -24,6 +24,7 @@ dependencies:
   material_symbols_icons: ^4.2906.0
   flutter_blue_plus: ^1.33.0
   geolocator: ^13.0.0
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

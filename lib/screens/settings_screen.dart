@@ -6,9 +6,12 @@ import 'package:flutter/services.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import 'package:latlong2/latlong.dart';
+
 import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
 import '../services/beaconing_service.dart';
+import 'location_picker_screen.dart';
 import '../services/station_settings_service.dart';
 import '../services/tnc_service.dart';
 import '../services/tx_service.dart';
@@ -624,6 +627,14 @@ class _LocationSourcePicker extends StatelessWidget {
               ],
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: OutlinedButton.icon(
+              icon: const Icon(Symbols.map, size: 18),
+              label: const Text('Pick on map…'),
+              onPressed: () => _openPicker(context, svc),
+            ),
+          ),
           if (svc.hasManualPosition)
             ListTile(
               dense: true,
@@ -666,6 +677,29 @@ class _LocationSourcePicker extends StatelessWidget {
     if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
     context.read<StationSettingsService>().setManualPosition(lat, lon);
     FocusScope.of(context).unfocus();
+  }
+
+  Future<void> _openPicker(
+    BuildContext context,
+    StationSettingsService svc,
+  ) async {
+    final initial = svc.hasManualPosition
+        ? LatLng(svc.manualLat!, svc.manualLon!)
+        : null;
+    final result = await Navigator.of(context).push<LatLng>(
+      MaterialPageRoute(
+        // TODO(ios): CupertinoPageRoute
+        builder: (_) => LocationPickerScreen(initial: initial),
+      ),
+    );
+    if (result != null && context.mounted) {
+      latCtrl.text = result.latitude.toStringAsFixed(6);
+      lonCtrl.text = result.longitude.toStringAsFixed(6);
+      context.read<StationSettingsService>().setManualPosition(
+        result.latitude,
+        result.longitude,
+      );
+    }
   }
 }
 
