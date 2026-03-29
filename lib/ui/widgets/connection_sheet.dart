@@ -11,7 +11,6 @@ import '../../core/transport/tnc_preset.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
 import 'ble_scanner_sheet.dart';
-import 'meridian_bottom_sheet.dart';
 import 'meridian_status_pill.dart';
 
 /// Bottom sheet content for managing APRS-IS and TNC connection settings.
@@ -44,6 +43,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
   StreamSubscription<AprsPacket>? _packetSub;
   int _aprsIsCount = 0;
   int _tncCount = 0;
+  bool _showingBleScanner = false;
 
   static bool get _isSerialPlatform =>
       !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
@@ -146,6 +146,19 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
     final theme = Theme.of(context);
     final tncStatus = widget.tncService.currentStatus;
     final aprsStatus = widget.stationService.currentConnectionStatus;
+
+    // When the BLE scanner is active, replace sheet content inline — no second
+    // sheet, no extra drag handle.
+    if (_showingBleScanner) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
+        child: BleScannerSheet(
+          tncService: widget.tncService,
+          showDragHandle: false,
+          onBack: () => setState(() => _showingBleScanner = false),
+        ),
+      );
+    }
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
@@ -415,7 +428,7 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
                   : FilledButton.icon(
                       onPressed: isBleConnecting
                           ? null
-                          : () => _openBleScanner(theme),
+                          : () => setState(() => _showingBleScanner = true),
                       icon: const Icon(Symbols.bluetooth_searching),
                       label: Text(
                         isBleConnecting ? 'Connecting…' : 'Scan & Connect',
@@ -424,16 +437,6 @@ class _ConnectionSheetState extends State<ConnectionSheet> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _openBleScanner(ThemeData theme) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => MeridianBottomSheet(
-        child: BleScannerSheet(tncService: widget.tncService),
       ),
     );
   }

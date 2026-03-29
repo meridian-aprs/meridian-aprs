@@ -45,11 +45,27 @@ class _BleFilterOption {
 /// service UUID.
 ///
 /// Tapping "Connect" on a device calls [TncService.connectBle] and closes
-/// the sheet on success.
+/// the sheet (or calls [onBack] when embedded inline).
+///
+/// Set [showDragHandle] to false and provide [onBack] when embedding this
+/// widget inside another sheet instead of presenting it as a standalone modal.
 class BleScannerSheet extends StatefulWidget {
-  const BleScannerSheet({super.key, required this.tncService});
+  const BleScannerSheet({
+    super.key,
+    required this.tncService,
+    this.showDragHandle = true,
+    this.onBack,
+  });
 
   final TncService tncService;
+
+  /// Whether to render the drag handle at the top. Set to false when embedded
+  /// inline inside another sheet that already has its own handle.
+  final bool showDragHandle;
+
+  /// Called after a successful connection (or when the user taps back) instead
+  /// of [Navigator.pop]. Provide this when the widget is embedded inline.
+  final VoidCallback? onBack;
 
   @override
   State<BleScannerSheet> createState() => _BleScannerSheetState();
@@ -156,7 +172,13 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
 
     try {
       await widget.tncService.connectBle(result.device);
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) {
+        if (widget.onBack != null) {
+          widget.onBack!();
+        } else {
+          Navigator.of(context).pop();
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -206,26 +228,35 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Drag handle.
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.outlineVariant,
-                borderRadius: BorderRadius.circular(2),
+          // Drag handle — omitted when embedded inside another sheet.
+          if (widget.showDragHandle)
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             ),
-          ),
 
           // Title row.
           Row(
             children: [
-              Icon(
-                Symbols.bluetooth_searching,
-                color: theme.colorScheme.primary,
-              ),
+              if (widget.onBack != null)
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: widget.onBack,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                )
+              else
+                Icon(
+                  Symbols.bluetooth_searching,
+                  color: theme.colorScheme.primary,
+                ),
               const SizedBox(width: 10),
               Text('BLE TNC', style: theme.textTheme.titleMedium),
             ],
