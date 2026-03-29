@@ -187,15 +187,17 @@ class TxService extends ChangeNotifier {
     final nowConnected = status == ConnectionStatus.connected;
 
     if (_tncWasConnected && !nowConnected) {
-      // TNC just disconnected.
+      // TNC just disconnected — notify when auto/tnc since effective falls back
+      // to APRS-IS and the user should know.
       if (_preference == TxTransportPref.tnc ||
-          (_preference == TxTransportPref.auto)) {
+          _preference == TxTransportPref.auto) {
         _eventController.add(TxEventTncDisconnected());
       }
     } else if (!_tncWasConnected && nowConnected) {
-      // TNC just reconnected.
-      if (_preference == TxTransportPref.tnc ||
-          (_preference == TxTransportPref.auto)) {
+      // TNC just connected — only prompt when the user is explicitly on APRS-IS.
+      // For auto/tnc preferences there is nothing to decide: auto already picks
+      // RF automatically, and tnc preference means RF is already intended.
+      if (_preference == TxTransportPref.aprsIs) {
         _eventController.add(TxEventTncReconnected());
       }
     }

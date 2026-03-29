@@ -142,7 +142,7 @@ class _MapScreenState extends State<MapScreen> {
       if (!txService.aprsIsAvailable) return;
       messenger.showMaterialBanner(
         MaterialBanner(
-          content: const Text('TNC reconnected'),
+          content: const Text('TNC connected — switch to RF?'),
           actions: [
             TextButton(
               onPressed: () {
