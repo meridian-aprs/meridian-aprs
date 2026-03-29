@@ -173,6 +173,12 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
+                        isAnyConnected:
+                            widget.connectionStatus ==
+                                ConnectionStatus.connected ||
+                            widget.tncConnectionStatus ==
+                                ConnectionStatus.connected,
+                        onNotConnectedTap: _navigateToConnection,
                       ),
                     ),
                     // Collapsed bottom panel — tapping switches to the Log tab.

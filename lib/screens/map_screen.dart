@@ -16,7 +16,6 @@ import '../theme/meridian_colors.dart';
 import '../theme/theme_controller.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/station_info_sheet.dart';
-import 'connection_screen.dart';
 import 'settings_screen.dart';
 
 /// Root screen that owns the [StationService] lifecycle and builds the
@@ -209,8 +208,8 @@ class _MapScreenState extends State<MapScreen> {
 
   Marker _buildMarker(Station s) => Marker(
     point: LatLng(s.lat, s.lon),
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     child: GestureDetector(
       onTap: () => showModalBottomSheet(
         context: context,
@@ -221,7 +220,7 @@ class _MapScreenState extends State<MapScreen> {
         child: AprsSymbolWidget(
           symbolTable: s.symbolTable,
           symbolCode: s.symbolCode,
-          size: 36,
+          size: 44,
           color: _markerColor(s.symbolCode),
         ),
       ),
@@ -249,19 +248,6 @@ class _MapScreenState extends State<MapScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
-  }
-
-  /// Push the Connection screen as a full-screen route.
-  ///
-  /// Used by the not-connected nudge on the map. On desktop and tablet the
-  /// Connection screen is also reachable via the navigation rail.
-  /// TODO(ios): switch to CupertinoPageRoute once iOS theme validated.
-  // ignore: unused_element — wired to the map nudge chip in feat/v0.6-map-polish
-  void _navigateToConnection() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const ConnectionScreen()),
     );
   }
 

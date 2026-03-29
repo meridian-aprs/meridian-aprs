@@ -171,6 +171,12 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
+                        isAnyConnected:
+                            widget.connectionStatus ==
+                                ConnectionStatus.connected ||
+                            widget.tncConnectionStatus ==
+                                ConnectionStatus.connected,
+                        onNotConnectedTap: _navigateToConnection,
                       ),
                     ),
                     AnimatedSize(

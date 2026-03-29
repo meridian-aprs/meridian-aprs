@@ -166,6 +166,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 initialCenter: widget.initialCenter,
                 initialZoom: widget.initialZoom,
                 northUpLocked: widget.northUpLocked,
+                isAnyConnected:
+                    widget.connectionStatus == ConnectionStatus.connected ||
+                    widget.tncConnectionStatus == ConnectionStatus.connected,
+                onNotConnectedTap: _navigateToConnection,
               ),
               // FAB cluster — bottom-right above navigation bar.
               SafeArea(
