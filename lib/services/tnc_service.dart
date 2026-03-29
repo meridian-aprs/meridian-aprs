@@ -100,8 +100,16 @@ class TncService extends ChangeNotifier {
     await _cancelBridge();
   }
 
-  /// Returns available serial port names. Empty on non-desktop platforms.
-  List<String> availablePorts() => SerialKissTransport.availablePorts();
+  /// Returns available serial port names. Empty on non-desktop platforms or
+  /// when the native serial library cannot be loaded (e.g. in test environments
+  /// without a real serial driver installed).
+  List<String> availablePorts() {
+    try {
+      return SerialKissTransport.availablePorts();
+    } catch (_) {
+      return const [];
+    }
+  }
 
   /// Persist [config] as the active TNC configuration without connecting.
   ///

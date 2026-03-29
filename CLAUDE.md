@@ -52,7 +52,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | v0.5 — Beaconing | Transmit path, position beaconing, message sending |
 | v1.0 — Polish | UI refinement, settings, documentation, onboarding |
 
-**Current status: v0.5 Beaconing complete. TX capability added for the first time: `AprsEncoder` + `Ax25Encoder` (pure Dart), `SmartBeaconing` algorithm, `TxService` (global TX router), `BeaconingService` (Manual/Auto/Smart modes, geolocator GPS), `MessageService` (threaded conversations, APRS §14 retry/ACK). Messages screens, BeaconFAB updates, scaffold nav wiring, and TNC disconnect banners implemented. 252 tests passing. Passcode secure storage and physical TX validation deferred to v1.0. Previous: v0.4 BLE — `KissTncTransport` + `TransportManager` + `BleTncTransport` (Mobilinkd-compatible). Three-tier platform theme — Android (M3 Expressive + Dynamic Color), iOS (Cupertino, pending simulator validation), Desktop (M3 static brand).**
+**Current status: v0.6 Connection UI in progress (branch `feat/v0.6-connection-screen`). `ConnectionScreen` promoted to first-class nav destination on all three scaffold tiers; `ConnectionNavIcon` (reactive Selector2 nav icon); `_ConnectionStatusChip` in desktop AppBar; `TncService.availablePorts()` wrapped for test safety. 274 tests passing. Previous: v0.5 Beaconing complete — `AprsEncoder` + `Ax25Encoder` (pure Dart), `SmartBeaconing`, `TxService` (global TX router), `BeaconingService`, `MessageService` (APRS §14 retry/ACK). Three-tier platform theme — Android (M3 Expressive + Dynamic Color), iOS (Cupertino, pending simulator validation), Desktop (M3 static brand). ADRs 001–024 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release

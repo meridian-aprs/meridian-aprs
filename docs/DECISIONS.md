@@ -326,3 +326,23 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 **Rationale:** Amateur radio operators almost always have one TX path available at a time (either connected to a TNC or not). A per-packet or per-destination preference would add UI complexity with no real-world benefit for the v0.5 use case. `auto` mode (default) provides sensible behaviour: use TNC when connected, fall back to APRS-IS otherwise. Advanced users who want explicit control can select `aprsIs` or `tnc` in Settings.
 
 **Consequences:** `TxService` subscribes to `TncService.connectionState`. On TNC disconnect while the effective transport is TNC, it emits `TxEventTncDisconnected` (drives a banner) without persisting a fallback — the stored preference remains `tnc` so the switch-back offer can be presented on reconnect. This means a TNC disconnection while Meridian is backgrounded is surfaced to the user on next interaction rather than silently discarded.
+
+---
+
+## ADR-024: Connection as first-class navigation destination (v0.6)
+
+**Status:** Accepted
+**Date:** 2026-03-29
+
+**Decision:** Replace the `ConnectionSheet` modal bottom sheet with a full-screen `ConnectionScreen` as a proper navigation destination in all three scaffold tiers. On mobile it becomes the 5th `NavigationBar` item; on tablet/desktop the existing transient rail item is converted to a real `IndexedStack` child.
+
+**Rationale:** The previous modal sheet required users to know to tap the AppBar status pills or the rail item to manage connections — there was no persistent visual affordance beyond a small pill. As the app gains BLE and serial TNC support alongside APRS-IS, connection management grows in complexity (multiple active transports, TX routing, per-transport connect/disconnect). A dedicated screen with a reactive nav icon is a more appropriate container. A modal sheet that is growing in complexity is a sign it should become a screen.
+
+**Key sub-decisions:**
+- `ConnectionNavIcon` uses `Selector2<StationService, TncService, ...>` (not `Consumer2`) to avoid rebuilding on every ingested packet.
+- BLE tab lazy-instantiates `BleScannerSheet` via `if (_tab == 1)` rather than an `IndexedStack`, preventing the Bluetooth permission check from firing before the user navigates to that tab.
+- APRS-IS server/port/filter fields remain read-only for v0.6 — `AprsIsTransport` is constructed once in `main.dart` with hardcoded defaults. Mutable server config is deferred to v0.7.
+- On desktop, `_ConnectionStatusChip` in the AppBar replaces the two separate `MeridianStatusPill` widgets with a single combined chip showing "APRS-IS + TNC", "APRS-IS", "TNC", or "Not connected".
+- The map screen's "not connected" nudge (Branch 2) uses `Navigator.push(ConnectionScreen)` as a full-screen route rather than a callback to switch the scaffold's nav index. This avoids coupling `MapScreen` to scaffold internals and works correctly across all three breakpoints.
+
+**Consequences:** `ConnectionSheet` is retained but no longer wired to any nav action — it can be deleted in a cleanup PR once confirmed unused. `StationService` must be provided via the `Provider` tree (not just passed as a constructor arg to `MapScreen`) so that `ConnectionScreen` can access it from `context`; the widget test was updated accordingly.

@@ -8,14 +8,14 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:provider/provider.dart';
 
+import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
-import '../widgets/connection_sheet.dart';
-import '../widgets/meridian_bottom_sheet.dart';
+import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
 import 'meridian_map.dart';
 
@@ -23,8 +23,8 @@ import 'meridian_map.dart';
 /// collapsed bottom panel.
 ///
 /// The [NavigationRail] provides in-place tab switching via [IndexedStack]
-/// for Map, Log, Stations, and Messages. Connection opens a bottom sheet;
-/// Settings pushes a full-screen route.
+/// for Map, Log, Stations, Messages, and Connection. Settings pushes a
+/// full-screen route.
 class TabletScaffold extends StatefulWidget {
   const TabletScaffold({
     super.key,
@@ -60,21 +60,11 @@ class TabletScaffold extends StatefulWidget {
 }
 
 class _TabletScaffoldState extends State<TabletScaffold> {
-  // Indices 0-3 correspond to Map, Log, Stations, Messages.
+  // Indices 0-4 correspond to Map, Log, Stations, Messages, Connection.
   int _selectedIndex = 0;
 
-  void _showConnectionSheet(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => MeridianBottomSheet(
-        initialSize: 0.65,
-        child: ConnectionSheet(
-          stationService: widget.service,
-          tncService: widget.tncService,
-        ),
-      ),
-    );
+  void _navigateToConnection() {
+    setState(() => _selectedIndex = 4);
   }
 
   @override
@@ -86,14 +76,14 @@ class _TabletScaffoldState extends State<TabletScaffold> {
           MeridianStatusPill(
             status: widget.connectionStatus,
             label: 'APRS-IS',
-            onTap: () => _showConnectionSheet(context),
+            onTap: _navigateToConnection,
           ),
           if (!kIsWeb &&
               (Platform.isLinux || Platform.isMacOS || Platform.isWindows))
             MeridianStatusPill(
               label: 'TNC',
               status: widget.tncConnectionStatus,
-              onTap: () => _showConnectionSheet(context),
+              onTap: _navigateToConnection,
             ),
           IconButton(
             icon: Icon(
@@ -118,12 +108,7 @@ class _TabletScaffoldState extends State<TabletScaffold> {
             extended: false,
             selectedIndex: _selectedIndex,
             onDestinationSelected: (i) {
-              if (i == 4) {
-                // Connection — transient action; open sheet without changing
-                // the persistent rail selection.
-                _showConnectionSheet(context);
-                return;
-              } else if (i == 5) {
+              if (i == 5) {
                 widget.onNavigateToSettings();
                 return;
               }
@@ -160,8 +145,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                 label: const Text('Messages'),
               ),
               const NavigationRailDestination(
-                icon: Icon(Symbols.router),
-                selectedIcon: Icon(Symbols.router),
+                icon: ConnectionNavIcon(),
+                selectedIcon: ConnectionNavIcon(),
                 label: Text('Connection'),
               ),
               const NavigationRailDestination(
@@ -206,6 +191,9 @@ class _TabletScaffoldState extends State<TabletScaffold> {
 
                 // Index 3 — Messages.
                 const MessagesScreen(),
+
+                // Index 4 — Connection.
+                const ConnectionScreen(),
               ],
             ),
           ),

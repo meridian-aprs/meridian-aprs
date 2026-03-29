@@ -32,6 +32,7 @@ void main() {
       MultiProvider(
         providers: [
           ChangeNotifierProvider<ThemeController>.value(value: themeController),
+          ChangeNotifierProvider<StationService>.value(value: service),
           ChangeNotifierProvider<TncService>.value(value: tncService),
           ChangeNotifierProvider<TxService>.value(value: txService),
           ChangeNotifierProvider<StationSettingsService>.value(

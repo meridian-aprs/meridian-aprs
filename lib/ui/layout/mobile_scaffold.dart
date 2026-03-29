@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
@@ -14,8 +15,7 @@ import '../../services/message_service.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
 import '../widgets/beacon_fab.dart';
-import '../widgets/connection_sheet.dart';
-import '../widgets/meridian_bottom_sheet.dart';
+import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
 import 'meridian_map.dart';
 
@@ -67,18 +67,8 @@ class _MobileScaffoldState extends State<MobileScaffold> {
     TransportType.none => 'TNC',
   };
 
-  void _showConnectionSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => MeridianBottomSheet(
-        initialSize: 0.65,
-        child: ConnectionSheet(
-          stationService: widget.service,
-          tncService: widget.tncService,
-        ),
-      ),
-    );
+  void _navigateToConnection() {
+    setState(() => _selectedIndex = 4);
   }
 
   void _onDestinationSelected(int index) {
@@ -96,7 +86,7 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 MeridianStatusPill(
                   status: widget.connectionStatus,
                   label: 'APRS-IS',
-                  onTap: _showConnectionSheet,
+                  onTap: _navigateToConnection,
                 ),
                 if (!kIsWeb &&
                     (widget.tncConnectionStatus !=
@@ -106,7 +96,7 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                   MeridianStatusPill(
                     label: _tncPillLabel(widget.tncService.activeTransportType),
                     status: widget.tncConnectionStatus,
-                    onTap: _showConnectionSheet,
+                    onTap: _navigateToConnection,
                   ),
                 IconButton(
                   icon: const Icon(Symbols.settings),
@@ -152,6 +142,11 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                   child: const Icon(Symbols.chat),
                 ),
                 label: 'Messages',
+              ),
+              const NavigationDestination(
+                icon: ConnectionNavIcon(),
+                selectedIcon: ConnectionNavIcon(),
+                label: 'Connection',
               ),
             ],
           );
@@ -244,6 +239,9 @@ class _MobileScaffoldState extends State<MobileScaffold> {
 
           // Index 3 — Messages.
           const MessagesScreen(),
+
+          // Index 4 — Connection.
+          const ConnectionScreen(),
         ],
       ),
     );

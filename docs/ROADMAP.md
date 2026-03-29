@@ -123,6 +123,33 @@ Goal: Transmit position beacons and send/receive APRS messages.
 
 ---
 
+## v0.6 — Connection UI & Map Polish
+
+Goal: Promote Connection to a first-class navigation destination; targeted map improvements.
+
+**Status: In progress**
+
+### feat/v0.6-connection-screen
+- [x] `ConnectionNavIcon` widget — reactive nav icon (Selector2, signal/warning/muted)
+- [x] `ConnectionScreen` — full-screen destination replacing `ConnectionSheet` modal
+  - Active Connections section (APRS-IS + TNC cards, TX badge, Disconnect)
+  - Platform-adaptive segmented control (CupertinoSlidingSegmentedControl/SegmentedButton)
+  - APRS-IS tab (read-only server info, connect/disconnect)
+  - BLE TNC tab (BleScannerSheet inline, lazy instantiation)
+  - Serial TNC tab (port/baud/connect — desktop only)
+- [x] Mobile: 5th nav destination (Connection); status pill taps navigate to tab
+- [x] Tablet: Connection converted from transient sheet to real IndexedStack destination
+- [x] Desktop: Connection converted from transient sheet to real destination; `_ConnectionStatusChip` in AppBar replaces dual status pills
+- [x] `TncService.availablePorts()` wrapped in try-catch (safe in test environments without libserialport)
+- [x] Widget test updated (StationService added to provider tree)
+- [ ] Physical device validation
+
+### feat/v0.6-map-polish
+- [ ] "Not connected" nudge chip overlay on map (AnimatedOpacity, tap → ConnectionScreen)
+- [ ] Station marker tap targets: 36 → 44 px
+
+---
+
 ## v1.0 — Polish
 
 Goal: Release-quality app with full onboarding and documentation.
