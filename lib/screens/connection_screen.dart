@@ -393,7 +393,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       child: BleScannerSheet(
         tncService: tncService,
         showDragHandle: false,
-        onBack: null,
+        // onBack must be non-null when embedded inline. BleScannerSheet calls
+        // Navigator.pop() when onBack is null, which pops the root route and
+        // leaves a black screen. A no-op here is correct: the _tncSub in
+        // _ConnectionScreenState fires on connect and rebuilds the Active
+        // Connections section automatically.
+        onBack: () {},
       ),
     );
   }
