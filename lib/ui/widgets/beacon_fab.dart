@@ -50,29 +50,21 @@ class _BeaconFABState extends State<BeaconFAB>
     super.initState();
     _animCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 700),
+      duration: const Duration(milliseconds: 400),
     );
     _scaleAnim = Tween<double>(
-      begin: 0.92,
-      end: 1.08,
-    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeInOut));
-    _syncAnimation();
+      begin: 1.0,
+      end: 1.12,
+    ).animate(CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut));
     _startAgoTimer();
   }
 
   @override
   void didUpdateWidget(BeaconFAB old) {
     super.didUpdateWidget(old);
-    if (old.isBeaconing != widget.isBeaconing) _syncAnimation();
-    if (old.lastBeaconAt != widget.lastBeaconAt) _startAgoTimer();
-  }
-
-  void _syncAnimation() {
-    if (widget.isBeaconing) {
-      _animCtrl.repeat(reverse: true);
-    } else {
-      _animCtrl.stop();
-      _animCtrl.value = 0;
+    if (old.lastBeaconAt != widget.lastBeaconAt) {
+      _animCtrl.forward(from: 0).then((_) => _animCtrl.reverse());
+      _startAgoTimer();
     }
   }
 
@@ -160,9 +152,7 @@ class _BeaconFABState extends State<BeaconFAB>
     final ago = _agoText();
 
     return ScaleTransition(
-      scale: widget.isBeaconing
-          ? _scaleAnim
-          : const AlwaysStoppedAnimation(1.0),
+      scale: _scaleAnim,
       child: Semantics(
         label: widget.isBeaconing ? 'Stop beaconing' : 'Start beacon',
         button: true,

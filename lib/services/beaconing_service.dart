@@ -64,6 +64,8 @@ class BeaconingService extends ChangeNotifier {
 
   // Auto/smart timer
   Timer? _timer;
+  DateTime? _timerStartedAt;
+  int? _timerIntervalS;
 
   // GPS / SmartBeaconing state
   Position? _lastPosition;
@@ -216,8 +218,14 @@ class BeaconingService extends ChangeNotifier {
   Future<void> startBeaconing() async {
     if (_isActive) return;
     _isActive = true;
+    // Seed _lastBeaconAt so the turn trigger is unblocked from the start.
+    // beaconNow() will overwrite this with the real send time on success.
+    _lastBeaconAt ??= DateTime.now();
     await _startPositionStream();
     await _restartTimer();
+    // Send an immediate first beacon (standard APRS practice). On success this
+    // also resets the interval timer relative to the actual send time.
+    await beaconNow();
     notifyListeners();
   }
 
@@ -320,6 +328,9 @@ class BeaconingService extends ChangeNotifier {
         headingDelta,
         timeSinceLast,
       )) {
+        // Reset heading to current before beaconing so the next delta is
+        // measured from the post-turn heading, not the pre-turn heading.
+        _lastHeading = heading;
         beaconNow(); // ignore: unawaited_futures
         return;
       }
@@ -350,11 +361,24 @@ class BeaconingService extends ChangeNotifier {
   Future<void> _restartTimer() async {
     _timer?.cancel();
     final intervalS = await _resolveCurrentInterval();
+    _timerStartedAt = DateTime.now();
+    _timerIntervalS = intervalS;
     _timer = Timer(Duration(seconds: intervalS), _onTimerFired);
   }
 
+  /// Reschedule the smart timer only if [intervalS] would fire sooner than the
+  /// current timer. This prevents rapid GPS updates from continually resetting
+  /// the timer and delaying beacons indefinitely.
   void _rescheduleSmartTimer(int intervalS) {
+    if (_timerStartedAt != null && _timerIntervalS != null) {
+      final elapsed = DateTime.now().difference(_timerStartedAt!).inSeconds;
+      final remaining = _timerIntervalS! - elapsed;
+      // Only shorten — never push the beacon further out.
+      if (intervalS >= remaining) return;
+    }
     _timer?.cancel();
+    _timerStartedAt = DateTime.now();
+    _timerIntervalS = intervalS;
     _timer = Timer(Duration(seconds: intervalS), _onTimerFired);
   }
 

@@ -303,8 +303,14 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                               isBeaconing: beaconing.isActive,
                               mode: beaconing.mode,
                               lastBeaconAt: beaconing.lastBeaconAt,
-                              onTap: beaconing.beaconNow,
-                              onLongPress: beaconing.beaconNow,
+                              onTap: beaconing.mode == BeaconMode.manual
+                                  ? beaconing.beaconNow
+                                  : beaconing.isActive
+                                  ? beaconing.stopBeaconing
+                                  : beaconing.startBeaconing,
+                              onLongPress: beaconing.mode == BeaconMode.manual
+                                  ? beaconing.beaconNow
+                                  : null,
                             );
                           },
                         ),

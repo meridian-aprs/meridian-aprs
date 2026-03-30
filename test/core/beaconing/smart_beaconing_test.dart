@@ -18,12 +18,11 @@ void main() {
       expect(SmartBeaconing.computeInterval(p, 0), equals(1800));
     });
 
-    test('at midpoint speed → interpolated interval', () {
-      // midpoint between 5 and 100 km/h = 52.5 km/h
-      // fraction = (52.5 - 5) / (100 - 5) = 47.5 / 95 ≈ 0.5
-      // interval = 1800 + 0.5 * (180 - 1800) = 1800 - 810 = 990
+    test('at midpoint speed → inverse-proportional interval', () {
+      // inverse formula: fast_rate × fast_speed / speed
+      // 180 × 100 / 52.5 ≈ 343 s
       final interval = SmartBeaconing.computeInterval(p, 52.5);
-      expect(interval, closeTo(990, 2));
+      expect(interval, closeTo(343, 2));
     });
 
     test('interval is between fastRate and slowRate for in-range speeds', () {
@@ -48,9 +47,11 @@ void main() {
       expect(t50, greaterThan(t100));
     });
 
-    test('at 50 km/h → 255/50 + 28 = 33.1', () {
+    test('at 50 km/h → 255/31.07mph + 28 ≈ 36.2°', () {
+      // turnSlope has units of degrees·mph; 50 km/h = 31.07 mph
+      // 255 / 31.07 + 28 ≈ 36.2°
       final t = SmartBeaconing.turnThreshold(p, 50);
-      expect(t, closeTo(33.1, 0.1));
+      expect(t, closeTo(36.2, 0.1));
     });
 
     test('never exceeds 180', () {
@@ -63,17 +64,17 @@ void main() {
     const tooSoon = Duration(seconds: 10); // < minTurnTime(15)
 
     test('returns false when within minTurnTime cooldown', () {
-      // At 50 km/h threshold ≈ 33.1°; heading change 90° but too soon
+      // At 50 km/h threshold ≈ 36.2°; heading change 90° but too soon
       expect(SmartBeaconing.shouldTriggerTurn(p, 50, 90, tooSoon), isFalse);
     });
 
     test('returns false when heading change is below threshold', () {
-      // At 50 km/h threshold ≈ 33.1°; heading change only 20°
+      // At 50 km/h threshold ≈ 36.2°; heading change only 20°
       expect(SmartBeaconing.shouldTriggerTurn(p, 50, 20, fastEnough), isFalse);
     });
 
     test('returns true when above threshold and cooldown elapsed', () {
-      // At 50 km/h threshold ≈ 33.1°; heading change 45°
+      // At 50 km/h threshold ≈ 36.2°; heading change 45°
       expect(SmartBeaconing.shouldTriggerTurn(p, 50, 45, fastEnough), isTrue);
     });
 
@@ -83,7 +84,7 @@ void main() {
     });
 
     test('exactly at threshold angle triggers', () {
-      // At 50 km/h threshold ≈ 33.1°
+      // At 50 km/h threshold ≈ 36.2°
       final threshold = SmartBeaconing.turnThreshold(p, 50);
       expect(
         SmartBeaconing.shouldTriggerTurn(p, 50, threshold, fastEnough),

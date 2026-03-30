@@ -363,15 +363,19 @@ class _ConnectionStatusChip extends StatelessWidget {
 /// Compact beacon toolbar button for the desktop AppBar.
 ///
 /// Shows a filled icon when actively beaconing (auto/smart), a plain icon when
-/// idle or in manual mode. Tapping fires [BeaconingService.beaconNow].
+/// idle or in manual mode. In manual mode tapping fires [BeaconingService.beaconNow];
+/// in auto/smart mode tapping toggles [BeaconingService.startBeaconing] /
+/// [BeaconingService.stopBeaconing].
 class _BeaconToolbarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<BeaconingService>();
     final isActive = svc.isActive;
     final tooltip = switch (svc.mode) {
-      BeaconMode.auto => 'Auto beaconing (${svc.autoIntervalS}s interval)',
-      BeaconMode.smart => 'SmartBeaconing™ active',
+      BeaconMode.auto =>
+        isActive ? 'Stop auto beaconing' : 'Start auto beaconing',
+      BeaconMode.smart =>
+        isActive ? 'Stop SmartBeaconing™' : 'Start SmartBeaconing™',
       BeaconMode.manual => 'Send beacon now',
     };
     return IconButton(
@@ -380,7 +384,11 @@ class _BeaconToolbarButton extends StatelessWidget {
         color: isActive ? MeridianColors.danger : null,
       ),
       tooltip: tooltip,
-      onPressed: () => svc.beaconNow(),
+      onPressed: svc.mode == BeaconMode.manual
+          ? svc.beaconNow
+          : isActive
+          ? svc.stopBeaconing
+          : svc.startBeaconing,
     );
   }
 }

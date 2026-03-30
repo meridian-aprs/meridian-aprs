@@ -290,14 +290,14 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 
 ---
 
-## ADR-021: SmartBeaconing defaults = APRSdroid values (v0.5)
+## ADR-021: SmartBeaconing algorithm and defaults (v0.5, revised v0.7)
 
 **Status:** Accepted
-**Date:** 2026-03-28
+**Date:** 2026-03-28 (revised 2026-03-30)
 
-**Decision:** `SmartBeaconingParams.defaults` uses the same parameter values as APRSdroid: fastSpeed=100 km/h, fastRate=180 s, slowSpeed=5 km/h, slowRate=1800 s, minTurnTime=15 s, minTurnAngle=28°, turnSlope=255.
+**Decision:** `SmartBeaconing.computeInterval` uses the original HamHUD inverse-proportional formula (`fastRate × fastSpeed / speed`), not linear interpolation. `SmartBeaconing.turnThreshold` divides `turnSlope` by speed in **mph** (not km/h), matching the units of the original SmartBeaconing™ specification. `SmartBeaconingParams.defaults` uses: fastSpeed=100 km/h, fastRate=180 s, slowSpeed=5 km/h, slowRate=1800 s, minTurnTime=15 s, minTurnAngle=28°, turnSlope=255.
 
-**Rationale:** APRSdroid's defaults are widely used by mobile operators and derived from the original SmartBeaconing™ specification by HamHUD Nicely Donee LLC. Using the same values means Meridian-transmitted positions appear at expected intervals to operators already familiar with APRSdroid. Deviating from these values would require user education with no clear benefit.
+**Rationale:** The inverse-proportional formula keeps beacon density (beacons per km travelled) roughly constant across speeds. Linear interpolation under-beacons at moderate speeds (30–80 km/h) by 2–3× compared to the original spec and hardware TNCs. The `turnSlope` parameter has units of degrees·mph in every reference implementation (Dire Wolf, APRSdroid, HamHUD); dividing by km/h makes turn detection ~60% too sensitive. The default parameter values are close to Dire Wolf's defaults and the original HamHUD defaults. APRSdroid uses different defaults (fastRate=60 s, slowRate=1200 s, minTurnAngle=10°, turnSlope=240) and linear interpolation — Meridian's more conservative defaults reduce channel load while still producing good tracks.
 
 **Consequences:** `SmartBeaconingParams` is a `const` value object; `defaults` is a `static const`. Users can override all parameters via the Beaconing settings screen; the Reset Defaults button restores these values.
 

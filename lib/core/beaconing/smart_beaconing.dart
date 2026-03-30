@@ -92,25 +92,36 @@ abstract class SmartBeaconing {
   ///
   /// - speed ≥ [SmartBeaconingParams.fastSpeedKmh] → [SmartBeaconingParams.fastRateS]
   /// - speed ≤ [SmartBeaconingParams.slowSpeedKmh] → [SmartBeaconingParams.slowRateS]
-  /// - between → linearly interpolated (faster speed = shorter interval)
+  /// - between → inverse-proportional (original HamHUD SmartBeaconing™ formula)
+  ///
+  /// Formula: `interval = fastRate × fastSpeed / speed`
+  ///
+  /// This keeps beacon density (beacons per km) roughly constant across speeds,
+  /// unlike linear interpolation which under-beacons at moderate speeds. It
+  /// matches the canonical implementation used by Dire Wolf and hardware TNCs.
   static int computeInterval(SmartBeaconingParams p, double speedKmh) {
     if (speedKmh >= p.fastSpeedKmh) return p.fastRateS;
     if (speedKmh <= p.slowSpeedKmh) return p.slowRateS;
 
-    // Linear interpolation: maps [slowSpeed..fastSpeed] → [slowRate..fastRate].
-    // Higher speed → fraction closer to 1 → interval closer to fastRate.
-    final fraction =
-        (speedKmh - p.slowSpeedKmh) / (p.fastSpeedKmh - p.slowSpeedKmh);
-    return (p.slowRateS + fraction * (p.fastRateS - p.slowRateS)).round();
+    return (p.fastRateS * p.fastSpeedKmh / speedKmh).round().clamp(
+      p.fastRateS,
+      p.slowRateS,
+    );
   }
 
   /// Computes the turn threshold in degrees for the given [speedKmh].
   ///
-  /// Formula: `(turnSlope / speedKmh) + minTurnAngleDeg`
+  /// Formula: `(turnSlope / speedMph) + minTurnAngleDeg`
   /// Capped at 180° for safety when speed is near zero.
+  ///
+  /// [SmartBeaconingParams.turnSlope] has units of **degrees·mph** per the
+  /// original SmartBeaconing™ specification. Speed must be converted to mph
+  /// before dividing; using km/h produces a threshold that is ~60% too small
+  /// at typical driving speeds.
   static double turnThreshold(SmartBeaconingParams p, double speedKmh) {
     if (speedKmh <= 0) return 180.0;
-    return (p.turnSlope / speedKmh + p.minTurnAngleDeg).clamp(0.0, 180.0);
+    final speedMph = speedKmh / 1.609344;
+    return (p.turnSlope / speedMph + p.minTurnAngleDeg).clamp(0.0, 180.0);
   }
 
   /// Returns true when a turn-triggered beacon should fire.
