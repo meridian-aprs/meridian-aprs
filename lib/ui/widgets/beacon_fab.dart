@@ -25,12 +25,12 @@ class BeaconFAB extends StatefulWidget {
   });
 
   final bool isBeaconing;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
   final BeaconMode mode;
   final DateTime? lastBeaconAt;
 
   /// Called when a long-press fires.
-  final VoidCallback? onLongPress;
+  final Future<void> Function()? onLongPress;
 
   @override
   State<BeaconFAB> createState() => _BeaconFABState();
@@ -43,6 +43,7 @@ class _BeaconFABState extends State<BeaconFAB>
 
   Timer? _agoTimer;
   DateTime? _lastLongPress;
+  bool _isSending = false;
 
   @override
   void initState() {
@@ -114,8 +115,19 @@ class _BeaconFABState extends State<BeaconFAB>
     return '${diff.inHours}h ago';
   }
 
+  Future<void> _handleTap() async {
+    if (_isSending) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _isSending = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
   Future<void> _handleLongPress() async {
-    if (widget.onLongPress == null) return;
+    if (widget.onLongPress == null || _isSending) return;
     final now = DateTime.now();
     if (_lastLongPress != null &&
         now.difference(_lastLongPress!) < const Duration(seconds: 30)) {
@@ -129,7 +141,12 @@ class _BeaconFABState extends State<BeaconFAB>
     }
     _lastLongPress = now;
     HapticFeedback.mediumImpact();
-    widget.onLongPress!();
+    setState(() => _isSending = true);
+    try {
+      await widget.onLongPress!();
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
   }
 
   @override
@@ -157,13 +174,21 @@ class _BeaconFABState extends State<BeaconFAB>
               heroTag: 'beacon_fab',
               backgroundColor: bgColor,
               foregroundColor: fgColor,
-              onPressed: () {
-                HapticFeedback.mediumImpact();
-                widget.onTap();
-              },
-              icon: Icon(
-                widget.isBeaconing ? Symbols.wifi_tethering : Symbols.podcasts,
-              ),
+              onPressed: _isSending ? null : _handleTap,
+              icon: _isSending
+                  ? SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        valueColor: AlwaysStoppedAnimation(fgColor),
+                      ),
+                    )
+                  : Icon(
+                      widget.isBeaconing
+                          ? Symbols.wifi_tethering
+                          : Symbols.podcasts,
+                    ),
               label: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
