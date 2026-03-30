@@ -49,12 +49,15 @@ class _BleFilterOption {
 ///
 /// Set [showDragHandle] to false and provide [onBack] when embedding this
 /// widget inside another sheet instead of presenting it as a standalone modal.
+/// Set [showBackButton] to false to suppress the back arrow even when [onBack]
+/// is provided (useful when embedded in a screen that has its own nav).
 class BleScannerSheet extends StatefulWidget {
   const BleScannerSheet({
     super.key,
     required this.tncService,
     this.showDragHandle = true,
     this.onBack,
+    this.showBackButton = true,
   });
 
   final TncService tncService;
@@ -66,6 +69,11 @@ class BleScannerSheet extends StatefulWidget {
   /// Called after a successful connection (or when the user taps back) instead
   /// of [Navigator.pop]. Provide this when the widget is embedded inline.
   final VoidCallback? onBack;
+
+  /// Whether to render the back arrow button in the title row.
+  /// Defaults to true but can be suppressed when [onBack] is provided purely
+  /// to override post-connect navigation (not to show a visible back control).
+  final bool showBackButton;
 
   @override
   State<BleScannerSheet> createState() => _BleScannerSheetState();
@@ -245,7 +253,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
           // Title row.
           Row(
             children: [
-              if (widget.onBack != null)
+              if (widget.onBack != null && widget.showBackButton)
                 IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: widget.onBack,

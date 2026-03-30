@@ -347,7 +347,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          if (!isConnected)
+          if (isConnected)
+            Text(
+              'Connected — disconnect from the card above.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
             SizedBox(
               width: double.infinity,
               child: FilledButton(
@@ -355,18 +362,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                 child: Text(
                   isConnecting ? 'Connecting\u2026' : 'Connect APRS-IS',
                 ),
-              ),
-            ),
-          if (isConnected)
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: MeridianColors.danger,
-                  side: const BorderSide(color: MeridianColors.danger),
-                ),
-                onPressed: _onAprsDisconnectTap,
-                child: const Text('Disconnect'),
               ),
             ),
         ],
@@ -399,6 +394,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         // _ConnectionScreenState fires on connect and rebuilds the Active
         // Connections section automatically.
         onBack: () {},
+        // Suppress the back arrow — this is embedded in a screen with its
+        // own navigation; there is nothing to "go back" to.
+        showBackButton: false,
       ),
     );
   }
@@ -550,36 +548,35 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           ),
           const SizedBox(height: 16),
 
-          // No ports found hint.
-          if (!isConnected && _availablePorts.isEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                'No serial devices found. Connect a TNC via USB.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+          if (isConnected)
+            Text(
+              'Connected — disconnect from the card above.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            )
+          else ...[
+            // No ports found hint.
+            if (_availablePorts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  'No serial devices found. Connect a TNC via USB.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: (_selectedPort == null || isConnecting)
+                    ? null
+                    : _onConnectTap,
+                child: Text(isConnecting ? 'Connecting\u2026' : 'Connect'),
+              ),
             ),
-
-          SizedBox(
-            width: double.infinity,
-            child: isConnected
-                ? OutlinedButton(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: MeridianColors.danger,
-                      side: const BorderSide(color: MeridianColors.danger),
-                    ),
-                    onPressed: _onDisconnectTncTap,
-                    child: const Text('Disconnect'),
-                  )
-                : FilledButton(
-                    onPressed: (_selectedPort == null || isConnecting)
-                        ? null
-                        : _onConnectTap,
-                    child: Text(isConnecting ? 'Connecting\u2026' : 'Connect'),
-                  ),
-          ),
+          ],
         ],
       ),
     );
