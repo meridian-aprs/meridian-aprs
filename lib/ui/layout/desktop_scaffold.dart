@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
+import '../../screens/location_picker_screen.dart';
 import '../../screens/messages_screen.dart';
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
@@ -71,55 +72,45 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
   }
 
   Future<void> _centerOnLocation() async {
-    // Try to check if location services work at all — desktop platforms
-    // throw UnimplementedError if geolocator has no implementation.
-    bool serviceEnabled;
+    // Try GPS first — works on macOS (Core Location) and may work on some
+    // Linux setups. Falls back to the address picker when unavailable.
     try {
-      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (serviceEnabled) {
+        LocationPermission permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) {
+          permission = await Geolocator.requestPermission();
+        }
+        if (permission != LocationPermission.denied &&
+            permission != LocationPermission.deniedForever) {
+          final position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+            ),
+          );
+          if (!mounted) return;
+          widget.mapController.move(
+            LatLng(position.latitude, position.longitude),
+            13.0,
+          );
+          return;
+        }
+      }
     } on UnimplementedError {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location is not available on this platform.'),
-        ),
-      );
-      return;
+      // No geolocator implementation on this platform (e.g. Linux) — fall
+      // through to the address picker below.
+    } catch (_) {
+      // Any other GPS error — fall through to the address picker.
     }
-    if (!serviceEnabled) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location services are disabled.')),
-      );
-      return;
-    }
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permission denied.')),
-      );
-      return;
-    }
-    try {
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      if (!mounted) return;
-      widget.mapController.move(
-        LatLng(position.latitude, position.longitude),
-        13.0,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Could not get location: $e')));
+
+    // GPS unavailable or denied: open the address/map picker instead.
+    if (!mounted) return;
+    final result = await Navigator.push<LatLng>(
+      context,
+      MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+    );
+    if (result != null && mounted) {
+      widget.mapController.move(result, 13.0);
     }
   }
 
