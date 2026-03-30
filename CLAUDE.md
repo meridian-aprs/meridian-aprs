@@ -45,14 +45,22 @@ See `docs/ARCHITECTURE.md` for full detail.
 
 | Milestone | Focus |
 |---|---|
-| v0.1 — Foundation | Flutter scaffold, map rendering, APRS-IS connection, basic station display |
-| v0.2 — Packets | AX.25/APRS parser, packet log view, message decoding |
-| v0.3 — TNC | KISS over USB serial, desktop platforms first |
-| v0.4 — BLE | KISS over BLE, mobile platforms |
-| v0.5 — Beaconing | Transmit path, position beaconing, message sending |
-| v1.0 — Polish | UI refinement, settings, documentation, onboarding |
+| ~~v0.1~~ | ~~Foundation — Flutter scaffold, map, APRS-IS, station display~~ ✓ |
+| ~~v0.2~~ | ~~Packets — AX.25/APRS parser, packet log, message decoding~~ ✓ |
+| ~~v0.3~~ | ~~TNC — KISS over USB serial, desktop platforms first~~ ✓ |
+| ~~v0.4~~ | ~~BLE — KISS over BLE, mobile platforms~~ ✓ |
+| ~~v0.5~~ | ~~Beaconing — Transmit path, position beaconing, message sending~~ ✓ |
+| ~~v0.6~~ | ~~Connection UI + Map Polish~~ ✓ |
+| **v0.7** | Android Background Beaconing (foreground service + persistent notification) |
+| **v0.8** | Cross-platform parity pass (iOS Cupertino audit, OSM tile swap) |
+| **v0.9** | iOS Background Beaconing (background location + Live Activity) |
+| **v0.10** | Map filters + station profiles + track history + cluster markers + object/item display + altitude in position packets |
+| **v0.11** | Background notifications + in-app banner system |
+| **v0.12** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
+| **v0.13** | Battery & performance optimization pass |
+| **v1.0** | Final polish + store submission |
 
-**Current status: v0.7 planning. v0.6 Connection UI & Map Polish complete — `ConnectionScreen` first-class nav destination on all three scaffold tiers; `ConnectionNavIcon` (reactive Selector2 nav icon); `_ConnectionStatusChip` in desktop AppBar; callsign search (Nominatim + `showSearch`); center-on-location (GPS on mobile/tablet, address picker fallback on desktop); `BeaconFAB` and location button loading spinners; TX transport selector reflects effective transport; TNC settings consolidated to Connection screen; `connection_sheet.dart` removed. 274 tests passing. ADRs 001–024 in `docs/DECISIONS.md`.**
+**Current status: v0.7 active. v0.6 Connection UI & Map Polish complete — `ConnectionScreen` first-class nav destination on all three scaffold tiers; `ConnectionNavIcon` (reactive Selector2 nav icon); `_ConnectionStatusChip` in desktop AppBar; callsign search (Nominatim + `showSearch`); center-on-location (GPS on mobile/tablet, address picker fallback on desktop); `BeaconFAB` and location button loading spinners; TX transport selector reflects effective transport; TNC settings consolidated to Connection screen; `connection_sheet.dart` removed. 274 tests passing. ADRs 001–024 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
