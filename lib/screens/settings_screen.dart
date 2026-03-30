@@ -964,11 +964,7 @@ class _BeaconingSection extends StatelessWidget {
                       enabled: tx.tncAvailable,
                     ),
                   ],
-                  selected: {
-                    tx.preference == TxTransportPref.auto
-                        ? tx.effective
-                        : tx.preference,
-                  },
+                  selected: {tx.effective},
                   onSelectionChanged: (modes) {
                     if (modes.isNotEmpty) {
                       context.read<TxService>().setPreference(modes.first);
