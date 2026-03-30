@@ -63,6 +63,7 @@ class MobileScaffold extends StatefulWidget {
 
 class _MobileScaffoldState extends State<MobileScaffold> {
   int _selectedIndex = 0;
+  bool _locating = false;
 
   static String _tncPillLabel(TransportType type) => switch (type) {
     TransportType.ble => 'BLE TNC',
@@ -80,40 +81,42 @@ class _MobileScaffoldState extends State<MobileScaffold> {
   }
 
   Future<void> _centerOnLocation() async {
-    // Try to check if location services work at all — desktop platforms
-    // throw UnimplementedError if geolocator has no implementation.
-    bool serviceEnabled;
+    if (_locating) return;
+    setState(() => _locating = true);
     try {
-      serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    } on UnimplementedError {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Location is not available on this platform.'),
-        ),
-      );
-      return;
-    }
-    if (!serviceEnabled) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location services are disabled.')),
-      );
-      return;
-    }
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Location permission denied.')),
-      );
-      return;
-    }
-    try {
+      // Try to check if location services work at all — desktop platforms
+      // throw UnimplementedError if geolocator has no implementation.
+      bool serviceEnabled;
+      try {
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      } on UnimplementedError {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Location is not available on this platform.'),
+          ),
+        );
+        return;
+      }
+      if (!serviceEnabled) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location services are disabled.')),
+        );
+        return;
+      }
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Location permission denied.')),
+        );
+        return;
+      }
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
@@ -129,6 +132,8 @@ class _MobileScaffoldState extends State<MobileScaffold> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Could not get location: $e')));
+    } finally {
+      if (mounted) setState(() => _locating = false);
     }
   }
 
@@ -275,9 +280,17 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                             const SizedBox(width: 8),
                             FloatingActionButton.small(
                               heroTag: 'center_fab',
-                              onPressed: _centerOnLocation,
+                              onPressed: _locating ? null : _centerOnLocation,
                               tooltip: 'Center on my location',
-                              child: const Icon(Symbols.my_location),
+                              child: _locating
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Symbols.my_location),
                             ),
                           ],
                         ),
