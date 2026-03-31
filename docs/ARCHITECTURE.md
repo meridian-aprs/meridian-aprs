@@ -367,6 +367,64 @@ Message ID counter:
 
 ---
 
+## Android Background Service (v0.7)
+
+### Overview
+
+An Android foreground service keeps transport connections alive when Meridian is backgrounded. This prevents the OS from killing the app process and allows beaconing to continue.
+
+**Key design decision:** The `flutter_foreground_task` `TaskHandler` runs in a background isolate and cannot access Provider-hosted services. The service is therefore a "process keepalive only" — all transport and beaconing logic continues to run in the main Dart isolate via the existing service layer.
+
+### MeridianConnectionTask (`lib/services/meridian_connection_task.dart`)
+
+Minimal `TaskHandler` running in the background isolate. Contains no application logic. Its `onRepeatEvent` fires every 60 seconds as a heartbeat to prevent aggressive OEM firmware (MIUI, OneUI) from terminating idle services.
+
+Entry point: `startMeridianConnectionTask()` (top-level function, `@pragma('vm:entry-point')`).
+
+### BackgroundServiceManager (`lib/services/background_service_manager.dart`)
+
+`ChangeNotifier` on the main isolate. The sole bridge between the Android foreground service lifecycle and the application state.
+
+Responsibilities:
+- Listens to `TncService`, `StationService`, and `BeaconingService` via `addListener`
+- Calls `FlutterForegroundTask.startService()` / `stopService()` based on user action
+- Calls `FlutterForegroundTask.updateService()` (debounced 500 ms) to push notification content
+- Exposes `BackgroundServiceState` for reactive UI (connection screen, nav icon badge)
+- Handles `ACCESS_BACKGROUND_LOCATION` permission check with `AlertDialog` rationale before starting
+
+`BackgroundServiceState` values:
+
+| State | Meaning |
+|---|---|
+| `stopped` | Service not running. Normal foreground-app operation. |
+| `starting` | Permission check or service startup in progress. |
+| `running` | Foreground service active; transports kept alive. |
+| `reconnecting` | Service running but a transport is reconnecting. |
+| `error` | Startup failed (permission denied, API error). |
+
+### Notification Content
+
+The persistent notification shows two lines:
+
+- **Title** — connection summary ("Meridian — TNC + APRS-IS", "Meridian — Reconnecting…", etc.)
+- **Body** — beaconing status ("Auto beacon every 5m", "SmartBeaconing™ active", "Beaconing off") with last beacon time appended when active
+
+### Platform Matrix Update
+
+| Feature | Linux | macOS | Windows | Android | iOS | Web |
+|---|---|---|---|---|---|---|
+| Background keepalive | ❌ | ❌ | ❌ | ✅ v0.7 | 🔜 v0.9 | ❌ |
+
+iOS background beaconing (Live Activity + background location) is deferred to v0.9.
+
+### Android Manifest Requirements
+
+New permissions (v0.7): `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` (API 34+), `FOREGROUND_SERVICE_CONNECTED_DEVICE` (API 34+), `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS` (API 33+), `RECEIVE_BOOT_COMPLETED`.
+
+Service element: `com.pravera.flutter_foreground_task.service.ForegroundService` with `foregroundServiceType="dataSync|connectedDevice"` and `stopWithTask="false"`.
+
+---
+
 ## Key Dependencies
 
 | Package | Purpose |
@@ -375,6 +433,8 @@ Message ID counter:
 | `flutter_blue_plus` | BLE transport (KISS/BLE) |
 | `flutter_libserialport` | USB serial transport (KISS/USB) |
 | `geolocator` | GPS/location access for beaconing (added v0.5) |
+| `flutter_foreground_task` | Android foreground service keepalive (added v0.7) |
+| `permission_handler` | Android permission requests (background location, notifications) (added v0.7) |
 | `provider` | ChangeNotifier wiring throughout service layer |
 | `shared_preferences` | Theme mode, settings, beaconing config, and session state persistence |
 | `dynamic_color` | Android 12+ wallpaper-derived ColorScheme |

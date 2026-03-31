@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
 import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
+import '../services/background_service_manager.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../services/tnc_service.dart';
@@ -188,6 +189,38 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── Background service reconnecting banner (Android) ──────────
+            if (!kIsWeb && Platform.isAndroid)
+              Consumer<BackgroundServiceManager>(
+                builder: (context, bsm, _) {
+                  if (bsm.state != BackgroundServiceState.reconnecting) {
+                    return const SizedBox.shrink();
+                  }
+                  return ColoredBox(
+                    color: MeridianColors.warning.withValues(alpha: 0.15),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text('Reconnecting in background\u2026'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
             // ── Active connections ────────────────────────────────────────
             if (anyConnected) ...[
               const SizedBox(height: 16),
@@ -216,6 +249,25 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   ),
                 ),
               ],
+              const SizedBox(height: 20),
+              const Divider(height: 1),
+            ],
+
+            // ── Background service (Android only) ────────────────────────
+            if (!kIsWeb && Platform.isAndroid) ...[
+              const SizedBox(height: 20),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _SectionLabel('Background service'),
+              ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Consumer<BackgroundServiceManager>(
+                  builder: (context, bsm, _) =>
+                      _BackgroundServiceCard(manager: bsm),
+                ),
+              ),
               const SizedBox(height: 20),
               const Divider(height: 1),
             ],
@@ -871,6 +923,95 @@ class _TncUnavailableCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Card showing Android foreground service status and toggle.
+class _BackgroundServiceCard extends StatelessWidget {
+  const _BackgroundServiceCard({required this.manager});
+
+  final BackgroundServiceManager manager;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final running = manager.isRunning;
+
+    Color statusColor;
+    String statusLabel;
+    switch (manager.state) {
+      case BackgroundServiceState.stopped:
+        statusColor = theme.colorScheme.outline;
+        statusLabel = 'Off';
+      case BackgroundServiceState.starting:
+        statusColor = MeridianColors.warning;
+        statusLabel = 'Starting\u2026';
+      case BackgroundServiceState.running:
+        statusColor = MeridianColors.signal;
+        statusLabel = 'Running';
+      case BackgroundServiceState.reconnecting:
+        statusColor = MeridianColors.warning;
+        statusLabel = 'Reconnecting\u2026';
+      case BackgroundServiceState.error:
+        statusColor = MeridianColors.danger;
+        statusLabel = 'Error';
+    }
+
+    return Card.outlined(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: statusColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(statusLabel, style: theme.textTheme.bodyMedium),
+                const Spacer(),
+                Switch(
+                  value: running,
+                  onChanged: (on) async {
+                    if (on) {
+                      await manager.requestStartService(context);
+                    } else {
+                      await manager.stopService();
+                    }
+                  },
+                ),
+              ],
+            ),
+            if (manager.state == BackgroundServiceState.error &&
+                manager.errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                manager.errorMessage!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: MeridianColors.danger,
+                ),
+              ),
+            ],
+            if (!running) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Enable to keep connections and beaconing active '
+                'when the app is in the background.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

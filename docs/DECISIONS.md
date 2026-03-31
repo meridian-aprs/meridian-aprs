@@ -346,3 +346,46 @@ A single `ThemeController` manages `themeMode` and `seedColor` as shared state. 
 - The map screen's "not connected" nudge (Branch 2) uses `Navigator.push(ConnectionScreen)` as a full-screen route rather than a callback to switch the scaffold's nav index. This avoids coupling `MapScreen` to scaffold internals and works correctly across all three breakpoints.
 
 **Consequences:** `ConnectionSheet` is retained but no longer wired to any nav action — it can be deleted in a cleanup PR once confirmed unused. `StationService` must be provided via the `Provider` tree (not just passed as a constructor arg to `MapScreen`) so that `ConnectionScreen` can access it from `context`; the widget test was updated accordingly.
+
+---
+
+## ADR-025: Android foreground service via flutter_foreground_task (v0.7)
+
+**Status:** Accepted
+**Date:** 2026-03-30
+
+**Decision:** Add an Android foreground service using `flutter_foreground_task ^8.x`. The service is a "process keepalive only" — it does not contain any transport or beaconing logic. All application logic continues in the main Dart isolate via the existing service layer (`TncService`, `StationService`, `BeaconingService`), which the foreground service prevents from being killed.
+
+A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the lifecycle and drives notification content via `FlutterForegroundTask.updateService()` (not via round-trips through the background isolate). The `MeridianConnectionTask` (`TaskHandler`) in the background isolate contains no app logic — its `onRepeatEvent` fires a 60-second heartbeat to keep aggressive OEM firmware from killing the service.
+
+**Key sub-decisions:**
+
+- `ChangeNotifierProvider(create:)` + `addListener` in constructor for dependency wiring — not `ChangeNotifierProxyProvider3`, which would recreate the manager on every dependency notification.
+- `FlutterForegroundTask.updateService()` called directly from the main isolate (not via `sendDataToTask()` round-trip) — simpler and correct.
+- `ACCESS_BACKGROUND_LOCATION` permission check placed in `BackgroundServiceManager.requestStartService(BuildContext)` — stays at the UI-initiation boundary, keeps `BeaconingService` free of Android-specific permission handling.
+- `minSdk` hardcoded to 21 in `build.gradle.kts` (required by `flutter_foreground_task`; previously `flutter.minSdkVersion` which resolves to 16).
+- `FOREGROUND_SERVICE_CONNECTED_DEVICE` and `FOREGROUND_SERVICE_DATA_SYNC` added with `android:minSdkVersion="34"` guard — silently ignored on lower API levels.
+- `ForegroundServiceApi` injectable interface added to `BackgroundServiceManager` so the state machine can be unit-tested without platform channel dependencies.
+- `autoRunOnBoot: false` — the service does not automatically restart after device reboot.
+
+**Consequences:** Transport connections and beaconing remain active when Meridian is backgrounded on Android. A persistent notification appears in the status bar (required by Android; cannot be dismissed while service runs). The `ConnectionScreen` shows a background-service section (Android-only) with a toggle and status indicator. `ConnectionNavIcon` shows a badge dot when the service is running. iOS background beaconing is deferred to v0.9.
+
+---
+
+## ADR-026: ACCESS_BACKGROUND_LOCATION permission flow (v0.7)
+
+**Status:** Accepted
+**Date:** 2026-03-30
+
+**Decision:** The `ACCESS_BACKGROUND_LOCATION` check and request lives in `BackgroundServiceManager.requestStartService(BuildContext)`. The flow is:
+
+1. If beaconing mode is not `manual`, check `Permission.locationAlways.status` via `permission_handler`.
+2. If not granted: show `AlertDialog` explaining that "Allow all the time" location access is needed.
+3. Call `Permission.locationAlways.request()` — on Android 11+ this opens the system Settings page (OS no longer allows in-app dialogs for background location).
+4. If the user denies, `requestStartService` returns `false` and sets `state = BackgroundServiceState.error`.
+
+`BeaconingService.startBeaconing()` is unchanged — it continues to manage `ACCESS_FINE_LOCATION` via `Geolocator.requestPermission()`.
+
+**Rationale:** Google Play policy (as of August 2020) requires an explicit rationale dialog before requesting background location. Bundling this into `BeaconingService` would couple a UI concern (dialog display) to a service-layer class. Placing it at the call site (`requestStartService`) keeps the service layer free of BuildContext dependencies while ensuring the rationale is shown at the right moment — when the user explicitly enables background service, not on app launch.
+
+**Consequences:** Background location is only requested when the user enables the background service with non-manual beaconing configured — compliant with Google Play's "least privilege" policy. Users who only use manual beacon mode or APRS-IS receive-only are never prompted for background location.

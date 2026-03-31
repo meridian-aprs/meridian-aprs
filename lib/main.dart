@@ -4,6 +4,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,6 +13,7 @@ import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/transport/aprs_is_transport.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
+import 'services/background_service_manager.dart';
 import 'services/beaconing_service.dart';
 import 'services/message_service.dart';
 import 'services/station_service.dart';
@@ -39,6 +41,13 @@ Brightness _resolveIosBrightness(ThemeMode mode) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialise foreground task communication port before any isolates start.
+  // Safe to call on all platforms (no-op on non-Android).
+  FlutterForegroundTask.initCommunicationPort();
+
+  // Initialise Android notification channel options for the background service.
+  BackgroundServiceManager.initOptions();
 
   // Load theme preference and onboarding state before the first frame.
   final themeController = await ThemeController.create();
@@ -81,6 +90,12 @@ Future<void> main() async {
   final messageService = MessageService(stationSettings, txService, service);
   await messageService.loadHistory();
 
+  final bgServiceManager = BackgroundServiceManager(
+    tnc: tncService,
+    station: service,
+    beaconing: beaconingService,
+  );
+
   runApp(
     MultiProvider(
       providers: [
@@ -93,6 +108,9 @@ Future<void> main() async {
         ChangeNotifierProvider<TxService>.value(value: txService),
         ChangeNotifierProvider<BeaconingService>.value(value: beaconingService),
         ChangeNotifierProvider<MessageService>.value(value: messageService),
+        ChangeNotifierProvider<BackgroundServiceManager>.value(
+          value: bgServiceManager,
+        ),
       ],
       child: MeridianApp(
         onboardingComplete: onboardingComplete,
