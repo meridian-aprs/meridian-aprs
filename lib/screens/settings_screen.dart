@@ -994,34 +994,29 @@ class _IntervalTile extends StatelessWidget {
   final int intervalS;
   final ValueChanged<int> onChanged;
 
-  String _label(int s) {
-    if (s < 60) return '$s seconds';
-    if (s % 60 == 0) return '${s ~/ 60} minutes';
-    return '${s ~/ 60}m ${s % 60}s';
-  }
+  static String _label(int minutes) =>
+      minutes == 1 ? '1 minute' : '$minutes minutes';
 
   @override
   Widget build(BuildContext context) {
+    // Snap any stored value to the nearest whole minute (1–60).
+    final minutes = (intervalS / 60).round().clamp(1, 60);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
           title: const Text('Beacon Interval'),
-          subtitle: Text(_label(intervalS)),
-          trailing: Text(
-            _label(intervalS),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          subtitle: Text(_label(minutes)),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Slider(
-            min: 30,
-            max: 3600,
-            divisions: ((3600 - 30) ~/ 30),
-            value: intervalS.toDouble(),
-            label: _label(intervalS),
-            onChanged: (v) => onChanged(v.round()),
+            min: 1,
+            max: 60,
+            divisions: 59,
+            value: minutes.toDouble(),
+            label: _label(minutes),
+            onChanged: (v) => onChanged(v.round() * 60),
           ),
         ),
       ],

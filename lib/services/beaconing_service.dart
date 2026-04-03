@@ -127,7 +127,7 @@ class BeaconingService extends ChangeNotifier {
   }
 
   Future<void> setAutoInterval(int seconds) async {
-    final clamped = seconds.clamp(30, 3600);
+    final clamped = seconds.clamp(60, 3600);
     if (_autoIntervalS == clamped) return;
     _autoIntervalS = clamped;
     final prefs = await SharedPreferences.getInstance();
