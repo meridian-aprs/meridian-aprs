@@ -57,9 +57,9 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _markers = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
-  late ConnectionStatus _connectionStatus;
-  ConnectionStatus _tncConnectionStatus = ConnectionStatus.disconnected;
-  StreamSubscription<ConnectionStatus>? _tncStatusSub;
+  // Tracks previous APRS-IS status for the "failed to connect" snackbar only.
+  // The build() method reads currentConnectionStatus directly from the service.
+  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   StreamSubscription<TxEvent>? _txEventSub;
   bool _northUpLocked = true;
 
@@ -76,10 +76,13 @@ class _MapScreenState extends State<MapScreen> {
     _service.stationUpdates.listen(_onStationsUpdated);
     // Seed markers from persisted stations already loaded before runApp.
     _onStationsUpdated(_service.currentStations);
+    // Track previous APRS-IS status for the "failed to connect" snackbar.
+    // The build() method reads currentConnectionStatus directly — this
+    // subscription exists only to detect the connecting→disconnected transition.
     _service.connectionState.listen((status) {
       if (!mounted) return;
       final wasConnecting = _connectionStatus == ConnectionStatus.connecting;
-      setState(() => _connectionStatus = status);
+      _connectionStatus = status;
       if (wasConnecting && status == ConnectionStatus.disconnected) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -88,10 +91,6 @@ class _MapScreenState extends State<MapScreen> {
           ),
         );
       }
-    });
-    _tncStatusSub = widget.tncService.connectionState.listen((status) {
-      if (!mounted) return;
-      setState(() => _tncConnectionStatus = status);
     });
     _service.start().catchError((Object e) {
       debugPrint('APRS-IS connection failed: $e');
@@ -107,7 +106,6 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _filterDebounce?.cancel();
     _markerDebounce?.cancel();
-    _tncStatusSub?.cancel();
     _txEventSub?.cancel();
     _service.stop();
     super.dispose();
@@ -253,6 +251,13 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Watch both services so this widget rebuilds whenever their connection
+    // state changes (StationService and TncService both call notifyListeners()
+    // on transport state transitions). Reading currentConnectionStatus directly
+    // ensures the map always reflects live state regardless of stream ordering.
+    final aprsStatus = context.watch<StationService>().currentConnectionStatus;
+    final tncStatus = context.watch<TncService>().currentStatus;
+
     return ResponsiveLayout(
       service: _service,
       tncService: widget.tncService,
@@ -260,8 +265,8 @@ class _MapScreenState extends State<MapScreen> {
       markers: _markers,
       tileUrl: _tileUrl(context),
       onNavigateToSettings: _navigateToSettings,
-      connectionStatus: _connectionStatus,
-      tncConnectionStatus: _tncConnectionStatus,
+      connectionStatus: aprsStatus,
+      tncConnectionStatus: tncStatus,
       initialCenter: LatLng(widget.initialLat, widget.initialLon),
       initialZoom: widget.initialZoom,
       northUpLocked: _northUpLocked,

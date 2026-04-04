@@ -164,6 +164,30 @@ class BackgroundServiceManager extends ChangeNotifier
 
   bool _backgroundActivityEnabled = true;
 
+  // ---------------------------------------------------------------------------
+  // Background reconnect tracking
+  // ---------------------------------------------------------------------------
+
+  /// Whether the app is currently backgrounded (paused lifecycle state).
+  bool _isInBackground = false;
+
+  /// Whether APRS-IS was connected (or connecting) when the app went to
+  /// background. Drives background auto-reconnect.
+  bool _reconnectAprsIs = false;
+
+  /// Whether a TNC was connected (or connecting) when the app went to
+  /// background. Drives background auto-reconnect.
+  bool _reconnectTnc = false;
+
+  /// Pending reconnect timer for APRS-IS. Null when not scheduled.
+  Timer? _aprsIsReconnectTimer;
+
+  /// Pending reconnect timer for TNC. Null when not scheduled.
+  Timer? _tncReconnectTimer;
+
+  /// How long to wait before attempting a reconnect after a drop.
+  static const _kReconnectDelay = Duration(seconds: 10);
+
   BackgroundServiceState get state => _state;
   String? get errorMessage => _errorMessage;
 
@@ -217,6 +241,8 @@ class BackgroundServiceManager extends ChangeNotifier
   /// Enables or disables automatic background service management.
   ///
   /// When disabled, stops a running auto-started service immediately.
+  /// When enabled, starts immediately if there is already an active connection
+  /// or beaconing session that needs protecting.
   /// Manually-started services are unaffected.
   Future<void> setBackgroundActivityEnabled(bool v) async {
     if (_backgroundActivityEnabled == v) return;
@@ -225,9 +251,25 @@ class BackgroundServiceManager extends ChangeNotifier
     await prefs.setBool(_keyBgActivity, v);
     if (!v && _autoStarted && isRunning) {
       await stopService();
+    } else if (v &&
+        !kIsWeb &&
+        Platform.isAndroid &&
+        _shouldBeRunning &&
+        !isRunning) {
+      _maybeAutoStart(); // ignore: unawaited_futures
     }
     notifyListeners();
   }
+
+  /// Whether the foreground service should be running given current state.
+  ///
+  /// True when any transport is connected or beaconing is active in a mode
+  /// that requires a timer. This drives both auto-start and auto-stop.
+  bool get _shouldBeRunning =>
+      _backgroundActivityEnabled &&
+      (_station.currentConnectionStatus == ConnectionStatus.connected ||
+          _tnc.currentStatus == ConnectionStatus.connected ||
+          (_beaconing.isActive && _beaconing.mode != BeaconMode.manual));
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -253,8 +295,11 @@ class BackgroundServiceManager extends ChangeNotifier
 
     _setState(BackgroundServiceState.starting);
 
-    // Background location is required for GPS beaconing while backgrounded.
-    if (_beaconing.mode != BeaconMode.manual) {
+    // Background location is only required when GPS beaconing will run while
+    // the screen is locked. Connection-only keepalive does not need it.
+    final needsGpsInBackground =
+        _beaconing.isActive && _beaconing.mode != BeaconMode.manual;
+    if (needsGpsInBackground) {
       final granted = await _requestBackgroundLocationPermission(context);
       if (!granted) {
         _errorMessage =
@@ -318,6 +363,17 @@ class BackgroundServiceManager extends ChangeNotifier
     if (kIsWeb || !Platform.isAndroid || !isRunning) return;
     switch (state) {
       case AppLifecycleState.paused:
+        _isInBackground = true;
+        // Record which transports were active so we know what to keep alive.
+        // Include `connecting` so a connection in-flight when the screen locks
+        // is also tracked and reconnected if it drops.
+        _reconnectAprsIs =
+            _station.currentConnectionStatus == ConnectionStatus.connected ||
+            _station.currentConnectionStatus == ConnectionStatus.connecting;
+        _reconnectTnc =
+            _tnc.currentStatus == ConnectionStatus.connected ||
+            _tnc.currentStatus == ConnectionStatus.connecting;
+
         if (_beaconing.isActive && _beaconing.mode != BeaconMode.manual) {
           // Suspend main isolate timer before the isolate is throttled.
           // The background isolate will pick up the interval from where we
@@ -329,18 +385,36 @@ class BackgroundServiceManager extends ChangeNotifier
                 _beaconing.lastBeaconAt?.millisecondsSinceEpoch ?? 0,
           });
         }
+
       case AppLifecycleState.resumed:
+        _isInBackground = false;
+
+        // Cancel any pending reconnect timers — we're in foreground now and
+        // will reconnect synchronously below if still needed.
+        _aprsIsReconnectTimer?.cancel();
+        _aprsIsReconnectTimer = null;
+        _tncReconnectTimer?.cancel();
+        _tncReconnectTimer = null;
+
         // Stop background isolate beacon — main isolate takes over.
         FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
         // Sync the main BeaconingService timer from the background isolate's
         // last beacon timestamp (persisted to SharedPreferences).
         _resumeBeaconingFromBackground();
-        // Reconnect APRS-IS if the TCP socket dropped while backgrounded.
-        // Android may kill sockets on screen lock; the transport detects the
-        // drop via onDone/onError but has no auto-reconnect of its own.
-        if (_station.currentConnectionStatus == ConnectionStatus.disconnected) {
+
+        // Reconnect anything that was active and dropped while backgrounded.
+        if (_reconnectAprsIs &&
+            _station.currentConnectionStatus == ConnectionStatus.disconnected) {
           _station.connectAprsIs(); // ignore: unawaited_futures
         }
+        if (_reconnectTnc &&
+            _tnc.currentStatus == ConnectionStatus.disconnected) {
+          final config = _tnc.activeConfig;
+          if (config != null) {
+            _tnc.connect(config); // ignore: unawaited_futures
+          }
+        }
+
       default:
         break;
     }
@@ -351,7 +425,11 @@ class BackgroundServiceManager extends ChangeNotifier
   /// fires at the correct time.
   void _resumeBeaconingFromBackground() {
     if (!_beaconing.isActive) return;
-    SharedPreferences.getInstance().then((prefs) {
+    SharedPreferences.getInstance().then((prefs) async {
+      // reload() forces a fresh read from disk so we pick up the timestamp
+      // written by the background isolate (a separate Flutter engine whose
+      // SharedPreferences writes are not visible in the main isolate's cache).
+      await prefs.reload();
       final bgTsMs = prefs.getInt('bg_last_beacon_ts');
       final mainTs = _beaconing.lastBeaconAt;
       final DateTime ts;
@@ -394,18 +472,23 @@ class BackgroundServiceManager extends ChangeNotifier
   // Auto-start / auto-stop
   // ---------------------------------------------------------------------------
 
-  /// Starts the service silently if [Permission.locationAlways] is already
-  /// granted. If the permission is missing, sets [needsPermission] so the
-  /// Connection screen can surface a prompt.
+  /// Starts the service silently when there is a reason to be running
+  /// ([_shouldBeRunning] is true) and no UI context is available.
+  ///
+  /// Background location permission is only required when GPS beaconing will
+  /// run in the background. Connection-only starts (APRS-IS / TNC keepalive)
+  /// do not need it. If the permission is missing for beaconing, sets
+  /// [needsPermission] so the Settings screen can surface a prompt.
   Future<void> _maybeAutoStart() async {
     if (!Platform.isAndroid) return;
     if (isRunning || !_backgroundActivityEnabled) return;
-    if (!_beaconing.isActive || _beaconing.mode == BeaconMode.manual) return;
+    if (!_shouldBeRunning) return;
 
-    // For GPS modes, background location must already be granted — we don't
-    // pop a dialog here since this fires from a ChangeNotifier callback with
-    // no BuildContext. If permission is missing, flag it for the UI.
-    if (_beaconing.mode != BeaconMode.manual) {
+    // Background location is only needed when GPS beaconing will fire while
+    // the screen is locked. Connection keepalive alone does not require it.
+    final needsGpsInBackground =
+        _beaconing.isActive && _beaconing.mode != BeaconMode.manual;
+    if (needsGpsInBackground) {
       final status = await Permission.locationAlways.status;
       if (!status.isGranted) {
         _needsPermission = true;
@@ -427,6 +510,12 @@ class BackgroundServiceManager extends ChangeNotifier
       _autoStarted = true;
       _needsPermission = false;
       _setState(BackgroundServiceState.running);
+      // Push a fresh notification update immediately after startup. The
+      // debounce timer set when _onServiceStateChanged fired may have already
+      // expired while we were awaiting permissions and startService(), so the
+      // notification content could be stale. This ensures it always reflects
+      // the current beaconing and connection state at the moment of first show.
+      await _pushNotificationUpdate();
     } else {
       _errorMessage = 'Failed to start background service.';
       _setState(BackgroundServiceState.error);
@@ -439,34 +528,91 @@ class BackgroundServiceManager extends ChangeNotifier
 
   void _onServiceStateChanged() {
     if (isRunning) {
-      final tncReconnecting = _tnc.currentStatus == ConnectionStatus.connecting;
-      final aprsReconnecting =
-          _station.currentConnectionStatus == ConnectionStatus.connecting;
-      final next = (tncReconnecting || aprsReconnecting)
+      final tncIssue =
+          (_reconnectTnc || !_isInBackground) &&
+          (_tnc.currentStatus == ConnectionStatus.connecting ||
+              (_isInBackground &&
+                  _reconnectTnc &&
+                  _tnc.currentStatus == ConnectionStatus.disconnected));
+      final aprsIssue =
+          (_reconnectAprsIs || !_isInBackground) &&
+          (_station.currentConnectionStatus == ConnectionStatus.connecting ||
+              (_isInBackground &&
+                  _reconnectAprsIs &&
+                  _station.currentConnectionStatus ==
+                      ConnectionStatus.disconnected));
+      final next = (tncIssue || aprsIssue)
           ? BackgroundServiceState.reconnecting
           : BackgroundServiceState.running;
       if (next != _state) _setState(next);
     }
 
     if (!kIsWeb && Platform.isAndroid) {
-      final beaconingActive =
-          _beaconing.isActive && _beaconing.mode != BeaconMode.manual;
-      if (beaconingActive && !isRunning && _backgroundActivityEnabled) {
+      if (_shouldBeRunning && !isRunning) {
         _maybeAutoStart(); // ignore: unawaited_futures
-      } else if (!beaconingActive && _autoStarted && isRunning) {
+      } else if (!_shouldBeRunning && _autoStarted && isRunning) {
         stopService(); // ignore: unawaited_futures
       }
     }
 
+    // Schedule background reconnects for any transport that dropped while
+    // the app is backgrounded.
+    if (_isInBackground && isRunning) {
+      _maybeReconnectInBackground();
+    }
+
     // Debounce: many rapid ChangeNotifier pings (BLE scanning, packet arrival)
-    // must not spam updateService().
+    // must not spam updateService(). Only schedule when the service is actually
+    // running — there is nothing to update in the notification otherwise, and
+    // leaving a pending timer causes test assertion failures.
     _updateDebounce?.cancel();
-    _updateDebounce = Timer(
-      const Duration(milliseconds: 500),
-      _pushNotificationUpdate,
-    );
+    if (isRunning) {
+      _updateDebounce = Timer(
+        const Duration(milliseconds: 500),
+        _pushNotificationUpdate,
+      );
+    }
 
     notifyListeners();
+  }
+
+  /// Schedules a reconnect attempt for any transport that dropped unexpectedly
+  /// while the app is in the background.
+  ///
+  /// The timer guard ensures we don't queue multiple attempts for the same
+  /// transport. Each timer fires once: if the connection is still down it
+  /// attempts reconnect, then clears itself — the next [_onServiceStateChanged]
+  /// call (from the failed connect) will schedule another timer, giving
+  /// continuous retry at [_kReconnectDelay] intervals.
+  void _maybeReconnectInBackground() {
+    if (_reconnectAprsIs &&
+        _station.currentConnectionStatus == ConnectionStatus.disconnected &&
+        _aprsIsReconnectTimer == null) {
+      _aprsIsReconnectTimer = Timer(_kReconnectDelay, () {
+        _aprsIsReconnectTimer = null;
+        if (_isInBackground &&
+            _reconnectAprsIs &&
+            _station.currentConnectionStatus == ConnectionStatus.disconnected) {
+          _station.connectAprsIs(); // ignore: unawaited_futures
+        }
+      });
+    }
+
+    if (_reconnectTnc &&
+        _tnc.currentStatus == ConnectionStatus.disconnected &&
+        _tncReconnectTimer == null) {
+      final config = _tnc.activeConfig;
+      if (config != null) {
+        _tncReconnectTimer = Timer(_kReconnectDelay, () {
+          _tncReconnectTimer = null;
+          if (_isInBackground &&
+              _reconnectTnc &&
+              _tnc.currentStatus == ConnectionStatus.disconnected) {
+            _tnc.connect(config); // ignore: unawaited_futures
+          }
+        });
+      }
+    }
   }
 
   Future<void> _pushNotificationUpdate() async {
@@ -589,6 +735,8 @@ class BackgroundServiceManager extends ChangeNotifier
     _station.removeListener(_onServiceStateChanged);
     _beaconing.removeListener(_onServiceStateChanged);
     _updateDebounce?.cancel();
+    _aprsIsReconnectTimer?.cancel();
+    _tncReconnectTimer?.cancel();
     if (!kIsWeb && Platform.isAndroid) {
       WidgetsBinding.instance.removeObserver(this);
       FlutterForegroundTask.removeTaskDataCallback(_onTaskData);

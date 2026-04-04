@@ -92,6 +92,9 @@ class MeridianConnectionTask extends TaskHandler {
   /// main isolate last beaconed, so there is no gap after the screen locks.
   void _scheduleFirstBeacon(int lastBeaconTsMs) {
     _beaconTimer?.cancel();
+    // Seed _lastBeaconTs so onRepeatEvent can start updating the notification
+    // text immediately, before the first background beacon fires.
+    if (lastBeaconTsMs > 0) _lastBeaconTs = lastBeaconTsMs;
     SharedPreferences.getInstance().then((prefs) {
       final intervalS = prefs.getInt('beacon_interval_s') ?? 600;
       final elapsedMs = DateTime.now().millisecondsSinceEpoch - lastBeaconTsMs;
@@ -119,6 +122,11 @@ class MeridianConnectionTask extends TaskHandler {
 
   Future<void> _sendBeacon() async {
     final prefs = await SharedPreferences.getInstance();
+    // reload() re-reads from Android SharedPreferences so we pick up any
+    // setting changes made on the main isolate since the background engine
+    // started (interval, callsign, beacon targets, etc.). The Dart-side
+    // singleton would otherwise serve a stale cached copy indefinitely.
+    await prefs.reload();
 
     final callsign = (prefs.getString('user_callsign') ?? '').toUpperCase();
     if (callsign.isEmpty) return; // Not configured — skip.

@@ -22,6 +22,7 @@ class BeaconFAB extends StatefulWidget {
     this.mode = BeaconMode.manual,
     this.lastBeaconAt,
     this.onLongPress,
+    this.noBeaconTarget = false,
   });
 
   final bool isBeaconing;
@@ -31,6 +32,10 @@ class BeaconFAB extends StatefulWidget {
 
   /// Called when a long-press fires.
   final Future<void> Function()? onLongPress;
+
+  /// True when beaconing is active but no connected transport has beaconing
+  /// enabled. The FAB shows a warning subtitle in this state.
+  final bool noBeaconTarget;
 
   @override
   State<BeaconFAB> createState() => _BeaconFABState();
@@ -184,7 +189,15 @@ class _BeaconFABState extends State<BeaconFAB>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(_label),
-                  if (ago != null)
+                  if (widget.isBeaconing && widget.noBeaconTarget)
+                    Text(
+                      'No TX path — enable in Connection',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: MeridianColors.warning,
+                      ),
+                    )
+                  else if (ago != null)
                     Text(
                       ago,
                       style: TextStyle(

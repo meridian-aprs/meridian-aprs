@@ -253,25 +253,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               const Divider(height: 1),
             ],
 
-            // ── Background service (Android only) ────────────────────────
-            if (!kIsWeb && Platform.isAndroid) ...[
-              const SizedBox(height: 20),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _SectionLabel('Background service'),
-              ),
-              const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Consumer<BackgroundServiceManager>(
-                  builder: (context, bsm, _) =>
-                      _BackgroundServiceCard(manager: bsm),
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Divider(height: 1),
-            ],
-
             // ── Segmented control + tabs ──────────────────────────────────
             const SizedBox(height: 20),
             Padding(
@@ -688,9 +669,7 @@ class _AprsActiveCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Consumer<TxService>(
                   builder: (_, txSvc, _) {
-                    if (txSvc.effective != TxTransportPref.aprsIs) {
-                      return const SizedBox.shrink();
-                    }
+                    if (!txSvc.beaconToAprsIs) return const SizedBox.shrink();
                     return _TxBadge();
                   },
                 ),
@@ -785,9 +764,7 @@ class _TncActiveCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Consumer<TxService>(
                   builder: (_, txSvc, _) {
-                    if (txSvc.effective != TxTransportPref.tnc) {
-                      return const SizedBox.shrink();
-                    }
+                    if (!txSvc.beaconToTnc) return const SizedBox.shrink();
                     return _TxBadge();
                   },
                 ),
@@ -940,121 +917,6 @@ class _TncUnavailableCard extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Card showing Android foreground service status and toggle.
-class _BackgroundServiceCard extends StatelessWidget {
-  const _BackgroundServiceCard({required this.manager});
-
-  final BackgroundServiceManager manager;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final running = manager.isRunning;
-
-    Color statusColor;
-    String statusLabel;
-    switch (manager.state) {
-      case BackgroundServiceState.stopped:
-        statusColor = theme.colorScheme.outline;
-        statusLabel = 'Off';
-      case BackgroundServiceState.starting:
-        statusColor = MeridianColors.warning;
-        statusLabel = 'Starting\u2026';
-      case BackgroundServiceState.running:
-        statusColor = MeridianColors.signal;
-        statusLabel = 'Running';
-      case BackgroundServiceState.reconnecting:
-        statusColor = MeridianColors.warning;
-        statusLabel = 'Reconnecting\u2026';
-      case BackgroundServiceState.error:
-        statusColor = MeridianColors.danger;
-        statusLabel = 'Error';
-    }
-
-    return Card.outlined(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: statusColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(statusLabel, style: theme.textTheme.bodyMedium),
-                const Spacer(),
-                Switch(
-                  value: running,
-                  onChanged: (on) async {
-                    if (on) {
-                      await manager.requestStartService(context);
-                    } else {
-                      await manager.stopService();
-                    }
-                  },
-                ),
-              ],
-            ),
-            if (manager.state == BackgroundServiceState.error &&
-                manager.errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                manager.errorMessage!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: MeridianColors.danger,
-                ),
-              ),
-            ],
-            if (manager.needsPermission && !running) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    Symbols.location_off,
-                    size: 16,
-                    color: MeridianColors.warning,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Background location permission needed to beacon '
-                      'while the screen is locked.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: MeridianColors.warning,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => manager.requestStartService(context),
-                    child: const Text('Grant'),
-                  ),
-                ],
-              ),
-            ],
-            if (!running && !manager.needsPermission) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Enable to keep connections and beaconing active '
-                'when the app is in the background.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
         ),
       ),
     );

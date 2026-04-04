@@ -14,7 +14,6 @@ import 'location_picker_screen.dart';
 import '../services/message_service.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
-import '../services/tx_service.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
 import '../theme/meridian_colors.dart';
@@ -871,7 +870,6 @@ class _BeaconingSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final beaconing = context.watch<BeaconingService>();
-    final tx = context.watch<TxService>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -937,50 +935,48 @@ class _BeaconingSection extends StatelessWidget {
             ),
           ),
         ],
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Row(
-            children: [
-              const Text('Transmit via'),
-              const SizedBox(width: 16),
-              Tooltip(
-                message: !tx.tncAvailable ? 'TNC not connected' : '',
-                child: SegmentedButton<TxTransportPref>(
-                  segments: [
-                    const ButtonSegment(
-                      value: TxTransportPref.aprsIs,
-                      icon: Icon(Symbols.wifi),
-                      label: Text('APRS-IS'),
-                    ),
-                    ButtonSegment(
-                      value: TxTransportPref.tnc,
-                      icon: const Icon(Symbols.settings_input_antenna),
-                      label: const Text('RF / TNC'),
-                      enabled: tx.tncAvailable,
-                    ),
-                  ],
-                  selected: {tx.effective},
-                  onSelectionChanged: (modes) {
-                    if (modes.isNotEmpty) {
-                      context.read<TxService>().setPreference(modes.first);
-                    }
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
         if (!kIsWeb && Platform.isAndroid)
           Consumer<BackgroundServiceManager>(
-            builder: (_, bsm, _) => SwitchListTile(
-              title: const Text('Background activity'),
-              subtitle: const Text(
-                'Keep beaconing active when the screen is locked.',
-              ),
-              value: bsm.backgroundActivityEnabled,
-              onChanged: (v) => context
-                  .read<BackgroundServiceManager>()
-                  .setBackgroundActivityEnabled(v),
+            builder: (context, bsm, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  title: const Text('Background activity'),
+                  subtitle: const Text(
+                    'Keep beaconing active when the screen is locked.',
+                  ),
+                  value: bsm.backgroundActivityEnabled,
+                  onChanged: (v) => context
+                      .read<BackgroundServiceManager>()
+                      .setBackgroundActivityEnabled(v),
+                ),
+                if (bsm.needsPermission && !bsm.isRunning)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Symbols.location_off,
+                          size: 16,
+                          color: MeridianColors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Background location permission needed to beacon '
+                            'while the screen is locked.',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: MeridianColors.warning),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => bsm.requestStartService(context),
+                          child: const Text('Grant'),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
       ],

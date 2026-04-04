@@ -240,15 +240,18 @@ class BeaconingService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Suspends the beacon timer without deactivating beaconing.
+  /// Suspends the beacon timer and GPS stream without deactivating beaconing.
   ///
   /// Called by [BackgroundServiceManager] when the Android app is backgrounded
   /// and the background isolate is taking over beacon timing. The main isolate
-  /// timer is cancelled here so it cannot fire on resume before the background
-  /// sync is complete. [isActive] remains true.
+  /// timer and position subscription are cancelled here so they cannot fire
+  /// (and potentially double-transmit) while the background isolate is active.
+  /// [isActive] remains true.
   void suspendTimerForBackground() {
     _timer?.cancel();
     _timer = null;
+    _positionSub?.cancel();
+    _positionSub = null;
     // _isActive intentionally stays true.
   }
 
@@ -267,6 +270,12 @@ class BeaconingService extends ChangeNotifier {
       _timerStartedAt = ts;
       _timerIntervalS = _autoIntervalS;
       _timer = Timer(Duration(seconds: remaining), _onTimerFired);
+      // Restore the GPS position stream for smart mode (was suspended on
+      // background handoff to prevent double-transmission with the background
+      // isolate's timer).
+      if (_mode == BeaconMode.smart) {
+        _startPositionStream(); // ignore: unawaited_futures
+      }
     }
     notifyListeners();
   }
