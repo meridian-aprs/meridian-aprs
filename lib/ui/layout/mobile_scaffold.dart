@@ -13,6 +13,7 @@ import '../../screens/messages_screen.dart';
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/beaconing_service.dart';
+import '../../services/tx_service.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
@@ -299,10 +300,16 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                         Builder(
                           builder: (ctx) {
                             final beaconing = ctx.watch<BeaconingService>();
+                            final tx = ctx.watch<TxService>();
+                            final noTarget =
+                                beaconing.isActive &&
+                                !(tx.beaconToAprsIs && tx.aprsIsAvailable) &&
+                                !(tx.beaconToTnc && tx.tncAvailable);
                             return BeaconFAB(
                               isBeaconing: beaconing.isActive,
                               mode: beaconing.mode,
                               lastBeaconAt: beaconing.lastBeaconAt,
+                              noBeaconTarget: noTarget,
                               onTap: beaconing.mode == BeaconMode.manual
                                   ? beaconing.beaconNow
                                   : beaconing.isActive

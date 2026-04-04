@@ -60,7 +60,12 @@ class StationService extends ChangeNotifier {
   SharedPreferences? _prefs;
   Timer? _persistTimer;
 
-  StationService(this._transport);
+  StationService(this._transport) {
+    // Propagate transport connection state changes through ChangeNotifier so
+    // that listeners (e.g. BackgroundServiceManager) react immediately when
+    // APRS-IS connects or disconnects.
+    _transport.connectionState.listen((_) => notifyListeners());
+  }
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -97,7 +102,9 @@ class StationService extends ChangeNotifier {
 
   Future<void> start() async {
     _transport.lines.listen(_handleLine);
-    await connectAprsIs();
+    // No auto-connect: the user initiates connections explicitly via the
+    // Connection screen. Once connected, the foreground service keeps the
+    // connection alive when the app is backgrounded.
   }
 
   Future<void> connectAprsIs() async {

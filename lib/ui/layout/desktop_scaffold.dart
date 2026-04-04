@@ -16,6 +16,7 @@ import '../../services/beaconing_service.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
+import '../../services/tx_service.dart';
 import '../../theme/meridian_colors.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/station_search_delegate.dart';
@@ -370,18 +371,30 @@ class _BeaconToolbarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<BeaconingService>();
+    final tx = context.watch<TxService>();
     final isActive = svc.isActive;
-    final tooltip = switch (svc.mode) {
-      BeaconMode.auto =>
-        isActive ? 'Stop auto beaconing' : 'Start auto beaconing',
-      BeaconMode.smart =>
-        isActive ? 'Stop SmartBeaconing™' : 'Start SmartBeaconing™',
-      BeaconMode.manual => 'Send beacon now',
-    };
+    final noTarget =
+        isActive &&
+        !(tx.beaconToAprsIs && tx.aprsIsAvailable) &&
+        !(tx.beaconToTnc && tx.tncAvailable);
+    final tooltip = noTarget
+        ? 'Beaconing active — no TX path (enable in Connection)'
+        : switch (svc.mode) {
+            BeaconMode.auto =>
+              isActive ? 'Stop auto beaconing' : 'Start auto beaconing',
+            BeaconMode.smart =>
+              isActive ? 'Stop SmartBeaconing™' : 'Start SmartBeaconing™',
+            BeaconMode.manual => 'Send beacon now',
+          };
     return IconButton(
-      icon: Icon(
-        Symbols.cell_tower,
-        color: isActive ? MeridianColors.danger : null,
+      icon: Badge(
+        isLabelVisible: noTarget,
+        backgroundColor: MeridianColors.warning,
+        smallSize: 8,
+        child: Icon(
+          Symbols.cell_tower,
+          color: isActive ? MeridianColors.danger : null,
+        ),
       ),
       tooltip: tooltip,
       onPressed: svc.mode == BeaconMode.manual

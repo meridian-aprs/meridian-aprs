@@ -47,9 +47,17 @@ class TxService extends ChangeNotifier {
 
   static const _keyPref = 'tx_transport_pref';
   static const _keyExplicit = 'tx_pref_explicit';
+  static const _keyBeaconToAprsIs = 'beacon_to_aprs_is';
+  static const _keyBeaconToTnc = 'beacon_to_tnc';
 
   TxTransportPref _preference = TxTransportPref.auto;
   bool _userHasExplicitlySet = false;
+
+  /// Whether position beacons are sent to APRS-IS when it is connected.
+  bool _beaconToAprsIs = true;
+
+  /// Whether position beacons are sent to the TNC (RF) when it is connected.
+  bool _beaconToTnc = true;
 
   final _eventController = StreamController<TxEvent>.broadcast();
 
@@ -81,6 +89,12 @@ class TxService extends ChangeNotifier {
     return _preference;
   }
 
+  /// Whether beacons are sent to APRS-IS when connected.
+  bool get beaconToAprsIs => _beaconToAprsIs;
+
+  /// Whether beacons are sent to the TNC (RF) when connected.
+  bool get beaconToTnc => _beaconToTnc;
+
   /// Stream of [TxEvent]s for UI banner display.
   Stream<TxEvent> get events => _eventController.stream;
 
@@ -109,6 +123,24 @@ class TxService extends ChangeNotifier {
       _preference = TxTransportPref.values[idx];
     }
     _userHasExplicitlySet = prefs.getBool(_keyExplicit) ?? false;
+    _beaconToAprsIs = prefs.getBool(_keyBeaconToAprsIs) ?? true;
+    _beaconToTnc = prefs.getBool(_keyBeaconToTnc) ?? true;
+    notifyListeners();
+  }
+
+  Future<void> setBeaconToAprsIs(bool v) async {
+    if (_beaconToAprsIs == v) return;
+    _beaconToAprsIs = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyBeaconToAprsIs, v);
+    notifyListeners();
+  }
+
+  Future<void> setBeaconToTnc(bool v) async {
+    if (_beaconToTnc == v) return;
+    _beaconToTnc = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyBeaconToTnc, v);
     notifyListeners();
   }
 
@@ -125,6 +157,39 @@ class TxService extends ChangeNotifier {
       await _sendViaTnc(aprsLine);
     } else {
       _aprsIs.sendLine('$aprsLine\r\n');
+    }
+  }
+
+  /// Send a position beacon to all enabled and available transports.
+  ///
+  /// Unlike [sendLine] (which routes to one transport and falls back), this
+  /// fans out to every target the user has enabled:
+  /// - APRS-IS if [beaconToAprsIs] is true and APRS-IS is connected.
+  /// - TNC (RF) if [beaconToTnc] is true and a TNC is connected.
+  ///
+  /// Each target is attempted independently — a failure on one does not
+  /// prevent the other from being tried. [sendLine] is unchanged and keeps
+  /// its single-transport routing for messages.
+  Future<void> sendBeacon(String aprsLine) async {
+    if (_beaconToAprsIs && aprsIsAvailable) {
+      _aprsIs.sendLine('$aprsLine\r\n');
+    }
+    if (_beaconToTnc && tncAvailable) {
+      await sendViaTncOnly(aprsLine);
+    }
+  }
+
+  /// Send [aprsLine] directly to the TNC without any APRS-IS fallback.
+  ///
+  /// Used by [BackgroundServiceManager] to handle TNC beacons requested via
+  /// IPC from the background isolate, which cannot access the live TNC
+  /// connection directly.
+  Future<void> sendViaTncOnly(String aprsLine) async {
+    final transport = _tnc.transportManager.activeTransport;
+    if (transport == null || !transport.isConnected) return;
+    final ax25Bytes = _buildAx25Bytes(aprsLine);
+    if (ax25Bytes != null) {
+      await transport.sendFrame(ax25Bytes);
     }
   }
 

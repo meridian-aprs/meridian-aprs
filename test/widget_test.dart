@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:meridian_aprs/theme/theme_controller.dart';
 import 'package:meridian_aprs/screens/map_screen.dart';
+import 'package:meridian_aprs/services/background_service_manager.dart';
 import 'package:meridian_aprs/services/beaconing_service.dart';
 import 'package:meridian_aprs/services/message_service.dart';
 import 'package:meridian_aprs/services/station_service.dart';
@@ -27,6 +28,12 @@ void main() {
     final stationSettings = StationSettingsService(prefs);
     final beaconingService = BeaconingService(stationSettings, txService);
     final messageService = MessageService(stationSettings, txService, service);
+    final bgServiceManager = BackgroundServiceManager(
+      tnc: tncService,
+      station: service,
+      beaconing: beaconingService,
+      tx: txService,
+    );
 
     await tester.pumpWidget(
       MultiProvider(
@@ -42,6 +49,9 @@ void main() {
             value: beaconingService,
           ),
           ChangeNotifierProvider<MessageService>.value(value: messageService),
+          ChangeNotifierProvider<BackgroundServiceManager>.value(
+            value: bgServiceManager,
+          ),
         ],
         child: MaterialApp(
           home: MapScreen(service: service, tncService: tncService),

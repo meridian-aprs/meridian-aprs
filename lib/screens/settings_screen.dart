@@ -8,12 +8,12 @@ import 'package:provider/provider.dart';
 
 import 'package:latlong2/latlong.dart';
 
+import '../services/background_service_manager.dart';
 import '../services/beaconing_service.dart';
 import 'location_picker_screen.dart';
 import '../services/message_service.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
-import '../services/tx_service.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
 import '../theme/meridian_colors.dart';
@@ -870,7 +870,6 @@ class _BeaconingSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final beaconing = context.watch<BeaconingService>();
-    final tx = context.watch<TxService>();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -936,39 +935,50 @@ class _BeaconingSection extends StatelessWidget {
             ),
           ),
         ],
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Row(
-            children: [
-              const Text('Transmit via'),
-              const SizedBox(width: 16),
-              Tooltip(
-                message: !tx.tncAvailable ? 'TNC not connected' : '',
-                child: SegmentedButton<TxTransportPref>(
-                  segments: [
-                    const ButtonSegment(
-                      value: TxTransportPref.aprsIs,
-                      icon: Icon(Symbols.wifi),
-                      label: Text('APRS-IS'),
-                    ),
-                    ButtonSegment(
-                      value: TxTransportPref.tnc,
-                      icon: const Icon(Symbols.settings_input_antenna),
-                      label: const Text('RF / TNC'),
-                      enabled: tx.tncAvailable,
-                    ),
-                  ],
-                  selected: {tx.effective},
-                  onSelectionChanged: (modes) {
-                    if (modes.isNotEmpty) {
-                      context.read<TxService>().setPreference(modes.first);
-                    }
-                  },
+        if (!kIsWeb && Platform.isAndroid)
+          Consumer<BackgroundServiceManager>(
+            builder: (context, bsm, _) => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SwitchListTile(
+                  title: const Text('Background activity'),
+                  subtitle: const Text(
+                    'Keep beaconing active when the screen is locked.',
+                  ),
+                  value: bsm.backgroundActivityEnabled,
+                  onChanged: (v) => context
+                      .read<BackgroundServiceManager>()
+                      .setBackgroundActivityEnabled(v),
                 ),
-              ),
-            ],
+                if (bsm.needsPermission && !bsm.isRunning)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Symbols.location_off,
+                          size: 16,
+                          color: MeridianColors.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Background location permission needed to beacon '
+                            'while the screen is locked.',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: MeridianColors.warning),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => bsm.requestStartService(context),
+                          child: const Text('Grant'),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -980,34 +990,29 @@ class _IntervalTile extends StatelessWidget {
   final int intervalS;
   final ValueChanged<int> onChanged;
 
-  String _label(int s) {
-    if (s < 60) return '$s seconds';
-    if (s % 60 == 0) return '${s ~/ 60} minutes';
-    return '${s ~/ 60}m ${s % 60}s';
-  }
+  static String _label(int minutes) =>
+      minutes == 1 ? '1 minute' : '$minutes minutes';
 
   @override
   Widget build(BuildContext context) {
+    // Snap any stored value to the nearest whole minute (1–60).
+    final minutes = (intervalS / 60).round().clamp(1, 60);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         ListTile(
           title: const Text('Beacon Interval'),
-          subtitle: Text(_label(intervalS)),
-          trailing: Text(
-            _label(intervalS),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          subtitle: Text(_label(minutes)),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Slider(
-            min: 30,
-            max: 3600,
-            divisions: ((3600 - 30) ~/ 30),
-            value: intervalS.toDouble(),
-            label: _label(intervalS),
-            onChanged: (v) => onChanged(v.round()),
+            min: 1,
+            max: 60,
+            divisions: 59,
+            value: minutes.toDouble(),
+            label: _label(minutes),
+            onChanged: (v) => onChanged(v.round() * 60),
           ),
         ),
       ],

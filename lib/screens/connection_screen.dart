@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
 import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
+import '../services/background_service_manager.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../services/tnc_service.dart';
@@ -188,6 +189,38 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── Background service reconnecting banner (Android) ──────────
+            if (!kIsWeb && Platform.isAndroid)
+              Consumer<BackgroundServiceManager>(
+                builder: (context, bsm, _) {
+                  if (bsm.state != BackgroundServiceState.reconnecting) {
+                    return const SizedBox.shrink();
+                  }
+                  return ColoredBox(
+                    color: MeridianColors.warning.withValues(alpha: 0.15),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      child: Row(
+                        children: [
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text('Reconnecting in background\u2026'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+
             // ── Active connections ────────────────────────────────────────
             if (anyConnected) ...[
               const SizedBox(height: 16),
@@ -636,9 +669,7 @@ class _AprsActiveCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Consumer<TxService>(
                   builder: (_, txSvc, _) {
-                    if (txSvc.effective != TxTransportPref.aprsIs) {
-                      return const SizedBox.shrink();
-                    }
+                    if (!txSvc.beaconToAprsIs) return const SizedBox.shrink();
                     return _TxBadge();
                   },
                 ),
@@ -658,7 +689,16 @@ class _AprsActiveCard extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
+            Consumer<TxService>(
+              builder: (_, txSvc, _) => SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Beacon'),
+                value: txSvc.beaconToAprsIs,
+                onChanged: (v) =>
+                    context.read<TxService>().setBeaconToAprsIs(v),
+              ),
+            ),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(
@@ -724,9 +764,7 @@ class _TncActiveCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Consumer<TxService>(
                   builder: (_, txSvc, _) {
-                    if (txSvc.effective != TxTransportPref.tnc) {
-                      return const SizedBox.shrink();
-                    }
+                    if (!txSvc.beaconToTnc) return const SizedBox.shrink();
                     return _TxBadge();
                   },
                 ),
@@ -746,7 +784,15 @@ class _TncActiveCard extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            const SizedBox(height: 16),
+            Consumer<TxService>(
+              builder: (_, txSvc, _) => SwitchListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Beacon'),
+                value: txSvc.beaconToTnc,
+                onChanged: (v) => context.read<TxService>().setBeaconToTnc(v),
+              ),
+            ),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton(

@@ -127,7 +127,7 @@ class BeaconingService extends ChangeNotifier {
   }
 
   Future<void> setAutoInterval(int seconds) async {
-    final clamped = seconds.clamp(30, 3600);
+    final clamped = seconds.clamp(60, 3600);
     if (_autoIntervalS == clamped) return;
     _autoIntervalS = clamped;
     final prefs = await SharedPreferences.getInstance();
@@ -206,7 +206,7 @@ class BeaconingService extends ChangeNotifier {
       hasMessaging: true,
     );
 
-    await _tx.sendLine(aprsLine);
+    await _tx.sendBeacon(aprsLine);
     onBeaconSent?.call(aprsLine);
     _lastBeaconAt = DateTime.now();
 
@@ -237,6 +237,46 @@ class BeaconingService extends ChangeNotifier {
     _timer = null;
     await _positionSub?.cancel();
     _positionSub = null;
+    notifyListeners();
+  }
+
+  /// Suspends the beacon timer and GPS stream without deactivating beaconing.
+  ///
+  /// Called by [BackgroundServiceManager] when the Android app is backgrounded
+  /// and the background isolate is taking over beacon timing. The main isolate
+  /// timer and position subscription are cancelled here so they cannot fire
+  /// (and potentially double-transmit) while the background isolate is active.
+  /// [isActive] remains true.
+  void suspendTimerForBackground() {
+    _timer?.cancel();
+    _timer = null;
+    _positionSub?.cancel();
+    _positionSub = null;
+    // _isActive intentionally stays true.
+  }
+
+  /// Resumes beaconing from a known last-beacon timestamp.
+  ///
+  /// Called by [BackgroundServiceManager] when the app returns to foreground.
+  /// Updates [_lastBeaconAt] to [ts] (the last background beacon time) and
+  /// restarts the timer so the next beacon fires [_autoIntervalS] seconds
+  /// after [ts].
+  void resumeFromBackground(DateTime ts) {
+    _timer?.cancel();
+    _lastBeaconAt = ts;
+    if (_isActive) {
+      final elapsed = DateTime.now().difference(ts).inSeconds;
+      final remaining = (_autoIntervalS - elapsed).clamp(0, _autoIntervalS);
+      _timerStartedAt = ts;
+      _timerIntervalS = _autoIntervalS;
+      _timer = Timer(Duration(seconds: remaining), _onTimerFired);
+      // Restore the GPS position stream for smart mode (was suspended on
+      // background handoff to prevent double-transmission with the background
+      // isolate's timer).
+      if (_mode == BeaconMode.smart) {
+        _startPositionStream(); // ignore: unawaited_futures
+      }
+    }
     notifyListeners();
   }
 

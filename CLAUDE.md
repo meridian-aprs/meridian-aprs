@@ -17,6 +17,8 @@
 | Serial/USB | flutter_libserialport |
 | APRS-IS | Direct TCP to `rotate.aprs2.net:14580` (WebSocket proxy on web) |
 | Packet parsing | Pure Dart (no FFI for core logic) |
+| Android background | flutter_foreground_task (foreground service keepalive, v0.7) |
+| Permissions | permission_handler (background location, notifications, v0.7) |
 
 ---
 
@@ -51,7 +53,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.4~~ | ~~BLE — KISS over BLE, mobile platforms~~ ✓ |
 | ~~v0.5~~ | ~~Beaconing — Transmit path, position beaconing, message sending~~ ✓ |
 | ~~v0.6~~ | ~~Connection UI + Map Polish~~ ✓ |
-| **v0.7** | Android Background Beaconing (foreground service + persistent notification) |
+| ~~v0.7~~ | ~~Android Background Beaconing (foreground service + persistent notification)~~ ✓ |
 | **v0.8** | Cross-platform parity pass (iOS Cupertino audit, OSM tile swap) |
 | **v0.9** | iOS Background Beaconing (background location + Live Activity) |
 | **v0.10** | Map filters + station profiles + track history + cluster markers + object/item display + altitude in position packets |
@@ -60,7 +62,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | **v0.13** | Battery & performance optimization pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.7 active. v0.6 Connection UI & Map Polish complete — `ConnectionScreen` first-class nav destination on all three scaffold tiers; `ConnectionNavIcon` (reactive Selector2 nav icon); `_ConnectionStatusChip` in desktop AppBar; callsign search (Nominatim + `showSearch`); center-on-location (GPS on mobile/tablet, address picker fallback on desktop); `BeaconFAB` and location button loading spinners; TX transport selector reflects effective transport; TNC settings consolidated to Connection screen; `connection_sheet.dart` removed. 274 tests passing. ADRs 001–024 in `docs/DECISIONS.md`.**
+**Current status: v0.7 complete (pending physical Android device validation). Android foreground service keepalive via `flutter_foreground_task` — `BackgroundServiceManager` ChangeNotifier drives notification content + `BackgroundServiceState`; `MeridianConnectionTask` minimal background-isolate heartbeat; `ConnectionScreen` background service card (Android-only toggle + status); `ConnectionNavIcon` badge dot; `ACCESS_BACKGROUND_LOCATION` permission flow. 289 tests passing. ADRs 001–026 in `docs/DECISIONS.md`. v0.8 next (cross-platform parity: iOS Cupertino audit, OSM tile swap).**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release

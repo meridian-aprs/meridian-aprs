@@ -11,7 +11,7 @@
 | ~~v0.4 — BLE~~ | ~~KISS over BLE, mobile platforms~~ ✓ |
 | ~~v0.5 — Beaconing~~ | ~~Transmit path, position beaconing, message sending~~ ✓ |
 | ~~v0.6~~ | ~~Connection UI + Map Polish~~ ✓ |
-| **v0.7** | Android Background Beaconing (foreground service + persistent notification) |
+| ~~v0.7~~ | ~~Android Background Beaconing (foreground service + persistent notification)~~ ✓ |
 | **v0.8** | Cross-platform parity pass (iOS Cupertino audit, OSM tile swap) |
 | **v0.9** | iOS Background Beaconing (background location + Live Activity) |
 | **v0.10** | Map filters + station profiles + track history + cluster markers + object/item display + altitude in position packets |
@@ -163,6 +163,25 @@ Goal: Promote Connection to a first-class navigation destination; targeted map i
 - [x] TX transport selector reflects effective transport (falls back when TNC disconnected, not stored preference)
 - [x] TNC section removed from Settings screen (Connection screen is canonical)
 - [x] `connection_sheet.dart` deleted (orphaned dead code)
+
+---
+
+## v0.7 — Android Background Beaconing
+
+Goal: Keep transport connections and beaconing alive when Meridian is backgrounded on Android.
+
+- [x] `flutter_foreground_task` + `permission_handler` added to pubspec.yaml
+- [x] `android/app/build.gradle.kts` — minSdk bumped to 21
+- [x] `AndroidManifest.xml` — `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED` permissions; foreground service element
+- [x] `MeridianConnectionTask` (`lib/services/meridian_connection_task.dart`) — minimal `TaskHandler` (background isolate heartbeat, no app logic)
+- [x] `BackgroundServiceManager` (`lib/services/background_service_manager.dart`) — ChangeNotifier; lifecycle + notification content + `BackgroundServiceState` enum; injectable `ForegroundServiceApi` for testing
+- [x] `lib/main.dart` — `FlutterForegroundTask.initCommunicationPort()` + `BackgroundServiceManager.initOptions()` before `runApp`; `BackgroundServiceManager` in provider tree
+- [x] `ConnectionScreen` — Android-only background service card (toggle + status pill + error message); reconnecting banner at top
+- [x] `ConnectionNavIcon` — badge dot overlay when service is running/reconnecting
+- [x] `test/services/background_service_manager_test.dart` — 15 unit tests (state machine, notification content, non-Android guard)
+- [x] `widget_test.dart` — `BackgroundServiceManager` added to provider tree
+- [x] ADR-025 (unified service via flutter_foreground_task) + ADR-026 (ACCESS_BACKGROUND_LOCATION flow)
+- [ ] Physical Android device validation (see test checklist in prompt)
 
 ---
 

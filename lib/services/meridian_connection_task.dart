@@ -1,0 +1,255 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../core/packet/aprs_encoder.dart';
+
+/// Entry point called by flutter_foreground_task when the foreground service
+/// starts. Runs in the background isolate.
+///
+/// Must be a top-level function annotated with @pragma('vm:entry-point') to
+/// prevent tree-shaking in release builds.
+@pragma('vm:entry-point')
+void startMeridianConnectionTask() {
+  FlutterForegroundTask.setTaskHandler(MeridianConnectionTask());
+}
+
+/// Background-isolate [TaskHandler] that keeps the Android foreground service
+/// alive and handles position beaconing while the main isolate is suspended
+/// (screen locked).
+///
+/// **Lifecycle:**
+/// - On app backgrounded: [BackgroundServiceManager] calls
+///   [FlutterForegroundTask.sendDataToTask] with `{type: start_beaconing}`.
+///   The handler schedules a timer and fires beacons at the configured interval.
+/// - On app foregrounded: [BackgroundServiceManager] sends `{type: stop_beaconing}`
+///   and the timer is cancelled. The main isolate resumes normal beaconing.
+///
+/// **Settings:** All settings (callsign, symbol, interval, etc.) are read from
+/// [SharedPreferences] on each beacon so changes propagate immediately on the
+/// next fire.
+///
+/// **TCP transmission:** Each beacon opens a short-lived TCP connection to
+/// `rotate.aprs2.net:14580`, logs in, sends the packet, and closes. This is
+/// independent of the main isolate's APRS-IS socket.
+class MeridianConnectionTask extends TaskHandler {
+  Timer? _beaconTimer;
+  int? _lastBeaconTs; // ms since epoch; null until first beacon this session
+
+  @override
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
+    // Intentionally empty. Beacon timer starts only on explicit
+    // 'start_beaconing' message from the main isolate (sent on app pause).
+  }
+
+  @override
+  void onRepeatEvent(DateTime timestamp) {
+    // 60-second heartbeat — prevents aggressive OEM firmware (MIUI, OneUI)
+    // from terminating services that show no recent activity.
+    // Also refreshes the "last beacon: Xm ago" notification text so it stays
+    // current while the phone is locked (the main isolate cannot do this
+    // because its event loop is throttled when backgrounded).
+    final ts = _lastBeaconTs;
+    if (ts == null) return;
+    final diffMs = DateTime.now().millisecondsSinceEpoch - ts;
+    final minutes = diffMs ~/ 60000;
+    final ago = minutes < 1 ? 'just now' : '${minutes}m ago';
+    FlutterForegroundTask.updateService(
+      notificationText: 'Beaconing · Last beacon: $ago',
+    );
+  }
+
+  @override
+  void onReceiveData(Object data) {
+    if (data is! Map) return;
+    final msg = Map<String, dynamic>.from(data);
+    final type = msg['type'] as String?;
+    switch (type) {
+      case 'start_beaconing':
+        final lastBeaconTsMs = msg['last_beacon_ts'] as int? ?? 0;
+        _scheduleFirstBeacon(lastBeaconTsMs);
+      case 'stop_beaconing':
+        _beaconTimer?.cancel();
+        _beaconTimer = null;
+        _lastBeaconTs =
+            null; // Stop onRepeatEvent updating notification after handoff
+    }
+  }
+
+  @override
+  Future<void> onDestroy(DateTime timestamp) async {
+    _beaconTimer?.cancel();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Beacon scheduling
+  // ---------------------------------------------------------------------------
+
+  /// Schedules the first beacon to fire at the right time relative to when the
+  /// main isolate last beaconed, so there is no gap after the screen locks.
+  void _scheduleFirstBeacon(int lastBeaconTsMs) {
+    _beaconTimer?.cancel();
+    // Seed _lastBeaconTs so onRepeatEvent can start updating the notification
+    // text immediately, before the first background beacon fires.
+    if (lastBeaconTsMs > 0) _lastBeaconTs = lastBeaconTsMs;
+    SharedPreferences.getInstance().then((prefs) {
+      final intervalS = prefs.getInt('beacon_interval_s') ?? 600;
+      final elapsedMs = DateTime.now().millisecondsSinceEpoch - lastBeaconTsMs;
+      final elapsedS = elapsedMs ~/ 1000;
+      final remainingS = (intervalS - elapsedS).clamp(0, intervalS);
+      _beaconTimer = Timer(Duration(seconds: remainingS), _onBeaconTimer);
+    });
+  }
+
+  void _scheduleNextBeacon() {
+    SharedPreferences.getInstance().then((prefs) {
+      final intervalS = prefs.getInt('beacon_interval_s') ?? 600;
+      _beaconTimer = Timer(Duration(seconds: intervalS), _onBeaconTimer);
+    });
+  }
+
+  void _onBeaconTimer() {
+    // whenComplete ensures the next timer is always scheduled, even if _sendBeacon throws.
+    _sendBeacon().whenComplete(_scheduleNextBeacon);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Beacon transmission
+  // ---------------------------------------------------------------------------
+
+  Future<void> _sendBeacon() async {
+    final prefs = await SharedPreferences.getInstance();
+    // reload() re-reads from Android SharedPreferences so we pick up any
+    // setting changes made on the main isolate since the background engine
+    // started (interval, callsign, beacon targets, etc.). The Dart-side
+    // singleton would otherwise serve a stale cached copy indefinitely.
+    await prefs.reload();
+
+    final callsign = (prefs.getString('user_callsign') ?? '').toUpperCase();
+    if (callsign.isEmpty) return; // Not configured — skip.
+
+    final ssid = prefs.getInt('user_ssid') ?? 0;
+    final passcode = prefs.getString('user_passcode') ?? '-1';
+    final symbolTable = prefs.getString('user_symbol_table') ?? '/';
+    final symbolCode = prefs.getString('user_symbol_code') ?? '>';
+    final comment = prefs.getString('user_comment') ?? '';
+    final locationSourceIdx = prefs.getInt('user_location_source') ?? 0;
+
+    // Beacon target flags — mirror TxService keys read directly from prefs
+    // since TxService is on the main isolate and unavailable here.
+    final beaconToAprsIs = prefs.getBool('beacon_to_aprs_is') ?? true;
+    final beaconToTnc = prefs.getBool('beacon_to_tnc') ?? true;
+
+    if (!beaconToAprsIs && !beaconToTnc) return; // Nothing to do.
+
+    double? lat;
+    double? lon;
+
+    if (locationSourceIdx == 0) {
+      // GPS source.
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.best,
+          ),
+        ).timeout(const Duration(seconds: 30));
+        lat = pos.latitude;
+        lon = pos.longitude;
+      } catch (_) {
+        return; // GPS unavailable — skip beacon, retry next interval.
+      }
+    } else {
+      // Manual position source.
+      lat = prefs.getDouble('user_manual_lat');
+      lon = prefs.getDouble('user_manual_lon');
+      if (lat == null || lon == null) return;
+    }
+
+    final line = AprsEncoder.encodePosition(
+      callsign: callsign,
+      ssid: ssid,
+      lat: lat,
+      lon: lon,
+      symbolTable: symbolTable,
+      symbolCode: symbolCode,
+      comment: comment,
+    );
+
+    // Transmit to each enabled target independently — one failing does not
+    // suppress the other.
+    var anySent = false;
+
+    if (beaconToAprsIs) {
+      try {
+        await _sendToAprsIs(
+          callsign: callsign,
+          ssid: ssid,
+          passcode: passcode,
+          line: line,
+        );
+        anySent = true;
+      } catch (_) {
+        // APRS-IS failed — continue to TNC path if enabled.
+      }
+    }
+
+    if (beaconToTnc) {
+      // The TNC connection lives on the main isolate. Request transmission via
+      // IPC; the main isolate processes this through its event loop while the
+      // foreground service wake lock keeps the CPU active.
+      FlutterForegroundTask.sendDataToMain({
+        'type': 'send_tnc_beacon',
+        'aprs_line': line,
+      });
+      anySent = true;
+    }
+
+    if (!anySent) return;
+
+    final tsMs = DateTime.now().millisecondsSinceEpoch;
+    _lastBeaconTs = tsMs;
+
+    // Persist timestamp to SharedPreferences so the main isolate can sync
+    // the BeaconingService timer on resume, even if the IPC message is delayed.
+    await prefs.setInt('bg_last_beacon_ts', tsMs);
+
+    // Notify main isolate. This queues if the main isolate is suspended and
+    // delivers when it resumes.
+    FlutterForegroundTask.sendDataToMain({'type': 'beacon_sent', 'ts': tsMs});
+
+    // Update notification body only — title is managed by BackgroundServiceManager
+    // on the main isolate and reflects the actual connection state.
+    await FlutterForegroundTask.updateService(
+      notificationText: 'Beaconing · Last beacon: just now',
+    );
+  }
+
+  /// Opens a short-lived TCP connection to APRS-IS, logs in, transmits [line],
+  /// and closes. Independent of the main isolate's persistent socket.
+  Future<void> _sendToAprsIs({
+    required String callsign,
+    required int ssid,
+    required String passcode,
+    required String line,
+  }) async {
+    final addr = ssid == 0 ? callsign : '$callsign-$ssid';
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        'rotate.aprs2.net',
+        14580,
+      ).timeout(const Duration(seconds: 15));
+      socket.done.ignore();
+      socket.write('user $addr pass $passcode vers meridian-aprs 0.7\r\n');
+      // Brief pause for the server to acknowledge the login before sending.
+      await Future<void>.delayed(const Duration(milliseconds: 800));
+      socket.write('$line\r\n');
+      await socket.flush();
+    } finally {
+      socket?.destroy();
+    }
+  }
+}
