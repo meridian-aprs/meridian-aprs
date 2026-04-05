@@ -205,10 +205,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                       ),
                       child: Row(
                         children: [
-                          const SizedBox(
+                          SizedBox(
                             width: 16,
                             height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator.adaptive(
+                              strokeWidth: 2,
+                            ),
                           ),
                           const SizedBox(width: 12),
                           const Expanded(
@@ -690,7 +692,7 @@ class _AprsActiveCard extends StatelessWidget {
               ),
             ),
             Consumer<TxService>(
-              builder: (_, txSvc, _) => SwitchListTile(
+              builder: (_, txSvc, _) => SwitchListTile.adaptive(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Beacon'),
@@ -785,7 +787,7 @@ class _TncActiveCard extends StatelessWidget {
               ),
             ),
             Consumer<TxService>(
-              builder: (_, txSvc, _) => SwitchListTile(
+              builder: (_, txSvc, _) => SwitchListTile.adaptive(
                 dense: true,
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Beacon'),

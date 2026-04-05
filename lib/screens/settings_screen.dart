@@ -14,6 +14,7 @@ import 'location_picker_screen.dart';
 import '../services/message_service.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
+import '../ui/utils/platform_route.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
 import '../theme/meridian_colors.dart';
@@ -29,24 +30,25 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final sections = [
+      const _AppearanceSection(),
+      const _AppColorSection(),
+      const _MyStationSection(),
+      const _BeaconingSection(),
+      const _ConnectionSection(),
+      const _HistorySection(),
+      const _DisplaySection(),
+      const _NotificationsSection(),
+      const _AccountSection(),
+      const _AboutSection(),
+    ];
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
       body: ListView.separated(
-        itemCount: 11,
+        itemCount: sections.length,
         separatorBuilder: (context, index) =>
             const Divider(indent: 16, endIndent: 16),
-        itemBuilder: (context, index) => [
-          const _AppearanceSection(),
-          const _AppColorSection(),
-          const _MyStationSection(),
-          const _BeaconingSection(),
-          const _ConnectionSection(),
-          const _HistorySection(),
-          const _DisplaySection(),
-          const _NotificationsSection(),
-          const _AccountSection(),
-          const _AboutSection(),
-        ][index],
+        itemBuilder: (context, index) => sections[index],
       ),
     );
   }
@@ -128,15 +130,14 @@ class _AppearanceSection extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// App Color (Android only)
+// App Color
 // ---------------------------------------------------------------------------
 
-/// Seed color picker shown only on Android.
+/// Seed color picker shown on all platforms.
 ///
 /// On Android 12+ a "System" swatch appears first — selecting it re-enables
-/// wallpaper-derived dynamic color. On Android 11 and below only the fixed
-/// seed swatches are shown (dynamic color is not available on those devices).
-/// Hidden on iOS and desktop — the seed has no effect there.
+/// wallpaper-derived dynamic color. On all other platforms (iOS, desktop,
+/// Android 11 and below) only the fixed seed swatches are shown.
 class _AppColorSection extends StatelessWidget {
   const _AppColorSection();
 
@@ -153,8 +154,7 @@ class _AppColorSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Always included in the list to keep itemCount stable; invisible elsewhere.
-    if (kIsWeb || !Platform.isAndroid) return const SizedBox.shrink();
+    if (kIsWeb) return const SizedBox.shrink();
 
     final controller = context.watch<ThemeController>();
     final outline = Theme.of(context).colorScheme.outline;
@@ -844,10 +844,7 @@ class _LocationSourcePicker extends StatelessWidget {
         ? LatLng(svc.manualLat!, svc.manualLon!)
         : null;
     final result = await Navigator.of(context).push<LatLng>(
-      MaterialPageRoute(
-        // TODO(ios): CupertinoPageRoute
-        builder: (_) => LocationPickerScreen(initial: initial),
-      ),
+      buildPlatformRoute((_) => LocationPickerScreen(initial: initial)),
     );
     if (result != null && context.mounted) {
       latCtrl.text = result.latitude.toStringAsFixed(6);
@@ -928,10 +925,7 @@ class _BeaconingSection extends StatelessWidget {
             trailing: const Icon(Symbols.chevron_right),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(
-                // TODO(ios): CupertinoPageRoute
-                builder: (_) => const _SmartBeaconingParamsScreen(),
-              ),
+              buildPlatformRoute((_) => const _SmartBeaconingParamsScreen()),
             ),
           ),
         ],
@@ -1356,13 +1350,15 @@ class _NotificationsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader('Notifications'),
-        SwitchListTile(
-          title: Text('Message alerts'),
-          subtitle: Text('Notify when a message addressed to you arrives.'),
+        const _SectionHeader('Notifications'),
+        SwitchListTile.adaptive(
+          title: const Text('Message alerts'),
+          subtitle: const Text(
+            'Notify when a message addressed to you arrives.',
+          ),
           value: false,
           onChanged: null, // Stub — not yet functional.
         ),

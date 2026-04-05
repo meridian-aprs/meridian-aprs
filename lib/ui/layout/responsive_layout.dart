@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../map/meridian_tile_provider.dart';
+
 import '../../services/station_service.dart';
 import '../../services/tnc_service.dart';
 import 'desktop_scaffold.dart';
@@ -22,6 +24,7 @@ class ResponsiveLayout extends StatelessWidget {
     required this.mapController,
     required this.markers,
     required this.tileUrl,
+    required this.meridianTileProvider,
     required this.onNavigateToSettings,
     this.connectionStatus = ConnectionStatus.disconnected,
     this.tncConnectionStatus = ConnectionStatus.disconnected,
@@ -36,6 +39,7 @@ class ResponsiveLayout extends StatelessWidget {
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
+  final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
   final ConnectionStatus connectionStatus;
   final ConnectionStatus tncConnectionStatus;
@@ -55,6 +59,7 @@ class ResponsiveLayout extends StatelessWidget {
         mapController: mapController,
         markers: markers,
         tileUrl: tileUrl,
+        meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
         connectionStatus: connectionStatus,
         tncConnectionStatus: tncConnectionStatus,
@@ -71,6 +76,7 @@ class ResponsiveLayout extends StatelessWidget {
         mapController: mapController,
         markers: markers,
         tileUrl: tileUrl,
+        meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
         connectionStatus: connectionStatus,
         tncConnectionStatus: tncConnectionStatus,
@@ -86,6 +92,7 @@ class ResponsiveLayout extends StatelessWidget {
       mapController: mapController,
       markers: markers,
       tileUrl: tileUrl,
+      meridianTileProvider: meridianTileProvider,
       onNavigateToSettings: onNavigateToSettings,
       connectionStatus: connectionStatus,
       tncConnectionStatus: tncConnectionStatus,

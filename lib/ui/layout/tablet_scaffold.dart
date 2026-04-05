@@ -9,6 +9,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:provider/provider.dart';
 
+import '../../map/meridian_tile_provider.dart';
+
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
@@ -36,6 +38,7 @@ class TabletScaffold extends StatefulWidget {
     required this.mapController,
     required this.markers,
     required this.tileUrl,
+    required this.meridianTileProvider,
     required this.onNavigateToSettings,
     this.connectionStatus = ConnectionStatus.disconnected,
     this.tncConnectionStatus = ConnectionStatus.disconnected,
@@ -50,6 +53,7 @@ class TabletScaffold extends StatefulWidget {
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
+  final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
   final ConnectionStatus connectionStatus;
   final ConnectionStatus tncConnectionStatus;
@@ -172,10 +176,10 @@ class _TabletScaffoldState extends State<TabletScaffold> {
           ),
           IconButton(
             icon: _locating
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   )
                 : const Icon(Symbols.my_location),
             tooltip: 'Center on my location',
@@ -256,6 +260,7 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         mapController: widget.mapController,
                         markers: widget.markers,
                         tileUrl: widget.tileUrl,
+                        tileProvider: widget.meridianTileProvider.buildTileProvider(),
                         connectionStatus: widget.connectionStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,

@@ -46,3 +46,6 @@ app.*.map.json
 
 # Claude Code agent memory (local only)
 .claude/agent-memory/
+
+# Ignore env files
+.env

@@ -312,10 +312,10 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
                 ),
                 const SizedBox(width: 12),
                 if (_scanning) ...[
-                  const SizedBox(
+                  SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   ),
                   const SizedBox(width: 8),
                 ],
@@ -370,10 +370,12 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
                     style: theme.textTheme.bodySmall,
                   ),
                   trailing: isConnecting
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator.adaptive(
+                            strokeWidth: 2,
+                          ),
                         )
                       : FilledButton.tonal(
                           onPressed: _connectingDeviceId != null

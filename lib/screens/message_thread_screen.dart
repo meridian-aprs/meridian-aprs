@@ -392,8 +392,9 @@ class _ComposeBarState extends State<_ComposeBar> {
             ),
             const SizedBox(width: 8),
             IconButton.filled(
-              icon: const Icon(Symbols.send),
+              icon: const Icon(Icons.send_rounded),
               tooltip: 'Send',
+              style: IconButton.styleFrom(foregroundColor: Colors.white),
               onPressed: canSend ? widget.onSend : null,
             ),
           ],

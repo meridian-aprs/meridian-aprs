@@ -1,9 +1,10 @@
 import 'package:animations/animations.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/transport/aprs_is_transport.dart';
 import '../../services/station_service.dart';
+import '../../services/station_settings_service.dart';
 import '../../services/tnc_service.dart';
 import '../map_screen.dart';
 import 'onboarding_callsign_page.dart';
@@ -45,6 +46,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Future<void> _markCompleteAndNavigate() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(OnboardingScreen._prefKey, true);
+
+    final effectiveCallsign = _callsign.isNotEmpty ? _callsign : 'NOCALL';
+    final ssidSuffix = _ssid > 0 ? '-$_ssid' : '';
+    final effectivePasscode = _passcode.isEmpty ? '-1' : _passcode;
+    final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
+    final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
+
     if (_callsign.isNotEmpty) {
       await prefs.setString('user_callsign', _callsign);
     }
@@ -55,42 +63,49 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // yet implemented; transport selection will be wired here when they land.
     await prefs.setInt('connection_method', _connectionMethod);
 
-    final effectiveCallsign = _callsign.isNotEmpty ? _callsign : 'NOCALL';
-    final ssidSuffix = _ssid > 0 ? '-$_ssid' : '';
-    final effectivePasscode = _passcode.isEmpty ? '-1' : _passcode;
-    final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
-    final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
+    if (!mounted) return;
 
-    final transport = AprsIsTransport(
+    // Update the Provider tree's services with the entered identity so that
+    // Settings, BeaconingService, and MessageService all reflect the correct
+    // callsign without requiring an app restart.
+    final stationSettings = context.read<StationSettingsService>();
+    await stationSettings.setCallsign(effectiveCallsign);
+    await stationSettings.setSsid(_ssid);
+
+    // Update the APRS-IS transport login line so that the first connection
+    // uses the entered callsign and passcode rather than the NOCALL default
+    // that was set before onboarding completed.
+    if (!mounted) return;
+    context.read<StationService>().updateAprsIsCredentials(
       loginLine:
           'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
       filterLine:
           '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
     );
-    final service = StationService(transport);
-    final tncService = TncService(service);
 
-    if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        PageRouteBuilder<void>(
-          transitionDuration: const Duration(milliseconds: 300),
-          pageBuilder: (context, animation, secondaryAnimation) =>
-              FadeThroughTransition(
-                animation: animation,
-                secondaryAnimation: secondaryAnimation,
-                child: MapScreen(
-                  service: service,
-                  tncService: tncService,
-                  callsign: effectiveCallsign,
-                  ssid: _ssid,
-                  initialLat: mapLat,
-                  initialLon: mapLon,
-                ),
+    if (!mounted) return;
+    final service = context.read<StationService>();
+    final tncService = context.read<TncService>();
+
+    Navigator.pushReplacement(
+      context,
+      PageRouteBuilder<void>(
+        transitionDuration: const Duration(milliseconds: 300),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            FadeThroughTransition(
+              animation: animation,
+              secondaryAnimation: secondaryAnimation,
+              child: MapScreen(
+                service: service,
+                tncService: tncService,
+                callsign: effectiveCallsign,
+                ssid: _ssid,
+                initialLat: mapLat,
+                initialLon: mapLon,
               ),
-        ),
-      );
-    }
+            ),
+      ),
+    );
   }
 
   void _nextPage() {

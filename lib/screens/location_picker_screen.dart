@@ -185,12 +185,14 @@ class _LocationPickerScreenState extends State<LocationPickerScreen> {
               controller: _searchCtrl,
               hintText: 'Search address (requires internet)…',
               leading: _searching
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
                       child: SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+                        child: CircularProgressIndicator.adaptive(
+                          strokeWidth: 2,
+                        ),
                       ),
                     )
                   : const Icon(Symbols.search),

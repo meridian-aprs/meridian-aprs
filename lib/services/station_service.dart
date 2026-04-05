@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
 import '../core/packet/station.dart';
+import '../core/transport/aprs_is_transport.dart';
 import '../core/transport/aprs_transport.dart'
     show AprsTransport, ConnectionStatus;
 
@@ -105,6 +106,17 @@ class StationService extends ChangeNotifier {
     // No auto-connect: the user initiates connections explicitly via the
     // Connection screen. Once connected, the foreground service keeps the
     // connection alive when the app is backgrounded.
+  }
+
+  /// Updates the APRS-IS login and filter lines used on the next [connectAprsIs]
+  /// call. No-op if the underlying transport is not [AprsIsTransport].
+  void updateAprsIsCredentials({
+    required String loginLine,
+    String? filterLine,
+  }) {
+    if (_transport case final AprsIsTransport t) {
+      t.updateCredentials(loginLine: loginLine, filterLine: filterLine);
+    }
   }
 
   Future<void> connectAprsIs() async {

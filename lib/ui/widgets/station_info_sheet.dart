@@ -4,6 +4,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../core/packet/station.dart';
 import '../../core/packet/symbol_resolver.dart';
 import '../../screens/message_thread_screen.dart';
+import '../utils/platform_route.dart';
 import 'aprs_symbol_widget.dart';
 
 String _formatLastHeard(DateTime lastHeard) {
@@ -155,9 +156,8 @@ class StationInfoSheet extends StatelessWidget {
                   final nav = Navigator.of(context);
                   nav.pop();
                   nav.push(
-                    MaterialPageRoute<void>(
-                      // TODO(ios): CupertinoPageRoute
-                      builder: (_) =>
+                    buildPlatformRoute<void>(
+                      (_) =>
                           MessageThreadScreen(peerCallsign: station.callsign),
                     ),
                   );

@@ -389,3 +389,44 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 **Rationale:** Google Play policy (as of August 2020) requires an explicit rationale dialog before requesting background location. Bundling this into `BeaconingService` would couple a UI concern (dialog display) to a service-layer class. Placing it at the call site (`requestStartService`) keeps the service layer free of BuildContext dependencies while ensuring the rationale is shown at the right moment — when the user explicitly enables background service, not on app launch.
 
 **Consequences:** Background location is only requested when the user enables the background service with non-manual beaconing configured — compliant with Google Play's "least privilege" policy. Users who only use manual beacon mode or APRS-IS receive-only are never prompted for background location.
+
+---
+
+## ADR-027: Tile provider — Stadia Maps (v0.8)
+
+**Status:** Accepted
+**Date:** 2026-04-04
+
+**Decision:** Replace public OSM/CartoDB tile URLs with Stadia Maps (`alidade_smooth` for light mode, `alidade_smooth_dark` for dark mode). Tile URLs are routed through a `MeridianTileProvider` abstraction (`lib/map/`) so the provider can be swapped with minimal changes in future milestones (e.g., `flutter_map_tile_caching` for offline support). The API key is injected at build time via `--dart-define=STADIA_MAPS_API_KEY` and is never committed to source.
+
+**Key sub-decisions:**
+- `MeridianTileProvider` abstract class with a single `tileUrl(Brightness)` method — keeps the tile-URL computation out of the widget tree.
+- `StadiaTileProvider` is a const-constructible implementation; the instance lives on `_MapScreenState` as a final field.
+- Brightness is resolved from `ThemeController.themeMode` in `MapScreen.build()` and passed down — consistent with the existing pattern for other theme-aware decisions.
+- CartoDB-specific `_usesSubdomains` + brightness-boost `ColorFilter.matrix` removed from `MeridianMap` — these were workarounds for CartoDB's near-black dark tiles, which Stadia does not require.
+- `RichAttributionWidget` added to `FlutterMap.children` — Stadia Maps requires attribution for OSM, OpenMapTiles, and Stadia itself.
+- `AppConfig.stadiaMapsApiKey` uses `String.fromEnvironment` with `defaultValue: ''` — the app will run without tiles (blank map) if the key is not provided, rather than crashing.
+
+**Rationale:** Public OSM tile servers are rate-limited and prohibited for production app use per OpenStreetMap ToS. Stadia Maps free tier explicitly covers non-commercial open-source projects. The `alidade_smooth` / `alidade_smooth_dark` styles are visually neutral, low-noise, and appropriate for overlaying APRS station data. Stadia is privacy-focused (no user tracking) and GDPR/CCPA compliant.
+
+**Consequences:** Developers must pass `--dart-define=STADIA_MAPS_API_KEY=<key>` to run the app locally (documented in CLAUDE.md and `.env.example`). CI uses a `STADIA_MAPS_API_KEY` GitHub Actions secret. The `MeridianTileProvider` abstraction is the designated extension point for future offline caching — do not bypass it.
+
+---
+
+## ADR-028: iOS platform routing pattern (v0.8)
+
+**Status:** Accepted
+**Date:** 2026-04-04
+
+**Decision:** Introduce `buildPlatformRoute<T>(WidgetBuilder)` in `lib/ui/utils/platform_route.dart`. On iOS (`!kIsWeb && Platform.isIOS`) it returns a `CupertinoPageRoute`; on all other platforms it returns a `MaterialPageRoute`. All imperative push navigations use this helper. All `TODO(ios): CupertinoPageRoute` markers are removed when the site is updated.
+
+**Key sub-decisions:**
+- Single free function (not a class, not an extension) — simplest possible API for a one-argument call site.
+- Generic `<T>` preserves the push return type used by `LocationPickerScreen` (returns `LatLng?`).
+- The three `TODO(ios): replace with Cupertino search UI` markers in scaffold files are deferred — they require a redesign of the `SearchDelegate` surface, not just a route swap.
+- The `MaterialBanner` in `MapScreen` (`TODO(ios): use Cupertino-styled banner`) is deferred — no direct Cupertino equivalent exists; requires a custom overlay in a future pass.
+
+**Rationale:** `MaterialPageRoute` on iOS produces left-to-right slide transitions instead of the native right-edge swipe-to-go-back behavior of `CupertinoPageRoute`. Without this fix, the iOS swipe-back gesture does not trigger pop on any screen that was pushed via `MaterialPageRoute`, which is immediately noticeable and jarring for iOS users.
+
+**Consequences:** All future push navigations in the app must use `buildPlatformRoute` rather than `MaterialPageRoute` directly. The three deferred `TODO(ios)` markers remain until their respective UIs are redesigned.
+

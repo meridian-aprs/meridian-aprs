@@ -1,16 +1,20 @@
 import 'dart:io' show Platform;
 
+import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'config/app_config.dart';
 import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/transport/aprs_is_transport.dart';
+import 'map/stadia_tile_provider.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'services/background_service_manager.dart';
@@ -90,6 +94,14 @@ Future<void> main() async {
   final messageService = MessageService(stationSettings, txService, service);
   await messageService.loadHistory();
 
+  // Tile cache: persist tiles to disk for 30 days so repeated sessions don't
+  // re-fetch the same tiles and burn through Stadia Maps API credits.
+  final cacheDir = await getTemporaryDirectory();
+  final tileProvider = StadiaTileProvider(
+    apiKey: AppConfig.stadiaMapsApiKey,
+    cacheStore: FileCacheStore('${cacheDir.path}/meridian_tiles'),
+  );
+
   final bgServiceManager = BackgroundServiceManager(
     tnc: tncService,
     station: service,
@@ -122,6 +134,7 @@ Future<void> main() async {
         mapZoom: mapZoom,
         service: service,
         tncService: tncService,
+        tileProvider: tileProvider,
       ),
     ),
   );
@@ -138,6 +151,7 @@ class MeridianApp extends StatelessWidget {
     this.mapZoom = 9.0,
     required this.service,
     required this.tncService,
+    required this.tileProvider,
   });
 
   final bool onboardingComplete;
@@ -148,6 +162,7 @@ class MeridianApp extends StatelessWidget {
   final double mapZoom;
   final StationService service;
   final TncService tncService;
+  final StadiaTileProvider tileProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -157,8 +172,14 @@ class MeridianApp extends StatelessWidget {
       final brightness = _resolveIosBrightness(controller.themeMode);
       return CupertinoApp(
         title: 'Meridian APRS',
-        theme: buildIosTheme(brightness: brightness),
+        theme: buildIosTheme(
+          brightness: brightness,
+          primaryColor: controller.seedColor,
+        ),
         debugShowCheckedModeBanner: false,
+        // CupertinoApp does not provide ScaffoldMessenger; add one so that
+        // Material SnackBars work on all routes under this navigator.
+        builder: (context, child) => ScaffoldMessenger(child: child!),
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
@@ -169,6 +190,7 @@ class MeridianApp extends StatelessWidget {
             ? MapScreen(
                 service: service,
                 tncService: tncService,
+                tileProvider: tileProvider,
                 callsign: userCallsign,
                 ssid: userSsid,
                 initialLat: mapLat,
@@ -198,6 +220,7 @@ class MeridianApp extends StatelessWidget {
             ? MapScreen(
                 service: service,
                 tncService: tncService,
+                tileProvider: tileProvider,
                 callsign: userCallsign,
                 ssid: userSsid,
                 initialLat: mapLat,
@@ -227,6 +250,7 @@ class MeridianApp extends StatelessWidget {
               ? MapScreen(
                   service: service,
                   tncService: tncService,
+                  tileProvider: tileProvider,
                   callsign: userCallsign,
                   ssid: userSsid,
                   initialLat: mapLat,

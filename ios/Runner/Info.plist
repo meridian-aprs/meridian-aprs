@@ -66,6 +66,16 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.pravera.flutter_foreground_task.refresh</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Meridian APRS connects to the Flutter debug service on the local network during development.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Meridian APRS uses your location to transmit position beacons on the APRS network.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>

@@ -295,11 +295,27 @@ class BackgroundServiceManager extends ChangeNotifier
 
     _setState(BackgroundServiceState.starting);
 
+    // Android 15+ enforces that ACCESS_FINE_LOCATION is granted at runtime
+    // before startForeground() when foregroundServiceType includes 'location'.
+    // Request it here if not yet granted, regardless of beaconing state.
+    if (!context.mounted) return false;
+    final locStatus = await Permission.locationWhenInUse.status;
+    if (!locStatus.isGranted) {
+      final result = await Permission.locationWhenInUse.request();
+      if (!result.isGranted) {
+        _errorMessage =
+            'Location permission is required to run the background service.';
+        _setState(BackgroundServiceState.error);
+        return false;
+      }
+    }
+
     // Background location is only required when GPS beaconing will run while
     // the screen is locked. Connection-only keepalive does not need it.
     final needsGpsInBackground =
         _beaconing.isActive && _beaconing.mode != BeaconMode.manual;
     if (needsGpsInBackground) {
+      if (!context.mounted) return false;
       final granted = await _requestBackgroundLocationPermission(context);
       if (!granted) {
         _errorMessage =
@@ -483,6 +499,16 @@ class BackgroundServiceManager extends ChangeNotifier
     if (!Platform.isAndroid) return;
     if (isRunning || !_backgroundActivityEnabled) return;
     if (!_shouldBeRunning) return;
+
+    // Android 15+ enforces that ACCESS_FINE_LOCATION is granted at runtime
+    // before startForeground() when foregroundServiceType includes 'location'.
+    // This applies to every start — not just GPS-beaconing starts.
+    final locStatus = await Permission.locationWhenInUse.status;
+    if (!locStatus.isGranted) {
+      _needsPermission = true;
+      notifyListeners();
+      return;
+    }
 
     // Background location is only needed when GPS beaconing will fire while
     // the screen is locked. Connection keepalive alone does not require it.

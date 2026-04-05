@@ -7,6 +7,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../../map/meridian_tile_provider.dart';
+
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
@@ -36,6 +38,7 @@ class MobileScaffold extends StatefulWidget {
     required this.mapController,
     required this.markers,
     required this.tileUrl,
+    required this.meridianTileProvider,
     required this.onNavigateToSettings,
     this.connectionStatus = ConnectionStatus.disconnected,
     this.tncConnectionStatus = ConnectionStatus.disconnected,
@@ -50,6 +53,7 @@ class MobileScaffold extends StatefulWidget {
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
+  final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
   final ConnectionStatus connectionStatus;
   final ConnectionStatus tncConnectionStatus;
@@ -236,6 +240,7 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 mapController: widget.mapController,
                 markers: widget.markers,
                 tileUrl: widget.tileUrl,
+                tileProvider: widget.meridianTileProvider.buildTileProvider(),
                 connectionStatus: widget.connectionStatus,
                 initialCenter: widget.initialCenter,
                 initialZoom: widget.initialZoom,
@@ -284,10 +289,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                               onPressed: _locating ? null : _centerOnLocation,
                               tooltip: 'Center on my location',
                               child: _locating
-                                  ? const SizedBox(
+                                  ? SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(
+                                      child: CircularProgressIndicator.adaptive(
                                         strokeWidth: 2,
                                       ),
                                     )

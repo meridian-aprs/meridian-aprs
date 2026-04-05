@@ -7,7 +7,10 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+
+import '../config/app_config.dart';
 import '../core/packet/station.dart';
+import '../map/meridian_tile_provider.dart';
 import '../services/station_service.dart';
 import '../services/tnc_service.dart';
 import '../services/tx_service.dart';
@@ -15,20 +18,23 @@ import '../ui/layout/responsive_layout.dart';
 import '../theme/meridian_colors.dart';
 import '../theme/theme_controller.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
+import '../ui/utils/platform_route.dart';
 import '../ui/widgets/station_info_sheet.dart';
 import 'settings_screen.dart';
 
 /// Root screen that owns the [StationService] lifecycle and builds the
 /// adaptive layout.
 ///
-/// Map tile URL is theme-aware: light mode uses OSM standard tiles, dark mode
-/// uses CartoDB dark tiles. The theme is read from [ThemeController] and the
-/// system brightness is used to resolve [ThemeMode.system].
+/// Map tile URL is theme-aware: light mode uses Stadia `alidade_smooth` tiles,
+/// dark mode uses `alidade_smooth_dark`. The theme is read from
+/// [ThemeController] and the system brightness is used to resolve
+/// [ThemeMode.system].
 class MapScreen extends StatefulWidget {
   const MapScreen({
     super.key,
     required this.service,
     required this.tncService,
+    this.tileProvider,
     this.callsign = 'NOCALL',
     this.ssid = 0,
     this.initialLat = 39.0,
@@ -38,6 +44,10 @@ class MapScreen extends StatefulWidget {
 
   final StationService service;
   final TncService tncService;
+
+  /// Tile provider with disk cache. When null (e.g. from the onboarding path),
+  /// a memory-only fallback is used for the session.
+  final MeridianTileProvider? tileProvider;
   final String callsign;
 
   /// SSID suffix (0 = no suffix, 1–15 appended as `-N`).
@@ -53,6 +63,7 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   late final StationService _service;
+  late final MeridianTileProvider _tileProvider;
   final _mapController = MapController();
   List<Marker> _markers = [];
   Timer? _filterDebounce;
@@ -63,15 +74,11 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<TxEvent>? _txEventSub;
   bool _northUpLocked = true;
 
-  // Tile URL constants.
-  static const _lightTileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-  static const _darkTileUrl =
-      'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png';
-
   @override
   void initState() {
     super.initState();
     _service = widget.service;
+    _tileProvider = widget.tileProvider ?? _UncachedTileProvider();
     _connectionStatus = _service.currentConnectionStatus;
     _service.stationUpdates.listen(_onStationsUpdated);
     // Seed markers from persisted stations already loaded before runApp.
@@ -108,6 +115,7 @@ class _MapScreenState extends State<MapScreen> {
     _markerDebounce?.cancel();
     _txEventSub?.cancel();
     _service.stop();
+    _tileProvider.dispose();
     super.dispose();
   }
 
@@ -225,17 +233,6 @@ class _MapScreenState extends State<MapScreen> {
     ),
   );
 
-  /// Resolve the tile URL based on the current theme mode and system brightness.
-  String _tileUrl(BuildContext context) {
-    final themeController = context.watch<ThemeController>();
-    final brightness = switch (themeController.themeMode) {
-      ThemeMode.light => Brightness.light,
-      ThemeMode.dark => Brightness.dark,
-      ThemeMode.system => MediaQuery.of(context).platformBrightness,
-    };
-    return brightness == Brightness.dark ? _darkTileUrl : _lightTileUrl;
-  }
-
   void _toggleNorthUp() {
     HapticFeedback.lightImpact();
     setState(() => _northUpLocked = !_northUpLocked);
@@ -243,10 +240,7 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _navigateToSettings() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
+    Navigator.push(context, buildPlatformRoute((_) => const SettingsScreen()));
   }
 
   @override
@@ -257,13 +251,20 @@ class _MapScreenState extends State<MapScreen> {
     // ensures the map always reflects live state regardless of stream ordering.
     final aprsStatus = context.watch<StationService>().currentConnectionStatus;
     final tncStatus = context.watch<TncService>().currentStatus;
+    final themeController = context.watch<ThemeController>();
+    final brightness = switch (themeController.themeMode) {
+      ThemeMode.light => Brightness.light,
+      ThemeMode.dark => Brightness.dark,
+      ThemeMode.system => MediaQuery.of(context).platformBrightness,
+    };
 
     return ResponsiveLayout(
       service: _service,
       tncService: widget.tncService,
       mapController: _mapController,
       markers: _markers,
-      tileUrl: _tileUrl(context),
+      tileUrl: _tileProvider.tileUrl(brightness),
+      meridianTileProvider: _tileProvider,
       onNavigateToSettings: _navigateToSettings,
       connectionStatus: aprsStatus,
       tncConnectionStatus: tncStatus,
@@ -273,4 +274,24 @@ class _MapScreenState extends State<MapScreen> {
       onToggleNorthUp: _toggleNorthUp,
     );
   }
+}
+
+/// Fallback tile provider used when no cached provider is supplied
+/// (e.g. the onboarding path or tests). Uses flutter_map's built-in
+/// NetworkTileProvider — no Dio client, no lingering timers.
+class _UncachedTileProvider implements MeridianTileProvider {
+  @override
+  String tileUrl(Brightness brightness) {
+    final style = brightness == Brightness.dark
+        ? 'alidade_smooth_dark'
+        : 'alidade_smooth';
+    return 'https://tiles.stadiamaps.com/tiles/$style/{z}/{x}/{y}.png'
+        '?api_key=${AppConfig.stadiaMapsApiKey}';
+  }
+
+  @override
+  TileProvider buildTileProvider() => NetworkTileProvider();
+
+  @override
+  void dispose() {}
 }

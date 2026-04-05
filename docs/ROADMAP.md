@@ -185,6 +185,35 @@ Goal: Keep transport connections and beaconing alive when Meridian is background
 
 ---
 
+## v0.8 — Cross-Platform Parity
+
+Goal: Replace public OSM tile URLs with Stadia Maps and complete the first real iOS Cupertino audit on physical hardware.
+
+### Workstream A — Stadia Maps Tile Swap
+- [x] `lib/map/meridian_tile_provider.dart` — abstract `MeridianTileProvider` interface
+- [x] `lib/map/stadia_tile_provider.dart` — concrete `StadiaTileProvider` (`alidade_smooth` / `alidade_smooth_dark`)
+- [x] `lib/config/app_config.dart` — `AppConfig.stadiaMapsApiKey` via `String.fromEnvironment`
+- [x] `lib/screens/map_screen.dart` — wired to `StadiaTileProvider`; brightness resolved in `build()`
+- [x] `lib/ui/layout/meridian_map.dart` — CartoDB subdomain + brightness-boost artifacts removed; `RichAttributionWidget` added for OSM/Stadia attribution
+- [x] `.env.example` — developer key template (`.env` gitignored)
+- [x] `CLAUDE.md` — Local Development section added
+- [x] `.github/workflows/ci.yml` — `--dart-define=STADIA_MAPS_API_KEY` added to test + build steps
+- [x] ADR-027 (tile provider decision)
+- [ ] Physical device validation: light/dark tiles on Android, iOS, desktop
+
+### Workstream B — iOS Cupertino Audit
+- [x] `lib/ui/utils/platform_route.dart` — `buildPlatformRoute<T>()` helper (CupertinoPageRoute on iOS, MaterialPageRoute elsewhere)
+- [x] All `TODO(ios): CupertinoPageRoute` sites resolved: `messages_screen.dart`, `settings_screen.dart` (×2), `compose_message_sheet.dart`, `station_info_sheet.dart`
+- [x] `SwitchListTile` → `SwitchListTile.adaptive` (connection screen ×2, settings notifications stub)
+- [x] `CircularProgressIndicator` → `CircularProgressIndicator.adaptive` across all scaffold/widget spinners (BLE scanner, mobile/tablet/desktop scaffold, connection screen, location picker, map connecting banner)
+- [x] ADR-028 (iOS platform routing pattern)
+- [ ] Discovery pass on iPhone 16 Pro — document punch list
+- [ ] Settings → Appearance validation on iOS
+- [ ] Safe area + Dynamic Island verification on iPhone 16 Pro
+- [ ] Full re-test on iPhone 16 Pro
+
+---
+
 ## v1.0 — Polish
 
 Goal: Release-quality app with full onboarding and documentation.

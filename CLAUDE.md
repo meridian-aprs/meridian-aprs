@@ -54,7 +54,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.5~~ | ~~Beaconing — Transmit path, position beaconing, message sending~~ ✓ |
 | ~~v0.6~~ | ~~Connection UI + Map Polish~~ ✓ |
 | ~~v0.7~~ | ~~Android Background Beaconing (foreground service + persistent notification)~~ ✓ |
-| **v0.8** | Cross-platform parity pass (iOS Cupertino audit, OSM tile swap) |
+| **v0.8** | Cross-platform parity pass (iOS Cupertino audit, Stadia Maps tile swap) |
 | **v0.9** | iOS Background Beaconing (background location + Live Activity) |
 | **v0.10** | Map filters + station profiles + track history + cluster markers + object/item display + altitude in position packets |
 | **v0.11** | Background notifications + in-app banner system |
@@ -62,7 +62,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | **v0.13** | Battery & performance optimization pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.7 complete (pending physical Android device validation). Android foreground service keepalive via `flutter_foreground_task` — `BackgroundServiceManager` ChangeNotifier drives notification content + `BackgroundServiceState`; `MeridianConnectionTask` minimal background-isolate heartbeat; `ConnectionScreen` background service card (Android-only toggle + status); `ConnectionNavIcon` badge dot; `ACCESS_BACKGROUND_LOCATION` permission flow. 289 tests passing. ADRs 001–026 in `docs/DECISIONS.md`. v0.8 next (cross-platform parity: iOS Cupertino audit, OSM tile swap).**
+**Current status: v0.8 in progress. Stadia Maps tile provider in place (`MeridianTileProvider` abstraction, `StadiaTileProvider`, `AppConfig.stadiaMapsApiKey` via `--dart-define`); CartoDB tile artifacts removed; OSM attribution layer added. iOS Cupertino pass: `buildPlatformRoute` helper created; all `TODO(ios)` CupertinoPageRoute sites resolved; Cupertino widget pass applied to settings/modals. Physical iPhone 16 Pro validation pending. ADRs 001–028 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
@@ -132,6 +132,20 @@ Keep these files current as the project evolves:
 - Pure Dart for all packet core logic (no FFI in `lib/core/`)
 - Follow existing Flutter/Dart conventions in the codebase
 - Run `flutter analyze` and `flutter test` before considering any task done
+
+---
+
+## Local Development
+
+### Map Tiles
+Stadia Maps is used for tile serving. An API key is required.
+
+Run the app with:
+```
+flutter run --dart-define=STADIA_MAPS_API_KEY=your_key_here
+```
+
+For CI/CD, set `STADIA_MAPS_API_KEY` as a GitHub Actions secret. The key is never committed to source — see `.env.example` for the template.
 
 ---
 

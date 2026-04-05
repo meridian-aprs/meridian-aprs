@@ -76,14 +76,30 @@ class _PacketLogBodyState extends State<PacketLogBody> {
     // Listen for new packets.
     _subscription = widget.service.packetStream.listen(_onPacket);
 
+    // Listen for bulk changes (e.g. clearPacketLog) that packetStream doesn't
+    // signal — sync local buffer when the service's packet count drops.
+    widget.service.addListener(_onServiceChanged);
+
     _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
+    widget.service.removeListener(_onServiceChanged);
     _subscription?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onServiceChanged() {
+    final current = widget.service.recentPackets;
+    if (current.length < _packets.length) {
+      setState(() {
+        _packets
+          ..clear()
+          ..addAll(current);
+      });
+    }
   }
 
   void _onPacket(AprsPacket packet) {

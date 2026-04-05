@@ -35,7 +35,7 @@ jobs:
         run: flutter analyze
 
       - name: Run tests
-        run: flutter test
+        run: flutter test --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
 
       - name: Build (Linux debug)
-        run: flutter build linux --debug
+        run: flutter build linux --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}

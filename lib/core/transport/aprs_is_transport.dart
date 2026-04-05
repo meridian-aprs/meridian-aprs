@@ -10,15 +10,23 @@ import 'aprs_transport.dart';
 class AprsIsTransport implements AprsTransport {
   final String host;
   final int port;
-  final String loginLine;
-  final String? filterLine;
+  String _loginLine;
+  String? _filterLine;
 
   AprsIsTransport({
     this.host = 'rotate.aprs2.net',
     this.port = 14580,
-    required this.loginLine,
-    this.filterLine,
-  });
+    required String loginLine,
+    String? filterLine,
+  })  : _loginLine = loginLine,
+        _filterLine = filterLine;
+
+  /// Updates the login and filter lines used on the next [connect] call.
+  /// Safe to call while disconnected; has no effect on an active connection.
+  void updateCredentials({required String loginLine, String? filterLine}) {
+    _loginLine = loginLine;
+    _filterLine = filterLine;
+  }
 
   Socket? _socket;
   StreamSubscription? _socketSubscription;
@@ -65,8 +73,8 @@ class AprsIsTransport implements AprsTransport {
       // already handles state updates; ignoring .done prevents the same error
       // from also reaching the zone as an unhandled exception.
       _socket!.done.ignore();
-      _socket!.write(loginLine);
-      if (filterLine != null) _socket!.write(filterLine);
+      _socket!.write(_loginLine);
+      if (_filterLine != null) _socket!.write(_filterLine);
       _emitState(ConnectionStatus.connected);
 
       _socketSubscription = _socket!

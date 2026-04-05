@@ -6,6 +6,8 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import 'package:provider/provider.dart';
 
+import '../../map/meridian_tile_provider.dart';
+
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/location_picker_screen.dart';
@@ -19,6 +21,7 @@ import '../../services/tnc_service.dart';
 import '../../services/tx_service.dart';
 import '../../theme/meridian_colors.dart';
 import '../widgets/connection_nav_icon.dart';
+import '../utils/platform_route.dart';
 import '../widgets/station_search_delegate.dart';
 import 'meridian_map.dart';
 
@@ -36,6 +39,7 @@ class DesktopScaffold extends StatefulWidget {
     required this.mapController,
     required this.markers,
     required this.tileUrl,
+    required this.meridianTileProvider,
     required this.onNavigateToSettings,
     this.connectionStatus = ConnectionStatus.disconnected,
     this.tncConnectionStatus = ConnectionStatus.disconnected,
@@ -50,6 +54,7 @@ class DesktopScaffold extends StatefulWidget {
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
+  final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
   final ConnectionStatus connectionStatus;
   final ConnectionStatus tncConnectionStatus;
@@ -112,7 +117,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
       if (!mounted) return;
       final result = await Navigator.push<LatLng>(
         context,
-        MaterialPageRoute(builder: (_) => const LocationPickerScreen()),
+        buildPlatformRoute((_) => const LocationPickerScreen()),
       );
       if (result != null && mounted) {
         widget.mapController.move(result, 13.0);
@@ -170,10 +175,10 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
           ),
           IconButton(
             icon: _locating
-                ? const SizedBox(
+                ? SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   )
                 : const Icon(Symbols.my_location),
             tooltip: 'Center on my location',
@@ -250,6 +255,7 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                         mapController: widget.mapController,
                         markers: widget.markers,
                         tileUrl: widget.tileUrl,
+                        tileProvider: widget.meridianTileProvider.buildTileProvider(),
                         connectionStatus: widget.connectionStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,

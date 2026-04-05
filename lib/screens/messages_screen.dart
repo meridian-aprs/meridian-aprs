@@ -12,6 +12,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../services/message_service.dart';
+import '../ui/utils/platform_route.dart';
 import '../ui/widgets/compose_message_sheet.dart';
 import 'message_thread_screen.dart';
 
@@ -60,9 +61,8 @@ class MessagesScreen extends StatelessWidget {
                     service.markRead(conv.peerCallsign);
                     Navigator.push(
                       context,
-                      MaterialPageRoute(
-                        // TODO(ios): CupertinoPageRoute
-                        builder: (_) => MessageThreadScreen(
+                      buildPlatformRoute(
+                        (_) => MessageThreadScreen(
                           peerCallsign: conv.peerCallsign,
                         ),
                       ),

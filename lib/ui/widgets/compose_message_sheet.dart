@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import '../../screens/message_thread_screen.dart';
 import '../../services/message_service.dart';
 import 'callsign_field.dart';
+import '../utils/platform_route.dart';
 
 class ComposeMessageSheet extends StatefulWidget {
   const ComposeMessageSheet({super.key, this.initialCallsign});
@@ -54,10 +55,7 @@ class _ComposeMessageSheetState extends State<ComposeMessageSheet> {
     Navigator.of(context).pop();
     Navigator.push(
       context,
-      MaterialPageRoute(
-        // TODO(ios): CupertinoPageRoute
-        builder: (_) => MessageThreadScreen(peerCallsign: callsign),
-      ),
+      buildPlatformRoute((_) => MessageThreadScreen(peerCallsign: callsign)),
     );
   }
 
