@@ -255,7 +255,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                         mapController: widget.mapController,
                         markers: widget.markers,
                         tileUrl: widget.tileUrl,
-                        tileProvider: widget.meridianTileProvider.buildTileProvider(),
+                        tileProvider: widget.meridianTileProvider
+                            .buildTileProvider(),
                         connectionStatus: widget.connectionStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,

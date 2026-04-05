@@ -18,8 +18,8 @@ class AprsIsTransport implements AprsTransport {
     this.port = 14580,
     required String loginLine,
     String? filterLine,
-  })  : _loginLine = loginLine,
-        _filterLine = filterLine;
+  }) : _loginLine = loginLine,
+       _filterLine = filterLine;
 
   /// Updates the login and filter lines used on the next [connect] call.
   /// Safe to call while disconnected; has no effect on an active connection.

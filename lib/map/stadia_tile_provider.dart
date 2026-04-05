@@ -18,7 +18,7 @@ class StadiaTileProvider implements MeridianTileProvider {
   final CacheStore _cacheStore;
 
   StadiaTileProvider({required this.apiKey, required CacheStore cacheStore})
-      : _cacheStore = cacheStore;
+    : _cacheStore = cacheStore;
 
   // Lazily created and reused across builds to avoid creating a new Dio
   // HTTP client (and its keep-alive timers) on every widget rebuild.
@@ -34,11 +34,11 @@ class StadiaTileProvider implements MeridianTileProvider {
 
   @override
   TileProvider buildTileProvider() => _provider ??= CachedTileProvider(
-        store: _cacheStore,
-        // Serve from cache when offline; refresh after 30 days.
-        maxStale: const Duration(days: 30),
-        hitCacheOnNetworkFailure: true,
-      );
+    store: _cacheStore,
+    // Serve from cache when offline; refresh after 30 days.
+    maxStale: const Duration(days: 30),
+    hitCacheOnNetworkFailure: true,
+  );
 
   @override
   void dispose() {

@@ -19,8 +19,5 @@ CupertinoThemeData buildIosTheme({
   required Brightness brightness,
   Color primaryColor = MeridianColors.primary,
 }) {
-  return CupertinoThemeData(
-    brightness: brightness,
-    primaryColor: primaryColor,
-  );
+  return CupertinoThemeData(brightness: brightness, primaryColor: primaryColor);
 }

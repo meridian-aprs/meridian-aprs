@@ -7,7 +7,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-
 import '../config/app_config.dart';
 import '../core/packet/station.dart';
 import '../map/meridian_tile_provider.dart';

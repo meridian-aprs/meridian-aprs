@@ -260,7 +260,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         mapController: widget.mapController,
                         markers: widget.markers,
                         tileUrl: widget.tileUrl,
-                        tileProvider: widget.meridianTileProvider.buildTileProvider(),
+                        tileProvider: widget.meridianTileProvider
+                            .buildTileProvider(),
                         connectionStatus: widget.connectionStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
