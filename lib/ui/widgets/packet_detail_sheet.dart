@@ -58,12 +58,7 @@ class PacketDetailSheet extends StatelessWidget {
               child: Row(
                 children: [
                   if (symbol case (final st, final sc)) ...[
-                    AprsSymbolWidget(
-                      symbolTable: st,
-                      symbolCode: sc,
-                      size: 24,
-                      color: colorScheme.primary,
-                    ),
+                    AprsSymbolWidget(symbolTable: st, symbolCode: sc, size: 24),
                     const SizedBox(width: 10),
                   ],
                   Expanded(

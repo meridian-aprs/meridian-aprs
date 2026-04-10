@@ -14,7 +14,6 @@ import '../services/station_service.dart';
 import '../services/tnc_service.dart';
 import '../services/tx_service.dart';
 import '../ui/layout/responsive_layout.dart';
-import '../theme/meridian_colors.dart';
 import '../theme/theme_controller.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/utils/platform_route.dart';
@@ -194,23 +193,6 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
-  /// Returns an icon color appropriate for the APRS symbol code.
-  Color _markerColor(String symbolCode) {
-    switch (symbolCode) {
-      // Emergency / police / fire
-      case '!':
-      case 'P':
-      case 'f':
-      case 'd':
-        return MeridianColors.danger;
-      // Weather
-      case '_':
-        return MeridianColors.signal;
-      default:
-        return MeridianColors.primary;
-    }
-  }
-
   Marker _buildMarker(Station s) => Marker(
     point: LatLng(s.lat, s.lon),
     width: 44,
@@ -226,7 +208,6 @@ class _MapScreenState extends State<MapScreen> {
           symbolTable: s.symbolTable,
           symbolCode: s.symbolCode,
           size: 44,
-          color: _markerColor(s.symbolCode),
         ),
       ),
     ),

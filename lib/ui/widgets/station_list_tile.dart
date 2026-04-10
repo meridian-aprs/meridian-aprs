@@ -41,7 +41,6 @@ class StationListTile extends StatelessWidget {
         symbolTable: station.symbolTable,
         symbolCode: station.symbolCode,
         size: 32,
-        color: colorScheme.primary,
       ),
       title: Text(
         station.callsign,

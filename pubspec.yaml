@@ -32,6 +32,7 @@ dependencies:
   http_cache_file_store: ^2.0.1
   http_cache_core: ^1.1.3
   path_provider: ^2.1.5
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -41,3 +42,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/aprs_symbols/aprs-symbols-64-0.png
+    - assets/aprs_symbols/aprs-symbols-64-1.png

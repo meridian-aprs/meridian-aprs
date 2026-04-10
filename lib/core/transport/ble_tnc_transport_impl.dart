@@ -230,16 +230,24 @@ class BleTncTransport extends KissTncTransport {
       _connStateSub = _adapter.connectionState.listen(_onBleConnectionState);
 
       _setStatus(ConnectionStatus.connected);
+      debugPrint(
+        'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
+      );
 
-      // 9. Send the standard KISS parameter initialisation sequence and start
-      //    the idle keepalive timer.
+      // 9. Start the idle keepalive timer.
       //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
-      //    of post-connect silence. Sending the five standard KISS commands
-      //    immediately resets the TNC idle timer. All five frames are packed
-      //    into one BLE write (20 bytes) to minimise round-trips.
-      //    DO NOT use command 0x06 (SETHARDWARE) — that is Mobilinkd's
-      //    proprietary config protocol and causes an immediate disconnect.
-      await _sendKissInit();
+      //    of post-connect silence. The keepalive sends a single TXDELAY frame
+      //    every 2 s to hold the link open.
+      //
+      //    NOTE: Do NOT call _sendKissInit() here. Sending the five standard
+      //    KISS parameter frames (TXDELAY/PERSIST/SLOTTIME/TXTAIL/FULLDUPLEX)
+      //    causes the Mobilinkd TNC4 to reinitialise its modem, which takes its
+      //    BLE radio dark for ~5 s — long enough for the supervision timeout
+      //    (5.12 s) to expire and drop the connection. The Mobilinkd retains its
+      //    own configuration persistently; the host does not need to reprogram
+      //    these values on every connect.
+      //    DO NOT use command 0x06 (SETHARDWARE) either — that is Mobilinkd's
+      //    proprietary config protocol and also causes an immediate disconnect.
       _resetKeepalive();
     } catch (e) {
       debugPrint('BleTncTransport connect failed: $e');
@@ -280,6 +288,10 @@ class BleTncTransport extends KissTncTransport {
     _keepaliveTimer?.cancel();
     try {
       final kissFrame = KissFramer.encode(ax25Frame);
+      final chunks = (kissFrame.length + _mtu - 1) ~/ _mtu;
+      debugPrint(
+        'BleTncTransport: sendFrame ${ax25Frame.length}B → ${kissFrame.length}B KISS in $chunks chunk(s)',
+      );
       // Split into MTU-sized chunks and write sequentially with response.
       int offset = 0;
       while (offset < kissFrame.length) {
@@ -329,31 +341,6 @@ class BleTncTransport extends KissTncTransport {
     _connStateSub = null;
     await _framesSub?.cancel();
     _framesSub = null;
-  }
-
-  /// Sends the five standard KISS parameter frames in a single BLE write.
-  ///
-  /// Frame layout: FEND CMD VALUE FEND (4 bytes each, 20 bytes total).
-  ///   0x01 TXDELAY   – 30 × 10 ms = 300 ms
-  ///   0x02 PERSIST   – 63  (standard CSMA)
-  ///   0x03 SLOTTIME  – 10 × 10 ms = 100 ms
-  ///   0x04 TXTAIL    – 0 ms
-  ///   0x05 FULLDUPLEX – off (CSMA mode)
-  Future<void> _sendKissInit() async {
-    try {
-      await _rxChar?.write(
-        Uint8List.fromList([
-          0xC0, 0x01, 30, 0xC0, // TXDELAY  300 ms
-          0xC0, 0x02, 63, 0xC0, // PERSIST
-          0xC0, 0x03, 10, 0xC0, // SLOTTIME 100 ms
-          0xC0, 0x04, 0, 0xC0, // TXTAIL     0 ms
-          0xC0, 0x05, 0, 0xC0, // FULLDUPLEX off
-        ]),
-        withoutResponse: false,
-      );
-    } catch (_) {
-      // Best-effort — TNC will still operate without the init sequence.
-    }
   }
 
   /// Cancels any pending keepalive and schedules a new one.

@@ -80,7 +80,6 @@ class StationInfoSheet extends StatelessWidget {
                   symbolTable: station.symbolTable,
                   symbolCode: station.symbolCode,
                   size: 18,
-                  color: colorScheme.primary,
                 ),
                 const SizedBox(width: 8),
                 Text(

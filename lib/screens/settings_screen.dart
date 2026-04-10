@@ -1,5 +1,7 @@
 import 'dart:io' show Platform;
 
+import 'package:url_launcher/url_launcher.dart';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +43,7 @@ class SettingsScreen extends StatelessWidget {
       const _NotificationsSection(),
       const _AccountSection(),
       const _AboutSection(),
+      const _AcknowledgementsSection(),
     ];
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -524,11 +527,10 @@ class _SymbolPickerTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return ListTile(
-      leading: Icon(
-        AprsSymbolWidget.iconDataForSymbol(symbolTable, symbolCode),
-        color: theme.colorScheme.primary,
+      leading: AprsSymbolWidget(
+        symbolTable: symbolTable,
+        symbolCode: symbolCode,
         size: 28,
       ),
       title: const Text('Symbol'),
@@ -627,14 +629,10 @@ class _SymbolPickerDialogState extends State<_SymbolPickerDialog> {
                           entry.code == widget.currentCode;
                       return ListTile(
                         dense: true,
-                        leading: Icon(
-                          AprsSymbolWidget.iconDataForSymbol(
-                            entry.table,
-                            entry.code,
-                          ),
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurfaceVariant,
+                        leading: AprsSymbolWidget(
+                          symbolTable: entry.table,
+                          symbolCode: entry.code,
+                          size: 24,
                         ),
                         title: Text(entry.name),
                         subtitle: Text(
@@ -1402,19 +1400,157 @@ class _AccountSection extends StatelessWidget {
 class _AboutSection extends StatelessWidget {
   const _AboutSection();
 
+  static const _kVersion = '0.1.0';
+
   @override
   Widget build(BuildContext context) {
-    return const Column(
+    final theme = Theme.of(context);
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionHeader('About'),
-        ListTile(title: Text('Version'), trailing: Text('0.1.0')),
+        const _SectionHeader('About'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Card.filled(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+              child: Center(
+                child: Column(
+                  children: [
+                    Icon(
+                      Symbols.wifi_tethering,
+                      size: 48,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Meridian APRS',
+                      style: theme.textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Version $_kVersion',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'APRS for the Modern Ham',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      '© 2026 Eric Pasch  ·  GPL v3',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
         ListTile(
-          title: Text('GitHub'),
-          subtitle: Text('https://github.com/epasch/meridian-aprs'),
-          trailing: Icon(Symbols.open_in_new, size: 16),
+          leading: const Icon(Symbols.code),
+          title: const Text('GitHub'),
+          subtitle: const Text('github.com/epasch/meridian-aprs'),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(
+            Uri.parse('https://github.com/epasch/meridian-aprs'),
+            context,
+          ),
+        ),
+        ListTile(
+          leading: const Icon(Symbols.language),
+          title: const Text('Website'),
+          subtitle: const Text('meridianaprs.com'),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () =>
+              _launchUri(Uri.parse('https://meridianaprs.com'), context),
         ),
       ],
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Acknowledgements
+// ---------------------------------------------------------------------------
+
+class _AcknowledgementsSection extends StatelessWidget {
+  const _AcknowledgementsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Acknowledgements'),
+        ListTile(
+          title: const Text('APRS Symbol Graphics'),
+          subtitle: const Text(
+            'aprs.fi symbol set by Heikki Hannikainen OH7LZB',
+          ),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(
+            Uri.parse('https://github.com/hessu/aprs-symbols'),
+            context,
+          ),
+        ),
+        ListTile(
+          title: const Text('Map Library'),
+          subtitle: const Text('flutter_map by Luka S and contributors'),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(
+            Uri.parse('https://github.com/fleaflet/flutter_map'),
+            context,
+          ),
+        ),
+        ListTile(
+          title: const Text('Map Data'),
+          subtitle: const Text('© OpenStreetMap contributors'),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(
+            Uri.parse('https://www.openstreetmap.org/copyright'),
+            context,
+          ),
+        ),
+        ListTile(
+          title: const Text('Map Tiles'),
+          subtitle: const Text('Stadia Maps'),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(Uri.parse('https://stadiamaps.com'), context),
+        ),
+        ListTile(
+          title: const Text('Open Source Licenses'),
+          trailing: const Icon(Symbols.chevron_right),
+          onTap: () => showLicensePage(
+            context: context,
+            applicationName: 'Meridian APRS',
+            applicationVersion: _AboutSection._kVersion,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// URL launcher helper
+// ---------------------------------------------------------------------------
+
+Future<void> _launchUri(Uri uri, BuildContext context) async {
+  if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not open ${uri.host}')));
+    }
   }
 }
