@@ -230,6 +230,9 @@ class BleTncTransport extends KissTncTransport {
       _connStateSub = _adapter.connectionState.listen(_onBleConnectionState);
 
       _setStatus(ConnectionStatus.connected);
+      debugPrint(
+        'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
+      );
 
       // 9. Start the idle keepalive timer.
       //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
@@ -285,6 +288,10 @@ class BleTncTransport extends KissTncTransport {
     _keepaliveTimer?.cancel();
     try {
       final kissFrame = KissFramer.encode(ax25Frame);
+      final chunks = (kissFrame.length + _mtu - 1) ~/ _mtu;
+      debugPrint(
+        'BleTncTransport: sendFrame ${ax25Frame.length}B → ${kissFrame.length}B KISS in $chunks chunk(s)',
+      );
       // Split into MTU-sized chunks and write sequentially with response.
       int offset = 0;
       while (offset < kissFrame.length) {
