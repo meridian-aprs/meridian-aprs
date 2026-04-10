@@ -180,6 +180,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     final aprsConnected = aprsStatus == ConnectionStatus.connected;
     final tncConnected = tncStatus == ConnectionStatus.connected;
+    // Show the active TNC card (with its Disconnect button) whenever a BLE
+    // session is in progress — not just when fully connected. This lets the
+    // user cancel a reconnect or waiting-for-device phase.
+    final tncSessionActive =
+        tncConnected ||
+        tncStatus == ConnectionStatus.reconnecting ||
+        tncStatus == ConnectionStatus.waitingForDevice;
     final anyConnected = aprsConnected || tncConnected;
 
     return Scaffold(
@@ -240,7 +247,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                   ),
                 ),
               ],
-              if (tncConnected) ...[
+              if (tncSessionActive) ...[
                 const SizedBox(height: 8),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16),

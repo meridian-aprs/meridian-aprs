@@ -10,7 +10,7 @@ import 'tnc_config.dart';
 
 /// Stub [SerialKissTransport] for platforms where flutter_libserialport
 /// is not available (web, and as a compile-time safety net for mobile).
-class SerialKissTransport implements KissTncTransport {
+class SerialKissTransport extends KissTncTransport {
   // ignore: avoid_unused_constructor_parameters
   SerialKissTransport(TncConfig config, {SerialPortAdapter? adapter});
 

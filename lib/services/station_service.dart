@@ -193,7 +193,15 @@ class StationService extends ChangeNotifier {
           final src = map['src'] == 'tnc'
               ? PacketSource.tnc
               : PacketSource.aprsIs;
-          final packet = _parser.parse(raw, transportSource: src);
+          final tsMs = map['ts'] as int?;
+          final receivedAt = tsMs != null
+              ? DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)
+              : null;
+          final packet = _parser.parse(
+            raw,
+            transportSource: src,
+            receivedAt: receivedAt,
+          );
           if (_withinAge(packet.receivedAt, _packetHistoryDays)) {
             _recentPackets.add(packet);
           }
@@ -357,7 +365,13 @@ class StationService extends ChangeNotifier {
     try {
       final packetList = _recentPackets
           .where((p) => _withinAge(p.receivedAt, _packetHistoryDays))
-          .map((p) => {'raw': p.rawLine, 'src': p.transportSource.name})
+          .map(
+            (p) => {
+              'raw': p.rawLine,
+              'src': p.transportSource.name,
+              'ts': p.receivedAt.millisecondsSinceEpoch,
+            },
+          )
           .toList();
       prefs.setString(
         _keyPacketLog,

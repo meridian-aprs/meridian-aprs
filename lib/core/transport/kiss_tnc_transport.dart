@@ -11,7 +11,7 @@ import 'aprs_transport.dart' show ConnectionStatus;
 /// Parsing (AX.25 → APRS text) is the responsibility of the service layer,
 /// not the transport. This keeps the transport layer free of APRS semantics
 /// and testable at the raw byte level.
-abstract interface class KissTncTransport {
+abstract class KissTncTransport {
   /// Stream of decoded KISS frames as raw AX.25 byte arrays.
   ///
   /// Each emission is a complete AX.25 frame payload (command byte stripped).
@@ -28,6 +28,13 @@ abstract interface class KissTncTransport {
 
   /// Connect to the TNC. Throws on failure.
   Future<void> connect();
+
+  /// Connect using OS-managed background scanning.
+  ///
+  /// Default implementation delegates to [connect]. BLE transports override
+  /// this to pass [autoConnect: true] to the platform, letting the OS
+  /// reconnect when the device comes back in range without active polling.
+  Future<void> connectBackground() => connect();
 
   /// Disconnect cleanly and release all resources.
   Future<void> disconnect();

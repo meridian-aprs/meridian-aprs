@@ -52,7 +52,9 @@ class _MeridianStatusPillState extends State<MeridianStatusPill>
   }
 
   void _syncAnimation() {
-    if (widget.status == ConnectionStatus.connecting) {
+    if (widget.status == ConnectionStatus.connecting ||
+        widget.status == ConnectionStatus.reconnecting ||
+        widget.status == ConnectionStatus.waitingForDevice) {
       _animController.repeat(reverse: true);
     } else {
       _animController.stop();
@@ -69,6 +71,8 @@ class _MeridianStatusPillState extends State<MeridianStatusPill>
   static String _stateLabel(ConnectionStatus s) => switch (s) {
     ConnectionStatus.connected => 'Connected',
     ConnectionStatus.connecting => 'Connecting',
+    ConnectionStatus.reconnecting => 'Reconnecting',
+    ConnectionStatus.waitingForDevice => 'Searching\u2026',
     ConnectionStatus.disconnected => 'Disconnected',
     ConnectionStatus.error => 'Error',
   };
@@ -78,6 +82,8 @@ class _MeridianStatusPillState extends State<MeridianStatusPill>
       case ConnectionStatus.connected:
         return MeridianColors.signal;
       case ConnectionStatus.connecting:
+      case ConnectionStatus.reconnecting:
+      case ConnectionStatus.waitingForDevice:
         return MeridianColors.warning;
       case ConnectionStatus.disconnected:
         return MeridianColors.danger;

@@ -64,7 +64,11 @@ class ConnectionNavIcon extends StatelessWidget {
         tncStatus == ConnectionStatus.error;
     final anyConnecting =
         aprsStatus == ConnectionStatus.connecting ||
-        tncStatus == ConnectionStatus.connecting;
+        tncStatus == ConnectionStatus.connecting ||
+        aprsStatus == ConnectionStatus.reconnecting ||
+        tncStatus == ConnectionStatus.reconnecting ||
+        aprsStatus == ConnectionStatus.waitingForDevice ||
+        tncStatus == ConnectionStatus.waitingForDevice;
 
     Widget icon;
     if (anyConnected) {

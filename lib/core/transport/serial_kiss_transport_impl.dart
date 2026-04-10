@@ -24,7 +24,7 @@ import 'tnc_config.dart';
 /// at `serial_kiss_transport.dart` rather than importing this file directly.
 ///
 /// Pass a custom [SerialPortAdapter] to inject a fake in tests.
-class SerialKissTransport implements KissTncTransport {
+class SerialKissTransport extends KissTncTransport {
   SerialKissTransport(this._config, {SerialPortAdapter? adapter})
     : _adapter = adapter ?? DefaultSerialPortAdapter(_config.port);
 

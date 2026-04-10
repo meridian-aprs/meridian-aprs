@@ -1,7 +1,18 @@
 import 'dart:async';
 
 /// The lifecycle state of a transport connection.
-enum ConnectionStatus { disconnected, connecting, connected, error }
+enum ConnectionStatus {
+  disconnected,
+  connecting,
+  connected,
+
+  /// Fast exponential-backoff retries are in progress.
+  reconnecting,
+
+  /// Retries exhausted; waiting for the OS to report the device back in range.
+  waitingForDevice,
+  error,
+}
 
 abstract class AprsTransport {
   /// Raw APRS-IS lines, newline stripped. Comment lines included.

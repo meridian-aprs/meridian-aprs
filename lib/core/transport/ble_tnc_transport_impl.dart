@@ -20,7 +20,7 @@ import 'kiss_tnc_transport.dart';
 ///
 /// Production code uses [DefaultBleDeviceAdapter]. Tests inject a fake.
 abstract interface class BleDeviceAdapter {
-  Future<void> connect({Duration timeout});
+  Future<void> connect({Duration timeout, bool autoConnect});
   Future<void> disconnect();
   Future<int> requestMtu(int desired);
   int get mtu;
@@ -36,8 +36,10 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
   final BluetoothDevice _device;
 
   @override
-  Future<void> connect({Duration timeout = const Duration(seconds: 15)}) =>
-      _device.connect(timeout: timeout, autoConnect: false);
+  Future<void> connect({
+    Duration timeout = const Duration(seconds: 15),
+    bool autoConnect = false,
+  }) => _device.connect(timeout: timeout, autoConnect: autoConnect);
 
   @override
   Future<void> disconnect() => _device.disconnect();
@@ -71,13 +73,13 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
 /// over-BLE GATT service.
 ///
 /// Connection flow:
-///   scan → connect → requestMtu → discoverServices
+///   scan → connect → discoverServices
 ///   → subscribe to TX characteristic → ready
 ///
 /// Incoming BLE chunks are reassembled into complete KISS frames by the
 /// existing [KissFramer]. Outgoing frames are KISS-encoded and split into
 /// MTU-sized chunks before writing to the RX characteristic.
-class BleTncTransport implements KissTncTransport {
+class BleTncTransport extends KissTncTransport {
   BleTncTransport(
     BluetoothDevice device, {
     BleDeviceAdapter? adapter,
@@ -127,35 +129,56 @@ class BleTncTransport implements KissTncTransport {
   @override
   bool get isConnected => _status == ConnectionStatus.connected;
 
+  /// Connect using OS background scanning (autoConnect mode).
+  ///
+  /// Emits [ConnectionStatus.waitingForDevice] while the OS scans, then
+  /// transitions to [ConnectionStatus.connected] once the device is found.
+  /// The wait is up to one hour; calling [disconnect] cancels it.
   @override
-  Future<void> connect() async {
-    _setStatus(ConnectionStatus.connecting);
+  Future<void> connectBackground() => _connect(autoConnect: true);
+
+  @override
+  Future<void> connect() => _connect(autoConnect: false);
+
+  Future<void> _connect({required bool autoConnect}) async {
+    _setStatus(
+      autoConnect
+          ? ConnectionStatus.waitingForDevice
+          : ConnectionStatus.connecting,
+    );
     try {
       // 1. Connect to the device.
-      await _adapter.connect(timeout: const Duration(seconds: 15));
+      //    autoConnect: true — OS manages background scanning; no explicit
+      //    timeout needed beyond a ceiling to avoid hanging forever if the
+      //    device is turned off permanently.
+      await _adapter.connect(
+        timeout: autoConnect
+            ? const Duration(hours: 1)
+            : const Duration(seconds: 15),
+        autoConnect: autoConnect,
+      );
 
-      // 2. Request MTU explicitly to read back the negotiated value.
-      //    Note: flutter_blue_plus on Android also issues an internal
-      //    requestMtu during connect; this second call is harmless and gives
-      //    us the same negotiated result to compute chunk size.
-      try {
-        final negotiated = await _adapter.requestMtu(512);
-        // ATT overhead is 3 bytes; subtract to get usable payload bytes.
-        _mtu = max(20, negotiated - 3);
-        debugPrint(
-          'BleTncTransport: MTU negotiated $negotiated, using $_mtu byte chunks',
-        );
-      } catch (e) {
-        debugPrint(
-          'BleTncTransport: MTU negotiation failed, using 20-byte fallback: $e',
-        );
-        _mtu = 20;
-      }
+      // 2. Read the negotiated MTU.
+      //    flutter_blue_plus on Android auto-requests MTU 512 inside
+      //    connect(); issuing a second requestMtu() immediately after causes
+      //    Mobilinkd (and some other TNCs) to drop the link with
+      //    LINK_SUPERVISION_TIMEOUT. On iOS the OS manages MTU negotiation
+      //    and explicit requests are unnecessary. _adapter.mtu reflects the
+      //    negotiated value once connect() resolves.
+      //    ATT overhead is 3 bytes; subtract to get usable payload bytes.
+      final negotiated = _adapter.mtu;
+      _mtu = max(20, negotiated - 3);
+      debugPrint('BleTncTransport: MTU $negotiated, using $_mtu byte chunks');
 
-      // 3. Discover services (retry up to 3× — Android can fail immediately).
+      // 3. Discover services (retry up to 3× — Android BLE stacks sometimes
+      //    need a moment after connect() before the GATT cache is ready).
       List<BluetoothService>? services;
       for (int attempt = 1; attempt <= 3; attempt++) {
         try {
+          if (attempt == 1) {
+            // Brief settle time before first attempt — Android BLE timing.
+            await Future<void>.delayed(const Duration(milliseconds: 200));
+          }
           services = await _adapter.discoverServices();
           break;
         } catch (e) {
@@ -255,16 +278,22 @@ class BleTncTransport implements KissTncTransport {
       throw StateError('BleTncTransport: not connected');
     }
     _keepaliveTimer?.cancel();
-    final kissFrame = KissFramer.encode(ax25Frame);
-    // Split into MTU-sized chunks and write sequentially with response.
-    int offset = 0;
-    while (offset < kissFrame.length) {
-      final end = min(offset + _mtu, kissFrame.length);
-      final chunk = kissFrame.sublist(offset, end);
-      await rxChar.write(chunk, withoutResponse: false);
-      offset = end;
+    try {
+      final kissFrame = KissFramer.encode(ax25Frame);
+      // Split into MTU-sized chunks and write sequentially with response.
+      int offset = 0;
+      while (offset < kissFrame.length) {
+        final end = min(offset + _mtu, kissFrame.length);
+        final chunk = kissFrame.sublist(offset, end);
+        await rxChar.write(chunk, withoutResponse: false);
+        offset = end;
+      }
+    } finally {
+      // Always reschedule the keepalive — even on write failure — so the
+      // timer isn't left permanently cancelled if the caller catches the error
+      // and keeps the connection open.
+      _resetKeepalive();
     }
-    _resetKeepalive();
   }
 
   // ---------------------------------------------------------------------------
@@ -281,9 +310,13 @@ class BleTncTransport implements KissTncTransport {
       debugPrint(
         'BleTncTransport: unexpected disconnect from ${_adapter.platformName}',
       );
+      // _status is set synchronously before the unawaited cleanup, so a
+      // second delivery of this event cannot re-enter (guard is already false).
+      // The keepalive timer is also cancelled synchronously on the first line
+      // of _cleanupSubscriptions, so no keepalive can fire mid-cleanup.
       _status = ConnectionStatus.error;
       _stateController.add(ConnectionStatus.error);
-      _cleanupSubscriptions();
+      _cleanupSubscriptions(); // unawaited — safe, see above
     }
   }
 
@@ -337,18 +370,31 @@ class BleTncTransport implements KissTncTransport {
   /// Fires when the link has been idle for [_keepaliveInterval].
   ///
   /// Sends a single KISS TXDELAY frame — harmless to any KISS TNC and
-  /// sufficient to reset the Mobilinkd idle timer.
+  /// sufficient to reset the Mobilinkd idle timer. Uses write-without-response
+  /// to avoid ATT round-trip latency on a fire-and-forget keepalive.
+  /// A write failure is treated as a link-dropped signal rather than
+  /// silently rescheduling, ensuring the UI reflects the real state promptly.
   Future<void> _onKeepalive() async {
     if (!isConnected) return;
     try {
       await _rxChar?.write(
         Uint8List.fromList([0xC0, 0x01, 30, 0xC0]),
-        withoutResponse: false,
+        withoutResponse: true,
       );
-    } catch (_) {
-      // Best-effort — if the write fails the link is already dropping.
+      _resetKeepalive();
+    } catch (e) {
+      // Write failure means the link is gone. Mark as error immediately
+      // rather than silently rescheduling — don't wait for the BLE stack
+      // to eventually fire an onConnectionStateChange event.
+      debugPrint(
+        'BleTncTransport: keepalive write failed, marking link dropped: $e',
+      );
+      if (_status == ConnectionStatus.connected) {
+        _status = ConnectionStatus.error;
+        _stateController.add(ConnectionStatus.error);
+        await _cleanupSubscriptions();
+      }
     }
-    _resetKeepalive();
   }
 
   void _setStatus(ConnectionStatus status) {

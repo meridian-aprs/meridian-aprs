@@ -218,6 +218,10 @@ class BeaconingService extends ChangeNotifier {
   Future<void> startBeaconing() async {
     if (_isActive) return;
     _isActive = true;
+    // Notify immediately so UI and BackgroundServiceManager update the
+    // notification before the first beacon send (which may take several
+    // seconds waiting for a GPS fix).
+    notifyListeners();
     // Seed _lastBeaconAt so the turn trigger is unblocked from the start.
     // beaconNow() will overwrite this with the real send time on success.
     _lastBeaconAt ??= DateTime.now();

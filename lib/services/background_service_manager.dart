@@ -267,9 +267,29 @@ class BackgroundServiceManager extends ChangeNotifier
   /// that requires a timer. This drives both auto-start and auto-stop.
   bool get _shouldBeRunning =>
       _backgroundActivityEnabled &&
-      (_station.currentConnectionStatus == ConnectionStatus.connected ||
-          _tnc.currentStatus == ConnectionStatus.connected ||
+      (_aprsIsSessionActive ||
+          _tncSessionActive ||
           (_beaconing.isActive && _beaconing.mode != BeaconMode.manual));
+
+  /// True while an APRS-IS session is in any active state: connected,
+  /// connecting, or while in the background with a session that was active
+  /// when the screen locked (BSM is managing reconnect attempts).
+  bool get _aprsIsSessionActive {
+    final s = _station.currentConnectionStatus;
+    return s == ConnectionStatus.connected ||
+        s == ConnectionStatus.connecting ||
+        (_isInBackground && _reconnectAprsIs);
+  }
+
+  /// True while a TNC session is in any active state: connected, or any phase
+  /// of the auto-reconnect cycle. Used to keep the foreground service alive
+  /// through reconnect and OS-waiting phases, not just when fully connected.
+  bool get _tncSessionActive {
+    final s = _tnc.currentStatus;
+    return s == ConnectionStatus.connected ||
+        s == ConnectionStatus.reconnecting ||
+        s == ConnectionStatus.waitingForDevice;
+  }
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -388,7 +408,9 @@ class BackgroundServiceManager extends ChangeNotifier
             _station.currentConnectionStatus == ConnectionStatus.connecting;
         _reconnectTnc =
             _tnc.currentStatus == ConnectionStatus.connected ||
-            _tnc.currentStatus == ConnectionStatus.connecting;
+            _tnc.currentStatus == ConnectionStatus.connecting ||
+            _tnc.currentStatus == ConnectionStatus.reconnecting ||
+            _tnc.currentStatus == ConnectionStatus.waitingForDevice;
 
         if (_beaconing.isActive && _beaconing.mode != BeaconMode.manual) {
           // Suspend main isolate timer before the isolate is throttled.
@@ -557,6 +579,8 @@ class BackgroundServiceManager extends ChangeNotifier
       final tncIssue =
           (_reconnectTnc || !_isInBackground) &&
           (_tnc.currentStatus == ConnectionStatus.connecting ||
+              _tnc.currentStatus == ConnectionStatus.reconnecting ||
+              _tnc.currentStatus == ConnectionStatus.waitingForDevice ||
               (_isInBackground &&
                   _reconnectTnc &&
                   _tnc.currentStatus == ConnectionStatus.disconnected));
@@ -676,6 +700,9 @@ class BackgroundServiceManager extends ChangeNotifier
 
   String _buildTitle() {
     if (_state == BackgroundServiceState.reconnecting) {
+      if (_tnc.currentStatus == ConnectionStatus.waitingForDevice) {
+        return 'Meridian — Searching for TNC\u2026';
+      }
       return 'Meridian — Reconnecting\u2026';
     }
     final tncOk = _tnc.currentStatus == ConnectionStatus.connected;

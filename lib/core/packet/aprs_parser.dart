@@ -33,9 +33,13 @@ class AprsParser {
   /// Parse one APRS-IS line.
   ///
   /// Format: `SOURCE>DEST,PATH:INFO`
+  ///
+  /// Supply [receivedAt] to override the default of [DateTime.now]. Useful
+  /// when restoring persisted packets that already have a known receive time.
   AprsPacket parse(
     String line, {
     PacketSource transportSource = PacketSource.aprsIs,
+    DateTime? receivedAt,
   }) {
     // Ignore blank lines and server comment lines.
     if (line.isEmpty || line.startsWith('#')) {
@@ -95,7 +99,7 @@ class AprsParser {
     }
 
     final dti = info[0];
-    final now = DateTime.now().toUtc();
+    final now = receivedAt ?? DateTime.now().toUtc();
 
     try {
       return _dispatch(

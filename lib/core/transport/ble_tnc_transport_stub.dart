@@ -9,7 +9,7 @@ import 'aprs_transport.dart' show ConnectionStatus;
 import 'kiss_tnc_transport.dart';
 
 /// Stub [BleTncTransport] for platforms where BLE is not available (web).
-class BleTncTransport implements KissTncTransport {
+class BleTncTransport extends KissTncTransport {
   // ignore: avoid_unused_constructor_parameters
   BleTncTransport(BluetoothDevice device, {dynamic adapter});
 
