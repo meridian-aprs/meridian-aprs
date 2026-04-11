@@ -161,10 +161,34 @@ void main() {
     },
   );
 
-  test('no reconnect after connection error — stays at error', () async {
-    fakeTransport.connectThrows = true;
+  test(
+    'no reconnect on initial connect failure (session never connected)',
+    () async {
+      fakeTransport.connectThrows = true;
+      await conn.connectWithConfig(_testConfig);
+      // Reconnect only triggers after a successful session; first-time failure
+      // stays at error with no retry timer.
+      expect(conn.status, ConnectionStatus.error);
+      expect(conn.hasScheduledRetry, isFalse);
+    },
+  );
+
+  test('auto-reconnects after mid-session error', () async {
+    // Establish a successful session first.
     await conn.connectWithConfig(_testConfig);
-    // Serial has no auto-reconnect — status stays error
-    expect(conn.status, ConnectionStatus.error);
+    expect(conn.status, ConnectionStatus.connected);
+
+    // Simulate a transport error (e.g. USB glitch during PTT).
+    fakeTransport.simulateUnexpectedDisconnect();
+    await Future<void>.delayed(Duration.zero);
+
+    // Should now be scheduling a reconnect, not stuck at error.
+    expect(conn.status, ConnectionStatus.reconnecting);
+    expect(conn.hasScheduledRetry, isTrue);
+
+    // Clean up before the timer fires.
+    await conn.disconnect();
+    expect(conn.status, ConnectionStatus.disconnected);
+    expect(conn.hasScheduledRetry, isFalse);
   });
 }

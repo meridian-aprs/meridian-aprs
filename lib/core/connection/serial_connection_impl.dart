@@ -11,6 +11,7 @@ import '../transport/kiss_tnc_transport.dart';
 import '../transport/serial_kiss_transport.dart';
 import '../transport/tnc_config.dart';
 import 'meridian_connection.dart';
+import 'reconnectable_mixin.dart';
 
 /// USB serial KISS TNC connection.
 ///
@@ -18,14 +19,15 @@ import 'meridian_connection.dart';
 /// it through the [MeridianConnection] interface. AX.25 frames from the
 /// transport are decoded to APRS text internally; callers only see [lines].
 ///
-/// Unlike BLE, serial connections do not auto-reconnect — reconnection is
-/// user-initiated. An error status clears the transport and exposes
-/// [lastErrorMessage] for display.
+/// Reconnects automatically on error using [ReconnectableMixin] exponential
+/// backoff (2 s → 4 s → 8 s → 16 s → 30 s, up to 5 fast retries then keeps
+/// retrying every 30 s). This handles transient USB disconnects during TNC PTT
+/// without requiring user intervention.
 ///
 /// Call [connectWithConfig] to initiate a session. [config] is persisted to
 /// SharedPreferences so it survives app restarts; [loadPersistedSettings]
 /// restores it on startup without connecting.
-class SerialConnection extends MeridianConnection {
+class SerialConnection extends MeridianConnection with ReconnectableMixin {
   SerialConnection();
 
   static const _kBeaconingKey = 'beacon_enabled_serial_tnc';
@@ -92,7 +94,13 @@ class SerialConnection extends MeridianConnection {
   // ---------------------------------------------------------------------------
 
   @override
-  ConnectionStatus get status => _transport?.currentStatus ?? _status;
+  ConnectionStatus get status {
+    if (_status == ConnectionStatus.reconnecting ||
+        _status == ConnectionStatus.waitingForDevice) {
+      return _status;
+    }
+    return _transport?.currentStatus ?? _status;
+  }
 
   @override
   Stream<ConnectionStatus> get connectionState => _stateController.stream;
@@ -182,6 +190,7 @@ class SerialConnection extends MeridianConnection {
 
   @override
   Future<void> disconnect() async {
+    cancelReconnect();
     await _tearDownTransport();
     _emitStatus(ConnectionStatus.disconnected);
     notifyListeners();
@@ -189,6 +198,7 @@ class SerialConnection extends MeridianConnection {
 
   @override
   Future<void> dispose() async {
+    cancelReconnect();
     await _tearDownTransport();
     await _linesController.close();
     await _stateController.close();
@@ -251,6 +261,34 @@ class SerialConnection extends MeridianConnection {
   void _onTransportStatus(ConnectionStatus s) {
     _emitStatus(s);
     notifyListeners();
+
+    if (s == ConnectionStatus.connected) {
+      markSessionConnected();
+    } else if (s == ConnectionStatus.error && shouldAttemptReconnect()) {
+      scheduleReconnect(_emitStatus);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // ReconnectableMixin — reconnect implementation
+  // ---------------------------------------------------------------------------
+
+  @override
+  Future<void> doAttemptReconnect() async {
+    final config = _activeConfig;
+    if (config == null) return; // disconnect() was called
+
+    debugPrint('SerialConnection: attempting reconnect on ${config.port}');
+    await _tearDownTransport();
+    if (_activeConfig == null) return; // disconnect() called during teardown
+
+    _buildAndAttachTransport(config);
+    try {
+      await _transport!.connect();
+    } catch (e) {
+      debugPrint('SerialConnection: reconnect attempt failed: $e');
+      // Transport already emitted error → _onTransportStatus → scheduleReconnect
+    }
   }
 
   void _onFrame(Uint8List frameBytes) {
