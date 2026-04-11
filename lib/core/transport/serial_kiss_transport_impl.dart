@@ -106,10 +106,16 @@ class SerialKissTransport extends KissTncTransport {
 
   @override
   Future<void> sendFrame(Uint8List ax25Frame) async {
+    final kissBytes = KissFramer.encode(ax25Frame);
+    debugPrint(
+      'SerialKissTransport: TX ${ax25Frame.length}b AX.25 → '
+      '${kissBytes.length}b KISS',
+    );
     try {
-      _adapter.write(KissFramer.encode(ax25Frame));
+      _adapter.write(kissBytes);
+      debugPrint('SerialKissTransport: TX write OK');
     } catch (e) {
-      debugPrint('SerialKissTransport sendFrame error: $e');
+      debugPrint('SerialKissTransport: TX write FAILED — $e');
       // Port is gone — trigger cleanup so the app stays in a consistent state.
       Future.microtask(_handleDisconnect);
       rethrow;

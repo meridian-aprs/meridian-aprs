@@ -2,6 +2,7 @@ library;
 
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter_libserialport/flutter_libserialport.dart';
 
 import 'serial_port_adapter.dart';
@@ -50,6 +51,7 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
   @override
   void write(Uint8List data) {
     final written = _port.write(data);
+    debugPrint('SerialPortAdapter: write ${data.length}b → wrote ${written}b');
     if (written != data.length) {
       // sp_nonblocking_write returned fewer bytes than requested — the serial
       // tx buffer was full or the port is in an error state. Treat as a write
