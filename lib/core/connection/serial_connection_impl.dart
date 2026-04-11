@@ -282,7 +282,17 @@ class SerialConnection extends MeridianConnection with ReconnectableMixin {
     await _tearDownTransport();
     if (_activeConfig == null) return; // disconnect() called during teardown
 
-    _buildAndAttachTransport(config);
+    // Transport construction itself can throw when the USB device hasn't
+    // re-enumerated yet (ENOENT / errno=2). Catch this separately so we
+    // schedule the next backoff retry rather than propagating as unhandled.
+    try {
+      _buildAndAttachTransport(config);
+    } catch (e) {
+      debugPrint('SerialConnection: port not yet available — $e');
+      if (shouldAttemptReconnect()) scheduleReconnect(_emitStatus);
+      return;
+    }
+
     try {
       await _transport!.connect();
     } catch (e) {
