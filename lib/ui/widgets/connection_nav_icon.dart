@@ -2,22 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../../core/connection/connection_registry.dart';
 import '../../services/background_service_manager.dart';
-import '../../services/station_service.dart';
-import '../../services/tnc_service.dart';
 import '../../theme/meridian_colors.dart';
 
-/// Reactive navigation icon that reflects combined APRS-IS + TNC connection
-/// state and Android background service keepalive status.
+/// Reactive navigation icon that reflects combined connection state and
+/// Android background service keepalive status.
 ///
-/// Uses [Selector2] to rebuild only on status changes — not on every packet
-/// ingested by [StationService]. A separate [Selector] wraps the outer layer
-/// to also respond to [BackgroundServiceState] without rebuilding on
-/// unrelated provider notifications.
+/// Uses [Selector] on [ConnectionRegistry] to rebuild only when
+/// [aggregateStatus] changes. A separate outer [Selector] responds to
+/// [BackgroundServiceState] changes.
 ///
 /// States:
-/// - Any transport connected → filled router icon, [MeridianColors.signal]
-/// - Any transport in error  → filled router icon, [MeridianColors.warning]
+/// - Any transport connected  → filled router icon, [MeridianColors.signal]
+/// - Any transport in error   → filled router icon, [MeridianColors.warning]
 /// - Any transport connecting → outlined router icon, [MeridianColors.warning]
 /// - All disconnected         → outlined router icon, muted
 ///
@@ -32,16 +30,10 @@ class ConnectionNavIcon extends StatelessWidget {
     return Selector<BackgroundServiceManager, BackgroundServiceState>(
       selector: (_, bsm) => bsm.state,
       builder: (context, bgState, _) {
-        return Selector2<
-          StationService,
-          TncService,
-          (ConnectionStatus, ConnectionStatus)
-        >(
-          selector: (_, ss, tnc) =>
-              (ss.currentConnectionStatus, tnc.currentStatus),
-          builder: (context, statuses, _) {
-            final (aprsStatus, tncStatus) = statuses;
-            return _buildIcon(context, aprsStatus, tncStatus, bgState);
+        return Selector<ConnectionRegistry, ConnectionStatus>(
+          selector: (_, registry) => registry.aggregateStatus,
+          builder: (context, status, _) {
+            return _buildIcon(context, status, bgState);
           },
         );
       },
@@ -50,35 +42,23 @@ class ConnectionNavIcon extends StatelessWidget {
 
   Widget _buildIcon(
     BuildContext context,
-    ConnectionStatus aprsStatus,
-    ConnectionStatus tncStatus,
+    ConnectionStatus status,
     BackgroundServiceState bgState,
   ) {
     final muted = Theme.of(context).colorScheme.onSurfaceVariant;
 
-    final anyConnected =
-        aprsStatus == ConnectionStatus.connected ||
-        tncStatus == ConnectionStatus.connected;
-    final anyError =
-        aprsStatus == ConnectionStatus.error ||
-        tncStatus == ConnectionStatus.error;
-    final anyConnecting =
-        aprsStatus == ConnectionStatus.connecting ||
-        tncStatus == ConnectionStatus.connecting ||
-        aprsStatus == ConnectionStatus.reconnecting ||
-        tncStatus == ConnectionStatus.reconnecting ||
-        aprsStatus == ConnectionStatus.waitingForDevice ||
-        tncStatus == ConnectionStatus.waitingForDevice;
-
     Widget icon;
-    if (anyConnected) {
-      icon = Icon(Symbols.router, fill: 1, color: MeridianColors.signal);
-    } else if (anyError) {
-      icon = Icon(Symbols.router, fill: 1, color: MeridianColors.warning);
-    } else if (anyConnecting) {
-      icon = Icon(Symbols.router, fill: 0, color: MeridianColors.warning);
-    } else {
-      icon = Icon(Symbols.router, fill: 0, color: muted);
+    switch (status) {
+      case ConnectionStatus.connected:
+        icon = Icon(Symbols.router, fill: 1, color: MeridianColors.signal);
+      case ConnectionStatus.error:
+        icon = Icon(Symbols.router, fill: 1, color: MeridianColors.warning);
+      case ConnectionStatus.connecting:
+      case ConnectionStatus.reconnecting:
+      case ConnectionStatus.waitingForDevice:
+        icon = Icon(Symbols.router, fill: 0, color: MeridianColors.warning);
+      case ConnectionStatus.disconnected:
+        icon = Icon(Symbols.router, fill: 0, color: muted);
     }
 
     // Overlay a badge dot when the Android foreground keepalive is active.

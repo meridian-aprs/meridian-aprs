@@ -12,6 +12,10 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'config/app_config.dart';
+import 'core/connection/aprs_is_connection.dart';
+import 'core/connection/ble_connection.dart';
+import 'core/connection/connection_registry.dart';
+import 'core/connection/serial_connection.dart';
 import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/transport/aprs_is_transport.dart';
 import 'map/stadia_tile_provider.dart';
@@ -22,7 +26,6 @@ import 'services/beaconing_service.dart';
 import 'services/message_service.dart';
 import 'services/station_service.dart';
 import 'services/station_settings_service.dart';
-import 'services/tnc_service.dart';
 import 'services/tx_service.dart';
 import 'theme/android_theme.dart';
 import 'theme/desktop_theme.dart';
@@ -31,6 +34,13 @@ import 'theme/meridian_colors.dart';
 import 'theme/theme_controller.dart';
 
 const String _kVersion = '0.1.0';
+
+/// Maps a [ConnectionType] to the [PacketSource] tag used in [StationService].
+PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
+  ConnectionType.aprsIs => PacketSource.aprsIs,
+  ConnectionType.bleTnc => PacketSource.bleTnc,
+  ConnectionType.serialTnc => PacketSource.serialTnc,
+};
 
 /// Resolves the active [Brightness] from [ThemeMode] for [CupertinoApp].
 ///
@@ -68,19 +78,62 @@ Future<void> main() async {
   final ssidSuffix = userSsid > 0 ? '-$userSsid' : '';
   final effectivePasscode = userPasscode.isEmpty ? '-1' : userPasscode;
 
-  final transport = AprsIsTransport(
+  // ---------------------------------------------------------------------------
+  // Build connections
+  // ---------------------------------------------------------------------------
+
+  final aprsIsTransport = AprsIsTransport(
     loginLine:
         'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
     filterLine:
         '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
   );
-  final service = StationService(transport);
+  final aprsIsConn = AprsIsConnection(aprsIsTransport);
+
+  // Platform-conditional TNC connections.
+  BleConnection? bleConn;
+  SerialConnection? serialConn;
+
+  if (!kIsWeb) {
+    if (Platform.isAndroid || Platform.isIOS) {
+      bleConn = BleConnection();
+    }
+    if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+      serialConn = SerialConnection();
+    }
+  }
+
+  final registry = ConnectionRegistry();
+  registry.register(aprsIsConn);
+  if (bleConn != null) registry.register(bleConn);
+  if (serialConn != null) registry.register(serialConn);
+
+  // Load persisted settings (beaconing toggles, serial config) for all
+  // connections before the first frame.
+  await registry.loadAllSettings();
+
+  // ---------------------------------------------------------------------------
+  // Build service layer
+  // ---------------------------------------------------------------------------
+
+  final service = StationService();
   await service.loadPersistedHistory(prefs);
-  final tncService = TncService(service);
-  await tncService.loadPersistedConfig();
+
+  // Wire ingestLine subscriptions: each connection's decoded text lines are
+  // forwarded to StationService with the correct source tag.
+  for (final conn in registry.all) {
+    conn.lines.listen((line) {
+      service.ingestLine(line, source: _packetSourceFor(conn.type));
+    });
+  }
+
+  // Start APRS-IS connection on launch.
+  aprsIsConn.connect().catchError((Object e) {
+    debugPrint('APRS-IS connection failed: $e');
+  });
 
   final stationSettings = StationSettingsService(prefs);
-  final txService = TxService(transport, tncService);
+  final txService = TxService(registry);
   await txService.loadPersistedPreference();
 
   final beaconingService = BeaconingService(
@@ -103,8 +156,7 @@ Future<void> main() async {
   );
 
   final bgServiceManager = BackgroundServiceManager(
-    tnc: tncService,
-    station: service,
+    registry: registry,
     beaconing: beaconingService,
     tx: txService,
   );
@@ -114,7 +166,7 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider<ThemeController>.value(value: themeController),
         ChangeNotifierProvider<StationService>.value(value: service),
-        ChangeNotifierProvider<TncService>.value(value: tncService),
+        ChangeNotifierProvider<ConnectionRegistry>.value(value: registry),
         ChangeNotifierProvider<StationSettingsService>.value(
           value: stationSettings,
         ),
@@ -133,7 +185,6 @@ Future<void> main() async {
         mapLon: mapLon,
         mapZoom: mapZoom,
         service: service,
-        tncService: tncService,
         tileProvider: tileProvider,
       ),
     ),
@@ -150,7 +201,6 @@ class MeridianApp extends StatelessWidget {
     this.mapLon = -77.0,
     this.mapZoom = 9.0,
     required this.service,
-    required this.tncService,
     required this.tileProvider,
   });
 
@@ -161,7 +211,6 @@ class MeridianApp extends StatelessWidget {
   final double mapLon;
   final double mapZoom;
   final StationService service;
-  final TncService tncService;
   final StadiaTileProvider tileProvider;
 
   @override
@@ -189,7 +238,6 @@ class MeridianApp extends StatelessWidget {
         home: onboardingComplete
             ? MapScreen(
                 service: service,
-                tncService: tncService,
                 tileProvider: tileProvider,
                 callsign: userCallsign,
                 ssid: userSsid,
@@ -219,7 +267,6 @@ class MeridianApp extends StatelessWidget {
         home: onboardingComplete
             ? MapScreen(
                 service: service,
-                tncService: tncService,
                 tileProvider: tileProvider,
                 callsign: userCallsign,
                 ssid: userSsid,
@@ -249,7 +296,6 @@ class MeridianApp extends StatelessWidget {
           home: onboardingComplete
               ? MapScreen(
                   service: service,
-                  tncService: tncService,
                   tileProvider: tileProvider,
                   callsign: userCallsign,
                   ssid: userSsid,

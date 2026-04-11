@@ -5,7 +5,6 @@ import 'package:latlong2/latlong.dart';
 import '../../map/meridian_tile_provider.dart';
 
 import '../../services/station_service.dart';
-import '../../services/tnc_service.dart';
 import 'desktop_scaffold.dart';
 import 'mobile_scaffold.dart';
 import 'tablet_scaffold.dart';
@@ -20,14 +19,11 @@ class ResponsiveLayout extends StatelessWidget {
   const ResponsiveLayout({
     super.key,
     required this.service,
-    required this.tncService,
     required this.mapController,
     required this.markers,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
-    this.connectionStatus = ConnectionStatus.disconnected,
-    this.tncConnectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
@@ -35,14 +31,11 @@ class ResponsiveLayout extends StatelessWidget {
   });
 
   final StationService service;
-  final TncService tncService;
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
-  final ConnectionStatus connectionStatus;
-  final ConnectionStatus tncConnectionStatus;
   final LatLng initialCenter;
   final double initialZoom;
   final bool northUpLocked;
@@ -55,14 +48,11 @@ class ResponsiveLayout extends StatelessWidget {
     if (width < 600) {
       return MobileScaffold(
         service: service,
-        tncService: tncService,
         mapController: mapController,
         markers: markers,
         tileUrl: tileUrl,
         meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
-        connectionStatus: connectionStatus,
-        tncConnectionStatus: tncConnectionStatus,
         initialCenter: initialCenter,
         initialZoom: initialZoom,
         northUpLocked: northUpLocked,
@@ -72,14 +62,11 @@ class ResponsiveLayout extends StatelessWidget {
     if (width < 1024) {
       return TabletScaffold(
         service: service,
-        tncService: tncService,
         mapController: mapController,
         markers: markers,
         tileUrl: tileUrl,
         meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
-        connectionStatus: connectionStatus,
-        tncConnectionStatus: tncConnectionStatus,
         initialCenter: initialCenter,
         initialZoom: initialZoom,
         northUpLocked: northUpLocked,
@@ -88,14 +75,11 @@ class ResponsiveLayout extends StatelessWidget {
     }
     return DesktopScaffold(
       service: service,
-      tncService: tncService,
       mapController: mapController,
       markers: markers,
       tileUrl: tileUrl,
       meridianTileProvider: meridianTileProvider,
       onNavigateToSettings: onNavigateToSettings,
-      connectionStatus: connectionStatus,
-      tncConnectionStatus: tncConnectionStatus,
       initialCenter: initialCenter,
       initialZoom: initialZoom,
       northUpLocked: northUpLocked,

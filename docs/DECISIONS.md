@@ -430,3 +430,34 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 
 **Consequences:** All future push navigations in the app must use `buildPlatformRoute` rather than `MaterialPageRoute` directly. The three deferred `TODO(ios)` markers remain until their respective UIs are redesigned.
 
+
+
+---
+
+## ADR-029: ConnectionRegistry abstraction (v0.9 prep)
+
+**Status:** Accepted
+**Date:** 2026-04-11
+
+**Decision:** Replace the paired `TncService` + `StationService` transport management pattern with a `ConnectionRegistry` holding a list of `MeridianConnection` objects (`AprsIsConnection`, `BleConnection`, `SerialConnection`). Each connection owns its own lifecycle, AX.25 decoding, and beaconing enable/disable toggle. `StationService` is reduced to a pure packet ingestion and state aggregation service; `TxService` routes through the registry. `TncService` and `TransportManager` are deleted.
+
+**Key sub-decisions:**
+- `MeridianConnection extends ChangeNotifier` with `connect/disconnect/sendLine/lines/beaconingEnabled` — uniform interface regardless of transport protocol.
+- `ReconnectableMixin` centralises exponential-backoff reconnect logic (2→4→8→16→30s, 5 retries) shared between `BleConnection` and `AprsIsConnection`; `SerialConnection` has no reconnect (user-initiated).
+- Each TNC connection normalises AX.25 bytes to APRS text strings internally, so `StationService.ingestLine` remains a plain string API.
+- `ConnectionRegistry.lines` is a merged `Stream<({String line, ConnectionType source})>` — single subscription point for `StationService`.
+- Per-connection beaconing toggle replaces the previous global `TxTransportPref {auto, aprsIs, tnc}` enum; `BeaconingService.sendBeacon` fans out to all connections with `beaconingEnabled && isConnected`.
+- `TxService.sendLine` resolves a TX hierarchy (Serial > BLE > APRS-IS) for message sending, with a `forceVia: ConnectionType?` per-message override.
+- Platform availability is gated inside each connection class (`BleConnection.isAvailable` = Android/iOS; `SerialConnection.isAvailable` = Linux/macOS/Windows); `ConnectionRegistry.available` filters accordingly.
+- `BackgroundServiceManager` now observes `ConnectionRegistry` + `BeaconingService`; per-connection `_reconnectTimers` map replaces per-transport boolean flags. BLE is excluded from BSM reconnect because `BleConnection` self-manages via `ReconnectableMixin`.
+- `PacketSource` enum gains `bleTnc` and `serialTnc` variants; `tnc` is kept as a legacy deserialization alias.
+
+**Alternatives considered:**
+- **Global service pair** (keep `TncService` + add `AprsIsService`): rejected — adding a 4th connection type would require a 3rd service and more cross-service coordination.
+- **Adapter-only layer** (registry of transport adapters, services remain): rejected — services would still need to know about each adapter type individually for beaconing and TX routing.
+
+**Consequences:**
+- Adding a new connection type (e.g., TCP/IP Direwolf) = create one `MeridianConnection` subclass and `registry.register(conn)` in `main.dart`.
+- `TncService` and `TransportManager` are deleted; their test files are also removed. Existing serial/BLE tests are re-implemented in `test/core/connection/`.
+- `connection_screen.dart` builds tabs dynamically from `registry.available` — no platform guards needed in the UI.
+- The `TODO(tocall)` markers for APZMDN destination still apply.

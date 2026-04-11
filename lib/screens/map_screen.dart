@@ -8,10 +8,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
+import '../core/connection/aprs_is_connection.dart';
+import '../core/connection/connection_registry.dart';
 import '../core/packet/station.dart';
 import '../map/meridian_tile_provider.dart';
 import '../services/station_service.dart';
-import '../services/tnc_service.dart';
 import '../services/tx_service.dart';
 import '../ui/layout/responsive_layout.dart';
 import '../theme/theme_controller.dart';
@@ -31,7 +32,6 @@ class MapScreen extends StatefulWidget {
   const MapScreen({
     super.key,
     required this.service,
-    required this.tncService,
     this.tileProvider,
     this.callsign = 'NOCALL',
     this.ssid = 0,
@@ -41,7 +41,6 @@ class MapScreen extends StatefulWidget {
   });
 
   final StationService service;
-  final TncService tncService;
 
   /// Tile provider with disk cache. When null (e.g. from the onboarding path),
   /// a memory-only fallback is used for the session.
@@ -66,9 +65,6 @@ class _MapScreenState extends State<MapScreen> {
   List<Marker> _markers = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
-  // Tracks previous APRS-IS status for the "failed to connect" snackbar only.
-  // The build() method reads currentConnectionStatus directly from the service.
-  ConnectionStatus _connectionStatus = ConnectionStatus.disconnected;
   StreamSubscription<TxEvent>? _txEventSub;
   bool _northUpLocked = true;
 
@@ -77,29 +73,9 @@ class _MapScreenState extends State<MapScreen> {
     super.initState();
     _service = widget.service;
     _tileProvider = widget.tileProvider ?? _UncachedTileProvider();
-    _connectionStatus = _service.currentConnectionStatus;
     _service.stationUpdates.listen(_onStationsUpdated);
     // Seed markers from persisted stations already loaded before runApp.
     _onStationsUpdated(_service.currentStations);
-    // Track previous APRS-IS status for the "failed to connect" snackbar.
-    // The build() method reads currentConnectionStatus directly — this
-    // subscription exists only to detect the connecting→disconnected transition.
-    _service.connectionState.listen((status) {
-      if (!mounted) return;
-      final wasConnecting = _connectionStatus == ConnectionStatus.connecting;
-      _connectionStatus = status;
-      if (wasConnecting && status == ConnectionStatus.disconnected) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not connect to APRS-IS. Check your network.'),
-            duration: Duration(seconds: 4),
-          ),
-        );
-      }
-    });
-    _service.start().catchError((Object e) {
-      debugPrint('APRS-IS connection failed: $e');
-    });
     _txEventSub = context.read<TxService>().events.listen(_onTxEvent);
     _mapController.mapEventStream
         .where((e) => e is MapEventMoveEnd)
@@ -112,7 +88,6 @@ class _MapScreenState extends State<MapScreen> {
     _filterDebounce?.cancel();
     _markerDebounce?.cancel();
     _txEventSub?.cancel();
-    _service.stop();
     _tileProvider.dispose();
     super.dispose();
   }
@@ -171,7 +146,10 @@ class _MapScreenState extends State<MapScreen> {
       final center = event.camera.center;
       final zoom = event.camera.zoom;
       debugPrint('Filter update: ${center.latitude}, ${center.longitude}');
-      _service.updateFilter(center.latitude, center.longitude);
+      final aprsIsConn = context.read<ConnectionRegistry>().byId('aprs_is');
+      if (aprsIsConn is AprsIsConnection) {
+        aprsIsConn.updateFilter(center.latitude, center.longitude);
+      }
       SharedPreferences.getInstance().then((prefs) {
         prefs.setDouble('map_last_lat', center.latitude);
         prefs.setDouble('map_last_lon', center.longitude);
@@ -225,12 +203,6 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Watch both services so this widget rebuilds whenever their connection
-    // state changes (StationService and TncService both call notifyListeners()
-    // on transport state transitions). Reading currentConnectionStatus directly
-    // ensures the map always reflects live state regardless of stream ordering.
-    final aprsStatus = context.watch<StationService>().currentConnectionStatus;
-    final tncStatus = context.watch<TncService>().currentStatus;
     final themeController = context.watch<ThemeController>();
     final brightness = switch (themeController.themeMode) {
       ThemeMode.light => Brightness.light,
@@ -240,14 +212,11 @@ class _MapScreenState extends State<MapScreen> {
 
     return ResponsiveLayout(
       service: _service,
-      tncService: widget.tncService,
       mapController: _mapController,
       markers: _markers,
       tileUrl: _tileProvider.tileUrl(brightness),
       meridianTileProvider: _tileProvider,
       onNavigateToSettings: _navigateToSettings,
-      connectionStatus: aprsStatus,
-      tncConnectionStatus: tncStatus,
       initialCenter: LatLng(widget.initialLat, widget.initialLon),
       initialZoom: widget.initialZoom,
       northUpLocked: _northUpLocked,
