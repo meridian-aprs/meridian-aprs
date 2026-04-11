@@ -12,6 +12,7 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
 
   final SerialPort _port;
   SerialPortReader? _reader;
+  bool _closed = false;
 
   @override
   bool open() => _port.openReadWrite();
@@ -35,7 +36,10 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
       config.setFlowControl(SerialPortFlowControl.none);
     }
     _port.config = config;
-    config.dispose();
+    // Do NOT call config.dispose() here. The SerialPort implementation stores
+    // the reference in _config and disposes it in port.dispose(). Calling
+    // dispose() here would cause a double-free when the port is later closed,
+    // manifesting as `free(): invalid pointer` on physical disconnect.
   }
 
   @override
@@ -45,10 +49,21 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
   }
 
   @override
-  void write(Uint8List data) => _port.write(data);
+  void write(Uint8List data) {
+    final written = _port.write(data);
+    if (written != data.length) {
+      // sp_nonblocking_write returned fewer bytes than requested — the serial
+      // tx buffer was full or the port is in an error state. Treat as a write
+      // error so the caller (SerialKissTransport.sendFrame) can trigger
+      // disconnect and the exception propagates to the message/beacon layer.
+      throw Exception('Serial write incomplete: $written/${data.length} bytes');
+    }
+  }
 
   @override
   void close() {
+    if (_closed) return;
+    _closed = true;
     // Close the OS file descriptor first. On Linux this causes any thread
     // blocked in read() on this fd to return EBADF immediately, allowing the
     // native SerialPortReader thread to exit its loop before we try to free

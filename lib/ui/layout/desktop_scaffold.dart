@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../map/meridian_tile_provider.dart';
 
+import '../../core/connection/connection_registry.dart';
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/location_picker_screen.dart';
@@ -17,8 +18,6 @@ import '../../screens/station_list_screen.dart';
 import '../../services/beaconing_service.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
-import '../../services/tnc_service.dart';
-import '../../services/tx_service.dart';
 import '../../theme/meridian_colors.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../utils/platform_route.dart';
@@ -35,14 +34,11 @@ class DesktopScaffold extends StatefulWidget {
   const DesktopScaffold({
     super.key,
     required this.service,
-    required this.tncService,
     required this.mapController,
     required this.markers,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
-    this.connectionStatus = ConnectionStatus.disconnected,
-    this.tncConnectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
@@ -50,14 +46,11 @@ class DesktopScaffold extends StatefulWidget {
   });
 
   final StationService service;
-  final TncService tncService;
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
-  final ConnectionStatus connectionStatus;
-  final ConnectionStatus tncConnectionStatus;
   final LatLng initialCenter;
   final double initialZoom;
   final bool northUpLocked;
@@ -257,15 +250,15 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                         tileUrl: widget.tileUrl,
                         tileProvider: widget.meridianTileProvider
                             .buildTileProvider(),
-                        connectionStatus: widget.connectionStatus,
+                        connectionStatus: context
+                            .read<ConnectionRegistry>()
+                            .aggregateStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
-                        isAnyConnected:
-                            widget.connectionStatus ==
-                                ConnectionStatus.connected ||
-                            widget.tncConnectionStatus ==
-                                ConnectionStatus.connected,
+                        isAnyConnected: context
+                            .read<ConnectionRegistry>()
+                            .isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
                       ),
                     ),
@@ -304,8 +297,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
 
 /// Compact connection status chip for the desktop AppBar.
 ///
-/// Shows combined APRS-IS + TNC state in a single [ActionChip]. Tapping
-/// navigates to the Connection screen.
+/// Shows aggregate registry status in a single [ActionChip]. Tapping navigates
+/// to the Connection screen.
 class _ConnectionStatusChip extends StatelessWidget {
   const _ConnectionStatusChip({required this.onTap});
 
@@ -313,43 +306,29 @@ class _ConnectionStatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Selector2<
-      StationService,
-      TncService,
-      (ConnectionStatus, ConnectionStatus)
-    >(
-      selector: (_, ss, tnc) => (ss.currentConnectionStatus, tnc.currentStatus),
-      builder: (context, statuses, _) {
-        final (aprsStatus, tncStatus) = statuses;
-        final aprsConnected = aprsStatus == ConnectionStatus.connected;
-        final tncConnected = tncStatus == ConnectionStatus.connected;
-        final anyError =
-            aprsStatus == ConnectionStatus.error ||
-            tncStatus == ConnectionStatus.error;
-        final anyConnecting =
-            aprsStatus == ConnectionStatus.connecting ||
-            tncStatus == ConnectionStatus.connecting;
-
+    return Selector<ConnectionRegistry, ConnectionStatus>(
+      selector: (_, registry) => registry.aggregateStatus,
+      builder: (context, status, _) {
         final String label;
         final Color color;
-        if (aprsConnected && tncConnected) {
-          label = 'APRS-IS + TNC';
-          color = MeridianColors.signal;
-        } else if (aprsConnected) {
-          label = 'APRS-IS';
-          color = MeridianColors.signal;
-        } else if (tncConnected) {
-          label = 'TNC';
-          color = MeridianColors.signal;
-        } else if (anyError) {
-          label = 'Error';
-          color = MeridianColors.warning;
-        } else if (anyConnecting) {
-          label = 'Connecting\u2026';
-          color = MeridianColors.warning;
-        } else {
-          label = 'Not connected';
-          color = Theme.of(context).colorScheme.onSurfaceVariant;
+        switch (status) {
+          case ConnectionStatus.connected:
+            final connected = context.read<ConnectionRegistry>().connected;
+            label = connected.map((c) => c.displayName).join(' + ');
+            color = MeridianColors.signal;
+          case ConnectionStatus.reconnecting:
+            label = 'Reconnecting\u2026';
+            color = MeridianColors.warning;
+          case ConnectionStatus.connecting:
+          case ConnectionStatus.waitingForDevice:
+            label = 'Connecting\u2026';
+            color = MeridianColors.warning;
+          case ConnectionStatus.error:
+            label = 'Error';
+            color = MeridianColors.warning;
+          case ConnectionStatus.disconnected:
+            label = 'Not connected';
+            color = Theme.of(context).colorScheme.onSurfaceVariant;
         }
 
         return ActionChip(
@@ -378,12 +357,11 @@ class _BeaconToolbarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<BeaconingService>();
-    final tx = context.watch<TxService>();
+    final registry = context.watch<ConnectionRegistry>();
     final isActive = svc.isActive;
     final noTarget =
         isActive &&
-        !(tx.beaconToAprsIs && tx.aprsIsAvailable) &&
-        !(tx.beaconToTnc && tx.tncAvailable);
+        !registry.all.any((c) => c.beaconingEnabled && c.isConnected);
     final tooltip = noTarget
         ? 'Beaconing active — no TX path (enable in Connection)'
         : switch (svc.mode) {

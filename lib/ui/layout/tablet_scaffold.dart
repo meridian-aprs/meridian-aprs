@@ -1,6 +1,3 @@
-import 'dart:io' show Platform;
-
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../map/meridian_tile_provider.dart';
 
+import '../../core/connection/connection_registry.dart';
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
@@ -18,7 +16,6 @@ import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
-import '../../services/tnc_service.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
 import '../widgets/station_search_delegate.dart';
@@ -34,14 +31,11 @@ class TabletScaffold extends StatefulWidget {
   const TabletScaffold({
     super.key,
     required this.service,
-    required this.tncService,
     required this.mapController,
     required this.markers,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
-    this.connectionStatus = ConnectionStatus.disconnected,
-    this.tncConnectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
@@ -49,14 +43,11 @@ class TabletScaffold extends StatefulWidget {
   });
 
   final StationService service;
-  final TncService tncService;
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
-  final ConnectionStatus connectionStatus;
-  final ConnectionStatus tncConnectionStatus;
   final LatLng initialCenter;
   final double initialZoom;
   final bool northUpLocked;
@@ -144,22 +135,18 @@ class _TabletScaffoldState extends State<TabletScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    final registry = context.watch<ConnectionRegistry>();
     return Scaffold(
       appBar: AppBar(
         title: const Text('Meridian'),
         actions: [
-          MeridianStatusPill(
-            status: widget.connectionStatus,
-            label: 'APRS-IS',
-            onTap: _navigateToConnection,
-          ),
-          if (!kIsWeb &&
-              (Platform.isLinux || Platform.isMacOS || Platform.isWindows))
-            MeridianStatusPill(
-              label: 'TNC',
-              status: widget.tncConnectionStatus,
+          ...registry.available.map(
+            (conn) => MeridianStatusPill(
+              status: conn.status,
+              label: conn.displayName,
               onTap: _navigateToConnection,
             ),
+          ),
           IconButton(
             icon: Icon(
               widget.northUpLocked ? Symbols.navigation : Symbols.explore,
@@ -262,15 +249,11 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         tileUrl: widget.tileUrl,
                         tileProvider: widget.meridianTileProvider
                             .buildTileProvider(),
-                        connectionStatus: widget.connectionStatus,
+                        connectionStatus: registry.aggregateStatus,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
-                        isAnyConnected:
-                            widget.connectionStatus ==
-                                ConnectionStatus.connected ||
-                            widget.tncConnectionStatus ==
-                                ConnectionStatus.connected,
+                        isAnyConnected: registry.isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
                       ),
                     ),

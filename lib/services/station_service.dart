@@ -7,16 +7,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
 import '../core/packet/station.dart';
-import '../core/transport/aprs_is_transport.dart';
-import '../core/transport/aprs_transport.dart'
-    show AprsTransport, ConnectionStatus;
+import '../core/transport/aprs_transport.dart' show ConnectionStatus;
 
-/// Service that ingests raw APRS-IS lines from [AprsTransport], decodes them
-/// with [AprsParser], and exposes two streams:
+/// Service that ingests APRS text lines, decodes them with [AprsParser], and
+/// exposes two streams:
 ///
 ///   - [packetStream] — every decoded [AprsPacket] (all types)
 ///   - [stationUpdates] — a snapshot of the station map, updated each time a
-///     position packet is received (backward-compatible with v0.1 UI)
+///     position packet is received
+///
+/// Lines are fed via [ingestLine], which is called from [main.dart] for each
+/// connection registered in [ConnectionRegistry]. This service has no
+/// transport dependency; connection lifecycle is managed by the connection
+/// classes and [ConnectionRegistry].
 ///
 /// [recentPackets] holds a rolling buffer of recent packets. The in-session
 /// buffer is capped at [_kMaxInMemoryPackets] for performance; time-based
@@ -24,7 +27,8 @@ import '../core/transport/aprs_transport.dart'
 /// and persist boundaries.
 ///
 /// History is persisted across app restarts. Call [loadPersistedHistory] once
-/// after construction (before [start]) to restore the previous session.
+/// after construction (before ingesting any lines) to restore the previous
+/// session.
 class StationService extends ChangeNotifier {
   // Hard in-session cap — not user-configurable. Keeps RAM bounded during
   // long APRS-IS sessions on busy frequencies. Time-based pruning reduces
@@ -40,7 +44,6 @@ class StationService extends ChangeNotifier {
   /// Sentinel value meaning "keep forever" (no age-based pruning).
   static const int forever = 0;
 
-  final AprsTransport _transport;
   final _parser = AprsParser();
 
   // Station map — callsign → most-recently-heard Station.
@@ -61,12 +64,48 @@ class StationService extends ChangeNotifier {
   SharedPreferences? _prefs;
   Timer? _persistTimer;
 
-  StationService(this._transport) {
-    // Propagate transport connection state changes through ChangeNotifier so
-    // that listeners (e.g. BackgroundServiceManager) react immediately when
-    // APRS-IS connects or disconnects.
-    _transport.connectionState.listen((_) => notifyListeners());
+  StationService();
+
+  // ---------------------------------------------------------------------------
+  // Backward-compat stubs (removed in Phase 6 when UI is updated)
+  // ---------------------------------------------------------------------------
+
+  /// Always returns [ConnectionStatus.disconnected].
+  ///
+  /// APRS-IS connection status is now available via [ConnectionRegistry].
+  /// This getter is retained for UI compatibility until Phase 6.
+  ConnectionStatus get currentConnectionStatus => ConnectionStatus.disconnected;
+
+  /// A stream that never emits.
+  ///
+  /// APRS-IS connection state is now available via [ConnectionRegistry].
+  /// This getter is retained for UI compatibility until Phase 6.
+  Stream<ConnectionStatus> get connectionState => const Stream.empty();
+
+  /// No-op. Line ingestion is wired in main.dart via [ConnectionRegistry].
+  Future<void> start() async {}
+
+  /// Closes stream controllers and cancels timers.
+  Future<void> stop() async {
+    _persistTimer?.cancel();
+    await _stationController.close();
+    await _packetController.close();
   }
+
+  /// No-op. Use [ConnectionRegistry] to access [AprsIsConnection].
+  Future<void> connectAprsIs() async {}
+
+  /// No-op. Use [ConnectionRegistry] to access [AprsIsConnection].
+  Future<void> disconnectAprsIs() async {}
+
+  /// No-op. Use [AprsIsConnection.updateCredentials] directly.
+  void updateAprsIsCredentials({
+    required String loginLine,
+    String? filterLine,
+  }) {}
+
+  /// No-op. Use [AprsIsConnection.updateFilter] directly.
+  void updateFilter(double lat, double lon, {int radiusKm = 150}) {}
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -76,7 +115,7 @@ class StationService extends ChangeNotifier {
   Stream<AprsPacket> get packetStream => _packetController.stream;
 
   /// Station map snapshots. Emitted whenever a position packet updates a
-  /// station. Backward-compatible with the v0.1 map screen.
+  /// station.
   Stream<Map<String, Station>> get stationUpdates => _stationController.stream;
 
   /// Current station map (unmodifiable).
@@ -85,12 +124,6 @@ class StationService extends ChangeNotifier {
   /// Rolling buffer of the most recently decoded packets, newest first.
   List<AprsPacket> get recentPackets => List.unmodifiable(_recentPackets);
 
-  /// Forwards the transport's connection state stream.
-  Stream<ConnectionStatus> get connectionState => _transport.connectionState;
-
-  /// Returns the transport's current [ConnectionStatus] synchronously.
-  ConnectionStatus get currentConnectionStatus => _transport.currentStatus;
-
   /// Max age of persisted packets in days. [forever] (0) means no age limit.
   int get packetHistoryDays => _packetHistoryDays;
 
@@ -98,67 +131,22 @@ class StationService extends ChangeNotifier {
   int get stationHistoryDays => _stationHistoryDays;
 
   // ---------------------------------------------------------------------------
-  // Lifecycle
+  // Ingest
   // ---------------------------------------------------------------------------
 
-  Future<void> start() async {
-    _transport.lines.listen(_handleLine);
-    // No auto-connect: the user initiates connections explicitly via the
-    // Connection screen. Once connected, the foreground service keeps the
-    // connection alive when the app is backgrounded.
-  }
-
-  /// Updates the APRS-IS login and filter lines used on the next [connectAprsIs]
-  /// call. No-op if the underlying transport is not [AprsIsTransport].
-  void updateAprsIsCredentials({
-    required String loginLine,
-    String? filterLine,
-  }) {
-    if (_transport case final AprsIsTransport t) {
-      t.updateCredentials(loginLine: loginLine, filterLine: filterLine);
-    }
-  }
-
-  Future<void> connectAprsIs() async {
-    try {
-      await _transport.connect();
-    } catch (e) {
-      debugPrint('APRS-IS connection failed: $e');
-    }
-  }
-
-  Future<void> disconnectAprsIs() async {
-    await _transport.disconnect();
-  }
-
-  void updateFilter(double lat, double lon, {int radiusKm = 150}) {
-    final line =
-        '#filter r/${lat.toStringAsFixed(2)}/${lon.toStringAsFixed(2)}/$radiusKm\r\n';
-    _transport.sendLine(line);
-  }
-
-  /// Ingest a pre-formatted APRS line from an external transport source
-  /// (e.g. a TNC). Delegates to [_handleLine].
-  void ingestLine(String raw, {PacketSource source = PacketSource.tnc}) =>
+  /// Ingest a pre-formatted APRS line from a connection.
+  ///
+  /// [source] identifies whether the line came from APRS-IS, a BLE TNC, or a
+  /// serial TNC. Defaults to [PacketSource.aprsIs].
+  void ingestLine(String raw, {PacketSource source = PacketSource.aprsIs}) =>
       _handleLine(raw, source: source);
-
-  Future<void> stop() async {
-    _persistTimer?.cancel();
-    await _transport.dispose();
-    await _stationController.close();
-    await _packetController.close();
-    // Do not call super.dispose() here — the ChangeNotifier lifecycle is
-    // owned by the ChangeNotifierProvider in main.dart, which calls dispose()
-    // when the widget tree is torn down. Calling it here as well would cause
-    // a double-dispose assertion in debug mode.
-  }
 
   // ---------------------------------------------------------------------------
   // History persistence
   // ---------------------------------------------------------------------------
 
   /// Restore history and limit settings from [prefs]. Call once after
-  /// construction, before [start].
+  /// construction, before ingesting any lines.
   Future<void> loadPersistedHistory(SharedPreferences prefs) async {
     _prefs = prefs;
 
@@ -190,9 +178,15 @@ class StationService extends ChangeNotifier {
         for (final item in list) {
           final map = item as Map<String, dynamic>;
           final raw = map['raw'] as String;
-          final src = map['src'] == 'tnc'
-              ? PacketSource.tnc
-              : PacketSource.aprsIs;
+          // 'tnc' is a legacy alias kept for backward compat with persisted logs.
+          final srcStr = map['src'] as String?;
+          final src = switch (srcStr) {
+            'aprs_is' => PacketSource.aprsIs,
+            'tnc' => PacketSource.tnc,
+            'ble_tnc' => PacketSource.bleTnc,
+            'serial_tnc' => PacketSource.serialTnc,
+            _ => PacketSource.aprsIs,
+          };
           final tsMs = map['ts'] as int?;
           final receivedAt = tsMs != null
               ? DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)
@@ -217,7 +211,6 @@ class StationService extends ChangeNotifier {
     if (_packetHistoryDays == days) return;
     _packetHistoryDays = days;
     await _prefs?.setInt(_keyPacketDays, days);
-    // Prune in-memory buffer to the new limit immediately.
     _recentPackets.removeWhere((p) => !_withinAge(p.receivedAt, days));
     notifyListeners();
     _schedulePersist();
@@ -228,7 +221,6 @@ class StationService extends ChangeNotifier {
     if (_stationHistoryDays == days) return;
     _stationHistoryDays = days;
     await _prefs?.setInt(_keyStationDays, days);
-    // Prune in-memory station map to the new limit immediately.
     _stations.removeWhere((_, s) => !_withinAge(s.lastHeard, days));
     _stationController.add(Map.unmodifiable(_stations));
     notifyListeners();
@@ -330,8 +322,6 @@ class StationService extends ChangeNotifier {
   // Persistence helpers
   // ---------------------------------------------------------------------------
 
-  /// Returns true if [dt] is within [days] days of now. Always true when
-  /// [days] == [forever] (0).
   bool _withinAge(DateTime dt, int days) {
     if (days == forever) return true;
     return DateTime.now().difference(dt).inDays < days;
@@ -347,7 +337,6 @@ class StationService extends ChangeNotifier {
     final prefs = _prefs;
     if (prefs == null) return;
 
-    // Persist station map, omitting entries older than the age limit.
     try {
       final stationList = _stations.values
           .where((s) => _withinAge(s.lastHeard, _stationHistoryDays))
@@ -361,14 +350,18 @@ class StationService extends ChangeNotifier {
       debugPrint('StationService: failed to persist stations: $e');
     }
 
-    // Persist packet log, omitting entries older than the age limit.
     try {
       final packetList = _recentPackets
           .where((p) => _withinAge(p.receivedAt, _packetHistoryDays))
           .map(
             (p) => {
               'raw': p.rawLine,
-              'src': p.transportSource.name,
+              'src': switch (p.transportSource) {
+                PacketSource.aprsIs => 'aprs_is',
+                PacketSource.tnc => 'tnc',
+                PacketSource.bleTnc => 'ble_tnc',
+                PacketSource.serialTnc => 'serial_tnc',
+              },
               'ts': p.receivedAt.millisecondsSinceEpoch,
             },
           )

@@ -1,13 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:meridian_aprs/core/connection/connection_registry.dart';
 import 'package:meridian_aprs/services/message_service.dart';
 import 'package:meridian_aprs/services/station_service.dart';
 import 'package:meridian_aprs/services/station_settings_service.dart';
-import 'package:meridian_aprs/services/tnc_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
-
-import '../helpers/fake_transport.dart';
 
 // ---------------------------------------------------------------------------
 // Test fixture
@@ -41,11 +39,10 @@ class _Fixture {
     });
     final prefs = await SharedPreferences.getInstance();
     final settings = StationSettingsService(prefs);
-    final transport = FakeTransport();
-    final stationService = StationService(transport);
-    final tncService = TncService(stationService);
+    final stationService = StationService();
+    final registry = ConnectionRegistry();
     final sentLines = <String>[];
-    final txService = _RecordingTxService(transport, tncService, sentLines);
+    final txService = _RecordingTxService(registry, sentLines);
     final messageService = MessageService(settings, txService, stationService);
     return _Fixture._(
       service: messageService,
@@ -57,11 +54,12 @@ class _Fixture {
 
 /// TxService that records every outgoing line instead of sending.
 class _RecordingTxService extends TxService {
-  _RecordingTxService(super.aprsIs, super.tnc, this._log);
+  _RecordingTxService(super.registry, this._log);
   final List<String> _log;
 
   @override
-  Future<void> sendLine(String line) async => _log.add(line);
+  Future<void> sendLine(String line, {ConnectionType? forceVia}) async =>
+      _log.add(line);
 }
 
 // ---------------------------------------------------------------------------

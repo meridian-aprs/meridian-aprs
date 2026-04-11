@@ -6,6 +6,9 @@ Features tracked here are planned but not yet committed to a milestone. They gra
 
 ## High Priority (v1.1 candidates)
 
+### TCP KISS TNC
+Connect to a software TNC (Dire Wolf, soundmodem, or similar) over TCP on the local network. Enables a common workflow where a radio is attached to a desktop or Raspberry Pi running a software TNC, and Meridian on a phone or tablet connects to it over Wi-Fi. Config: hostname/IP + port (Dire Wolf default: 8001). Uses the same `KissTncTransport` interface and `ConnectionRegistry` as BLE and Serial connections — only the transport layer is new. Available on all platforms except web (no raw TCP sockets in browser; would need WebSocket bridging). `ReconnectableMixin` handles Wi-Fi drops.
+
 ### Offline Map Tile Caching
 Cache OSM/Stadia tiles locally for use without internet connectivity. The TileProvider abstraction introduced in v0.8 is designed to support this. Relevant for field use where connectivity is limited.
 
@@ -77,4 +80,4 @@ Show nearby Winlink RMS gateways on the map as a convenience layer for hybrid op
 
 ---
 
-*Last updated: 2026-04-05*
+*Last updated: 2026-04-11*

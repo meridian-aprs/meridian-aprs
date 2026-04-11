@@ -1,84 +1,182 @@
-/// Global TX transport router.
+/// TX router that fans out outgoing APRS packets across all connected and
+/// beaconing-enabled [MeridianConnection]s.
 ///
-/// Routes outgoing APRS packets (beacons and messages) to either APRS-IS or a
-/// connected TNC. Exposes [TxTransportPref] persistence with auto-resolution
-/// and banner events for TNC connect/disconnect transitions.
+/// The hierarchy for per-message routing is Serial > BLE > APRS-IS unless
+/// overridden by the [forceVia] parameter on [sendLine].
 ///
-/// Preference semantics:
-/// - [TxTransportPref.auto]: use TNC when connected, APRS-IS otherwise.
-/// - [TxTransportPref.aprsIs]: always use APRS-IS.
-/// - [TxTransportPref.tnc]: use TNC; falls back to APRS-IS when TNC
-///   disconnects but does NOT persist the fallback as the stored preference.
-///
-/// See ADR-023 in docs/DECISIONS.md for rationale behind a global (not
-/// per-station) TX transport preference.
+/// Backward-compat note: [TxTransportPref], [preference], [effective],
+/// [aprsIsAvailable], [tncAvailable], [beaconToAprsIs], [beaconToTnc],
+/// [setBeaconToAprsIs], [setBeaconToTnc], [setPreference], and
+/// [loadPersistedPreference] are retained for UI compatibility until Phase 6.
+/// At that point they will be removed in favour of per-connection
+/// [MeridianConnection.beaconingEnabled] and [ConnectionRegistry].
 library;
 
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../core/ax25/ax25_encoder.dart';
-import '../core/transport/aprs_transport.dart'
-    show AprsTransport, ConnectionStatus;
-import 'tnc_service.dart' show TncService;
+import '../core/connection/connection_registry.dart';
 
-/// Whether the user wants to send via APRS-IS, TNC, or let the app decide.
+// ---------------------------------------------------------------------------
+// Backward-compat: per-message transport override enum
+// ---------------------------------------------------------------------------
+
+/// Whether to send via APRS-IS, TNC, or let the hierarchy decide.
+///
+/// Retained for Phase 6 UI compatibility. Will be replaced by
+/// [ConnectionType]-based forceVia parameter.
 enum TxTransportPref { auto, aprsIs, tnc }
+
+// ---------------------------------------------------------------------------
+// Banner events
+// ---------------------------------------------------------------------------
 
 /// Events emitted by [TxService] to drive banner UI.
 sealed class TxEvent {}
 
-/// TNC disconnected while RF was the active TX path.
+/// A TNC (BLE or Serial) disconnected while RF was the active TX path.
 class TxEventTncDisconnected extends TxEvent {}
 
-/// TNC reconnected — offer to switch back to RF.
+/// A TNC (BLE or Serial) reconnected — offer to switch back to RF.
 class TxEventTncReconnected extends TxEvent {}
 
+// ---------------------------------------------------------------------------
+// TxService
+// ---------------------------------------------------------------------------
+
 class TxService extends ChangeNotifier {
-  TxService(this._aprsIs, this._tnc) {
-    _tnc.connectionState.listen(_onTncConnectionState);
-    _aprsIs.connectionState.listen((_) => notifyListeners());
+  TxService(this._registry) {
+    _registry.addListener(_onRegistryChanged);
   }
 
-  final AprsTransport _aprsIs;
-  final TncService _tnc;
-
-  static const _keyPref = 'tx_transport_pref';
-  static const _keyExplicit = 'tx_pref_explicit';
-  static const _keyBeaconToAprsIs = 'beacon_to_aprs_is';
-  static const _keyBeaconToTnc = 'beacon_to_tnc';
-
-  TxTransportPref _preference = TxTransportPref.auto;
-  bool _userHasExplicitlySet = false;
-
-  /// Whether position beacons are sent to APRS-IS when it is connected.
-  bool _beaconToAprsIs = true;
-
-  /// Whether position beacons are sent to the TNC (RF) when it is connected.
-  bool _beaconToTnc = true;
-
+  final ConnectionRegistry _registry;
   final _eventController = StreamController<TxEvent>.broadcast();
 
+  // Compat: stored preference for Phase 6 UI to read (no longer drives routing)
+  TxTransportPref _preference = TxTransportPref.auto;
+  bool _userHasExplicitlySet = false;
+  bool _tncWasConnected = false;
+
   // ---------------------------------------------------------------------------
-  // Public API
+  // Public API — routing
   // ---------------------------------------------------------------------------
 
-  /// The stored preference (may be [TxTransportPref.auto]).
+  /// Stream of [TxEvent]s for UI banner display (TNC connect/disconnect).
+  Stream<TxEvent> get events => _eventController.stream;
+
+  /// Human-readable label for the effective TX path.
+  ///
+  /// e.g. `"Auto [Serial]"`, `"Auto [BLE]"`, `"Auto [APRS-IS]"`.
+  String get resolvedTxLabel {
+    final conn = _effectiveConnection();
+    if (conn == null) return 'Auto';
+    return switch (conn.type) {
+      ConnectionType.serialTnc => 'Auto [Serial]',
+      ConnectionType.bleTnc => 'Auto [BLE]',
+      ConnectionType.aprsIs => 'Auto [APRS-IS]',
+    };
+  }
+
+  /// Send [aprsLine] via the resolved effective connection.
+  ///
+  /// When [forceVia] is provided, the first connected connection of that type
+  /// is used; otherwise the hierarchy (Serial > BLE > APRS-IS) is applied.
+  Future<void> sendLine(String aprsLine, {ConnectionType? forceVia}) async {
+    final conn = _effectiveConnection(forceVia: forceVia);
+    if (conn == null) return;
+    await conn.sendLine(aprsLine);
+  }
+
+  /// Fan out [aprsLine] to every connection where
+  /// [MeridianConnection.beaconingEnabled] is true and the connection is live.
+  ///
+  /// Each connection is attempted independently — a failure on one does not
+  /// block the others.
+  Future<void> sendBeacon(String aprsLine) async {
+    for (final conn in _registry.all) {
+      if (conn.beaconingEnabled && conn.isConnected) {
+        try {
+          await conn.sendLine(aprsLine);
+        } catch (e) {
+          debugPrint('TxService: sendBeacon via ${conn.id} failed: $e');
+        }
+      }
+    }
+  }
+
+  /// Send [aprsLine] to the first connected TNC (Serial takes priority over BLE).
+  ///
+  /// Used by [BackgroundServiceManager] to forward background-isolate IPC
+  /// beacon requests to the live TNC connection.
+  Future<void> sendViaTncOnly(String aprsLine) async {
+    final conn = _registry.all
+        .where(
+          (c) =>
+              (c.type == ConnectionType.serialTnc ||
+                  c.type == ConnectionType.bleTnc) &&
+              c.isConnected,
+        )
+        .firstOrNull;
+    if (conn != null) {
+      await conn.sendLine(aprsLine);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Backward-compat getters (Phase 6 will remove these)
+  // ---------------------------------------------------------------------------
+
+  /// True when an APRS-IS connection is currently live.
+  bool get aprsIsAvailable => _registry.all.any(
+    (c) => c.type == ConnectionType.aprsIs && c.isConnected,
+  );
+
+  /// True when any TNC (BLE or Serial) is currently live.
+  bool get tncAvailable => _registry.all.any(
+    (c) =>
+        (c.type == ConnectionType.bleTnc ||
+            c.type == ConnectionType.serialTnc) &&
+        c.isConnected,
+  );
+
+  /// Effective APRS-IS beaconing flag, derived from the registered
+  /// [AprsIsConnection]'s [MeridianConnection.beaconingEnabled].
+  bool get beaconToAprsIs =>
+      _registry.byId('aprs_is')?.beaconingEnabled ?? true;
+
+  /// Effective TNC beaconing flag, derived from any registered TNC
+  /// connection's [MeridianConnection.beaconingEnabled].
+  bool get beaconToTnc => _registry.all.any(
+    (c) =>
+        (c.type == ConnectionType.bleTnc ||
+            c.type == ConnectionType.serialTnc) &&
+        c.beaconingEnabled,
+  );
+
+  /// Update APRS-IS beaconing on the registered [AprsIsConnection].
+  Future<void> setBeaconToAprsIs(bool v) async {
+    final conn = _registry.byId('aprs_is');
+    if (conn != null) await conn.setBeaconingEnabled(v);
+  }
+
+  /// Update beaconing on every registered TNC connection.
+  Future<void> setBeaconToTnc(bool v) async {
+    for (final conn in _registry.all) {
+      if (conn.type == ConnectionType.bleTnc ||
+          conn.type == ConnectionType.serialTnc) {
+        await conn.setBeaconingEnabled(v);
+      }
+    }
+  }
+
+  /// The stored per-message transport preference (compat; no longer drives routing).
   TxTransportPref get preference => _preference;
 
-  /// Whether the user has explicitly chosen a transport (vs default/auto).
+  /// Whether the user has explicitly set a preference (compat).
   bool get userHasExplicitlySet => _userHasExplicitlySet;
 
-  /// Whether APRS-IS is currently connected and available for TX.
-  bool get aprsIsAvailable =>
-      _aprsIs.currentStatus == ConnectionStatus.connected;
-
-  /// Whether a TNC is currently connected and available for TX.
-  bool get tncAvailable => _tnc.transportManager.isConnected;
-
-  /// Resolved effective transport (never auto).
+  /// Resolved effective preference (compat; computed from registry availability).
   TxTransportPref get effective {
     if (_preference == TxTransportPref.auto) {
       return tncAvailable ? TxTransportPref.tnc : TxTransportPref.aprsIs;
@@ -89,19 +187,7 @@ class TxService extends ChangeNotifier {
     return _preference;
   }
 
-  /// Whether beacons are sent to APRS-IS when connected.
-  bool get beaconToAprsIs => _beaconToAprsIs;
-
-  /// Whether beacons are sent to the TNC (RF) when connected.
-  bool get beaconToTnc => _beaconToTnc;
-
-  /// Stream of [TxEvent]s for UI banner display.
-  Stream<TxEvent> get events => _eventController.stream;
-
-  /// Persist and apply a TX transport preference.
-  ///
-  /// [explicit] should be true when the user actively chose the transport in
-  /// the UI. Set false for programmatic/auto changes that should not persist.
+  /// Persist a per-message transport preference (compat).
   Future<void> setPreference(
     TxTransportPref pref, {
     bool explicit = true,
@@ -109,165 +195,57 @@ class TxService extends ChangeNotifier {
     _preference = pref;
     if (explicit) _userHasExplicitlySet = true;
     notifyListeners();
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyPref, pref.index);
-    if (explicit) await prefs.setBool(_keyExplicit, true);
   }
 
-  /// Load persisted preference. Call once during app startup.
+  /// No-op. TX settings are now per-connection and loaded via
+  /// [ConnectionRegistry.loadAllSettings].
   Future<void> loadPersistedPreference() async {
-    final prefs = await SharedPreferences.getInstance();
-    final idx = prefs.getInt(_keyPref);
-    if (idx != null && idx < TxTransportPref.values.length) {
-      _preference = TxTransportPref.values[idx];
-    }
-    _userHasExplicitlySet = prefs.getBool(_keyExplicit) ?? false;
-    _beaconToAprsIs = prefs.getBool(_keyBeaconToAprsIs) ?? true;
-    _beaconToTnc = prefs.getBool(_keyBeaconToTnc) ?? true;
     notifyListeners();
   }
 
-  Future<void> setBeaconToAprsIs(bool v) async {
-    if (_beaconToAprsIs == v) return;
-    _beaconToAprsIs = v;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyBeaconToAprsIs, v);
-    notifyListeners();
-  }
-
-  Future<void> setBeaconToTnc(bool v) async {
-    if (_beaconToTnc == v) return;
-    _beaconToTnc = v;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyBeaconToTnc, v);
-    notifyListeners();
-  }
-
-  /// Send an APRS packet via the effective transport.
-  ///
-  /// [aprsLine] is the full APRS-IS formatted string, e.g.:
-  /// `W1AW-9>APZMDN,TCPIP*:!4903.50N/07201.75W>Comment`
-  ///
-  /// When routing to the TNC, the header is parsed to extract the source
-  /// callsign and info field; an AX.25 UI frame is constructed and sent
-  /// with a standard WIDE1-1,WIDE2-1 path.
-  Future<void> sendLine(String aprsLine) async {
-    if (effective == TxTransportPref.tnc) {
-      await _sendViaTnc(aprsLine);
-    } else {
-      _aprsIs.sendLine('$aprsLine\r\n');
-    }
-  }
-
-  /// Send a position beacon to all enabled and available transports.
-  ///
-  /// Unlike [sendLine] (which routes to one transport and falls back), this
-  /// fans out to every target the user has enabled:
-  /// - APRS-IS if [beaconToAprsIs] is true and APRS-IS is connected.
-  /// - TNC (RF) if [beaconToTnc] is true and a TNC is connected.
-  ///
-  /// Each target is attempted independently — a failure on one does not
-  /// prevent the other from being tried. [sendLine] is unchanged and keeps
-  /// its single-transport routing for messages.
-  Future<void> sendBeacon(String aprsLine) async {
-    if (_beaconToAprsIs && aprsIsAvailable) {
-      _aprsIs.sendLine('$aprsLine\r\n');
-    }
-    if (_beaconToTnc && tncAvailable) {
-      await sendViaTncOnly(aprsLine);
-    }
-  }
-
-  /// Send [aprsLine] directly to the TNC without any APRS-IS fallback.
-  ///
-  /// Used by [BackgroundServiceManager] to handle TNC beacons requested via
-  /// IPC from the background isolate, which cannot access the live TNC
-  /// connection directly.
-  Future<void> sendViaTncOnly(String aprsLine) async {
-    final transport = _tnc.transportManager.activeTransport;
-    if (transport == null || !transport.isConnected) return;
-    final ax25Bytes = _buildAx25Bytes(aprsLine);
-    if (ax25Bytes != null) {
-      await transport.sendFrame(ax25Bytes);
-    }
-  }
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
 
   @override
   void dispose() {
+    _registry.removeListener(_onRegistryChanged);
     _eventController.close();
     super.dispose();
   }
 
   // ---------------------------------------------------------------------------
-  // Internal — TNC TX
+  // Internal
   // ---------------------------------------------------------------------------
 
-  Future<void> _sendViaTnc(String aprsLine) async {
-    final transport = _tnc.transportManager.activeTransport;
-    if (transport == null || !transport.isConnected) {
-      // Silently fall back to APRS-IS if TNC not ready.
-      _aprsIs.sendLine('$aprsLine\r\n');
-      return;
+  MeridianConnection? _effectiveConnection({ConnectionType? forceVia}) {
+    if (forceVia != null) {
+      return _registry.all
+          .where((c) => c.type == forceVia && c.isConnected)
+          .firstOrNull;
     }
-
-    final ax25Bytes = _buildAx25Bytes(aprsLine);
-    if (ax25Bytes != null) {
-      await transport.sendFrame(ax25Bytes);
+    const order = [
+      ConnectionType.serialTnc,
+      ConnectionType.bleTnc,
+      ConnectionType.aprsIs,
+    ];
+    for (final type in order) {
+      final conn = _registry.all
+          .where((c) => c.type == type && c.isConnected)
+          .firstOrNull;
+      if (conn != null) return conn;
     }
+    return null;
   }
 
-  /// Parse an APRS-IS line and encode it as raw AX.25 bytes.
-  ///
-  /// Returns null if the line cannot be parsed (header malformed).
-  Uint8List? _buildAx25Bytes(String aprsLine) {
-    // Format: "SOURCE>DEST,PATH:INFO"
-    final gtIdx = aprsLine.indexOf('>');
-    final colonIdx = aprsLine.indexOf(':');
-    if (gtIdx < 0 || colonIdx < 0 || colonIdx <= gtIdx) return null;
-
-    final sourceRaw = aprsLine.substring(0, gtIdx).trim();
-    final infoField = aprsLine.substring(colonIdx + 1);
-
-    // Split callsign and SSID from source.
-    final sourceParts = sourceRaw.split('-');
-    final callsign = sourceParts[0].toUpperCase();
-    final ssid = sourceParts.length > 1 ? int.tryParse(sourceParts[1]) ?? 0 : 0;
-
-    final frame = Ax25Encoder.buildAprsFrame(
-      sourceCallsign: callsign,
-      sourceSsid: ssid,
-      infoField: infoField,
-    );
-    return Ax25Encoder.encodeUiFrame(frame);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Internal — TNC state tracking
-  // ---------------------------------------------------------------------------
-
-  bool _tncWasConnected = false;
-
-  void _onTncConnectionState(ConnectionStatus status) {
-    final nowConnected = status == ConnectionStatus.connected;
-
-    if (_tncWasConnected && !nowConnected) {
-      // TNC just disconnected — notify when auto/tnc since effective falls back
-      // to APRS-IS and the user should know.
-      if (_preference == TxTransportPref.tnc ||
-          _preference == TxTransportPref.auto) {
-        _eventController.add(TxEventTncDisconnected());
-      }
-    } else if (!_tncWasConnected && nowConnected) {
-      // TNC just connected — only prompt when the user is explicitly on APRS-IS.
-      // For auto/tnc preferences there is nothing to decide: auto already picks
-      // RF automatically, and tnc preference means RF is already intended.
-      if (_preference == TxTransportPref.aprsIs) {
-        _eventController.add(TxEventTncReconnected());
-      }
+  void _onRegistryChanged() {
+    final tncNowConnected = tncAvailable;
+    if (_tncWasConnected && !tncNowConnected) {
+      _eventController.add(TxEventTncDisconnected());
+    } else if (!_tncWasConnected && tncNowConnected) {
+      _eventController.add(TxEventTncReconnected());
     }
-
-    _tncWasConnected = nowConnected;
+    _tncWasConnected = tncNowConnected;
     notifyListeners();
   }
 }

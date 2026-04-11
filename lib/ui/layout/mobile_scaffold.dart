@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -9,16 +8,15 @@ import 'package:provider/provider.dart';
 
 import '../../map/meridian_tile_provider.dart';
 
+import '../../core/connection/connection_registry.dart';
 import '../../core/packet/station.dart';
 import '../../screens/connection_screen.dart';
 import '../../screens/messages_screen.dart';
 import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/beaconing_service.dart';
-import '../../services/tx_service.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
-import '../../services/tnc_service.dart';
 import '../widgets/beacon_fab.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
@@ -34,14 +32,11 @@ class MobileScaffold extends StatefulWidget {
   const MobileScaffold({
     super.key,
     required this.service,
-    required this.tncService,
     required this.mapController,
     required this.markers,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
-    this.connectionStatus = ConnectionStatus.disconnected,
-    this.tncConnectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
@@ -49,14 +44,11 @@ class MobileScaffold extends StatefulWidget {
   });
 
   final StationService service;
-  final TncService tncService;
   final MapController mapController;
   final List<Marker> markers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
-  final ConnectionStatus connectionStatus;
-  final ConnectionStatus tncConnectionStatus;
   final LatLng initialCenter;
   final double initialZoom;
   final bool northUpLocked;
@@ -69,12 +61,6 @@ class MobileScaffold extends StatefulWidget {
 class _MobileScaffoldState extends State<MobileScaffold> {
   int _selectedIndex = 0;
   bool _locating = false;
-
-  static String _tncPillLabel(TransportType type) => switch (type) {
-    TransportType.ble => 'BLE TNC',
-    TransportType.serial => 'USB TNC',
-    TransportType.none => 'TNC',
-  };
 
   void _navigateToConnection() {
     setState(() => _selectedIndex = 4);
@@ -156,26 +142,19 @@ class _MobileScaffoldState extends State<MobileScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    final registry = context.watch<ConnectionRegistry>();
     return Scaffold(
       appBar: _selectedIndex == 0
           ? AppBar(
               title: const Text('Meridian'),
               actions: [
-                MeridianStatusPill(
-                  status: widget.connectionStatus,
-                  label: 'APRS-IS',
-                  onTap: _navigateToConnection,
-                ),
-                if (!kIsWeb &&
-                    (widget.tncConnectionStatus !=
-                            ConnectionStatus.disconnected ||
-                        widget.tncService.activeTransportType !=
-                            TransportType.none))
-                  MeridianStatusPill(
-                    label: _tncPillLabel(widget.tncService.activeTransportType),
-                    status: widget.tncConnectionStatus,
+                ...registry.available.map(
+                  (conn) => MeridianStatusPill(
+                    status: conn.status,
+                    label: conn.displayName,
                     onTap: _navigateToConnection,
                   ),
+                ),
                 IconButton(
                   icon: const Icon(Symbols.settings),
                   tooltip: 'Settings',
@@ -241,13 +220,11 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 markers: widget.markers,
                 tileUrl: widget.tileUrl,
                 tileProvider: widget.meridianTileProvider.buildTileProvider(),
-                connectionStatus: widget.connectionStatus,
+                connectionStatus: registry.aggregateStatus,
                 initialCenter: widget.initialCenter,
                 initialZoom: widget.initialZoom,
                 northUpLocked: widget.northUpLocked,
-                isAnyConnected:
-                    widget.connectionStatus == ConnectionStatus.connected ||
-                    widget.tncConnectionStatus == ConnectionStatus.connected,
+                isAnyConnected: registry.isAnyConnected,
                 onNotConnectedTap: _navigateToConnection,
               ),
               // FAB cluster — bottom-right above navigation bar.
@@ -305,11 +282,12 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                         Builder(
                           builder: (ctx) {
                             final beaconing = ctx.watch<BeaconingService>();
-                            final tx = ctx.watch<TxService>();
+                            final reg = ctx.watch<ConnectionRegistry>();
                             final noTarget =
                                 beaconing.isActive &&
-                                !(tx.beaconToAprsIs && tx.aprsIsAvailable) &&
-                                !(tx.beaconToTnc && tx.tncAvailable);
+                                !reg.all.any(
+                                  (c) => c.beaconingEnabled && c.isConnected,
+                                );
                             return BeaconFAB(
                               isBeaconing: beaconing.isActive,
                               mode: beaconing.mode,

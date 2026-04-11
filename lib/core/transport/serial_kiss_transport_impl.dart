@@ -109,7 +109,7 @@ class SerialKissTransport extends KissTncTransport {
     try {
       _adapter.write(KissFramer.encode(ax25Frame));
     } catch (e) {
-      debugPrint('SerialKissTransport sendFrame error: $e');
+      debugPrint('SerialKissTransport: sendFrame error — $e');
       // Port is gone — trigger cleanup so the app stays in a consistent state.
       Future.microtask(_handleDisconnect);
       rethrow;

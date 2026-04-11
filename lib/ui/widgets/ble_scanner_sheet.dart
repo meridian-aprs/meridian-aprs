@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
+import '../../core/connection/ble_connection.dart';
 import '../../core/transport/ble_constants.dart';
 import '../../core/transport/tnc_preset.dart';
-import '../../services/tnc_service.dart';
 
 /// Filter option for the BLE device scanner.
 ///
@@ -44,8 +44,8 @@ class _BleFilterOption {
 /// specific TNC model limits results to devices advertising that TNC's GATT
 /// service UUID.
 ///
-/// Tapping "Connect" on a device calls [TncService.connectBle] and closes
-/// the sheet (or calls [onBack] when embedded inline).
+/// Tapping "Connect" on a device calls [BleConnection.connectToDevice] and
+/// closes the sheet (or calls [onBack] when embedded inline).
 ///
 /// Set [showDragHandle] to false and provide [onBack] when embedding this
 /// widget inside another sheet instead of presenting it as a standalone modal.
@@ -54,13 +54,13 @@ class _BleFilterOption {
 class BleScannerSheet extends StatefulWidget {
   const BleScannerSheet({
     super.key,
-    required this.tncService,
+    required this.bleConnection,
     this.showDragHandle = true,
     this.onBack,
     this.showBackButton = true,
   });
 
-  final TncService tncService;
+  final BleConnection bleConnection;
 
   /// Whether to render the drag handle at the top. Set to false when embedded
   /// inline inside another sheet that already has its own handle.
@@ -179,7 +179,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
     });
 
     try {
-      await widget.tncService.connectBle(result.device);
+      await widget.bleConnection.connectToDevice(result.device);
       if (mounted) {
         if (widget.onBack != null) {
           widget.onBack!();

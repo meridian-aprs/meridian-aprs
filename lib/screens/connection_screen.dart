@@ -7,14 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../core/connection/aprs_is_connection.dart';
+import '../core/connection/ble_connection.dart';
+import '../core/connection/connection_registry.dart';
+import '../core/connection/serial_connection.dart';
 import '../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
 import '../core/transport/tnc_config.dart';
 import '../core/transport/tnc_preset.dart';
 import '../services/background_service_manager.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
-import '../services/tnc_service.dart';
-import '../services/tx_service.dart';
 import '../theme/meridian_colors.dart';
 import '../ui/widgets/ble_scanner_sheet.dart';
 import '../ui/widgets/meridian_status_pill.dart';
@@ -22,8 +24,8 @@ import '../ui/widgets/meridian_status_pill.dart';
 /// Full-screen destination for managing all transport connections.
 ///
 /// Shows active connection cards at the top when ≥1 transport is connected,
-/// followed by a platform-adaptive segmented control (APRS-IS / BLE TNC /
-/// Serial TNC) and the corresponding connection form.
+/// followed by a platform-adaptive segmented control built from
+/// [ConnectionRegistry.available] and the corresponding connection form.
 ///
 /// All services are read from the [Provider] tree — no constructor params.
 class ConnectionScreen extends StatefulWidget {
@@ -34,108 +36,77 @@ class ConnectionScreen extends StatefulWidget {
 }
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
-  // Segmented control selection: 0 = APRS-IS, 1 = BLE TNC, 2 = Serial TNC.
+  // Segmented control selection index into [ConnectionRegistry.available].
   int _tab = 0;
 
-  // Packet counters — seeded from rolling buffer, incremented live.
-  int _aprsIsCount = 0;
-  int _tncCount = 0;
+  // Packet counters keyed by connection ID.
+  final Map<String, int> _packetCountById = {};
 
-  StreamSubscription<ConnectionStatus>? _tncSub;
-  StreamSubscription<ConnectionStatus>? _aprsSub;
   StreamSubscription<AprsPacket>? _packetSub;
 
   // Serial TNC form state (desktop only).
   late TncPreset _selectedPreset;
   late List<String> _availablePorts;
   String? _selectedPort;
-  int _baudRate = 9600;
-
-  static bool get _isSerialPlatform =>
-      !kIsWeb && (Platform.isLinux || Platform.isMacOS || Platform.isWindows);
-
-  static bool get _isBlePlatform =>
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS);
-
-  static const _baudRates = [
-    1200,
-    2400,
-    4800,
-    9600,
-    19200,
-    38400,
-    57600,
-    115200,
-  ];
 
   @override
   void initState() {
     super.initState();
+    _selectedPreset = TncPreset.mobilinkdTnc4;
+    _availablePorts = [];
 
+    final registry = context.read<ConnectionRegistry>();
     final stationService = context.read<StationService>();
-    final tncService = context.read<TncService>();
 
-    // Initialise preset from persisted config or default to Mobilinkd TNC4.
-    final activeConfig = tncService.activeConfig;
-    if (activeConfig?.presetId != null) {
-      _selectedPreset = TncPreset.all.firstWhere(
-        (p) => p.id == activeConfig!.presetId,
-        orElse: () => TncPreset.mobilinkdTnc4,
-      );
-    } else {
-      _selectedPreset = TncPreset.mobilinkdTnc4;
+    // Restore serial config from the registry's SerialConnection (if present).
+    final serialConn = registry.all.whereType<SerialConnection>().firstOrNull;
+    if (serialConn != null) {
+      final activeConfig = serialConn.activeConfig;
+      if (activeConfig?.presetId != null) {
+        _selectedPreset = TncPreset.all.firstWhere(
+          (p) => p.id == activeConfig!.presetId,
+          orElse: () => TncPreset.mobilinkdTnc4,
+        );
+      }
+      _refreshSerialPorts(initial: activeConfig?.port);
     }
-    _refreshPorts(initial: activeConfig?.port);
-
-    // Select initial tab to match the active transport.
-    final tncStatus = tncService.currentStatus;
-    if (tncStatus == ConnectionStatus.connected ||
-        tncStatus == ConnectionStatus.connecting) {
-      final type = tncService.activeTransportType;
-      _tab = (type == TransportType.ble) ? 1 : (_isSerialPlatform ? 2 : 0);
-    }
-
-    // Subscribe to status streams for reactive rebuilds.
-    _tncSub = tncService.connectionState.listen((_) {
-      if (mounted) setState(() {});
-    });
-    _aprsSub = stationService.connectionState.listen((_) {
-      if (mounted) setState(() {});
-    });
 
     // Seed packet counters from the rolling buffer.
     for (final p in stationService.recentPackets) {
-      if (p.transportSource == PacketSource.tnc) {
-        _tncCount++;
-      } else {
-        _aprsIsCount++;
-      }
+      final key = switch (p.transportSource) {
+        PacketSource.tnc => 'ble_tnc',
+        PacketSource.bleTnc => 'ble_tnc',
+        PacketSource.serialTnc => 'serial_tnc',
+        PacketSource.aprsIs => 'aprs_is',
+      };
+      _packetCountById[key] = (_packetCountById[key] ?? 0) + 1;
     }
 
     // Keep counters live as new packets arrive.
     _packetSub = stationService.packetStream.listen((p) {
       if (!mounted) return;
       setState(() {
-        if (p.transportSource == PacketSource.tnc) {
-          _tncCount++;
-        } else {
-          _aprsIsCount++;
-        }
+        final key = switch (p.transportSource) {
+          PacketSource.tnc => 'ble_tnc',
+          PacketSource.bleTnc => 'ble_tnc',
+          PacketSource.serialTnc => 'serial_tnc',
+          PacketSource.aprsIs => 'aprs_is',
+        };
+        _packetCountById[key] = (_packetCountById[key] ?? 0) + 1;
       });
     });
   }
 
   @override
   void dispose() {
-    _tncSub?.cancel();
-    _aprsSub?.cancel();
     _packetSub?.cancel();
     super.dispose();
   }
 
-  void _refreshPorts({String? initial}) {
-    final tncService = context.read<TncService>();
-    final ports = _isSerialPlatform ? tncService.availablePorts() : <String>[];
+  void _refreshSerialPorts({String? initial}) {
+    final registry = context.read<ConnectionRegistry>();
+    final serialConn = registry.all.whereType<SerialConnection>().firstOrNull;
+    final ports = serialConn?.availablePorts() ?? <String>[];
     _availablePorts = List<String>.from(ports);
     if (_availablePorts.isNotEmpty) {
       if (initial != null && _availablePorts.contains(initial)) {
@@ -148,46 +119,25 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     }
   }
 
-  Future<void> _onConnectTap() async {
-    if (_selectedPort == null) return;
-    final config = TncConfig.fromPreset(_selectedPreset, port: _selectedPort!);
-    await context.read<TncService>().connect(config);
-  }
-
-  Future<void> _onDisconnectTncTap() async {
-    await context.read<TncService>().disconnect();
-  }
-
-  Future<void> _onAprsConnectTap() async {
-    await context.read<StationService>().connectAprsIs();
-  }
-
-  Future<void> _onAprsDisconnectTap() async {
-    await context.read<StationService>().disconnectAprsIs();
-  }
-
   // ---------------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
-    final stationService = context.read<StationService>();
-    final tncService = context.read<TncService>();
+    final registry = context.watch<ConnectionRegistry>();
+    final available = registry.available;
 
-    final aprsStatus = stationService.currentConnectionStatus;
-    final tncStatus = tncService.currentStatus;
+    // Clamp tab index to remain valid if registry changes.
+    if (_tab >= available.length && available.isNotEmpty) {
+      _tab = available.length - 1;
+    }
 
-    final aprsConnected = aprsStatus == ConnectionStatus.connected;
-    final tncConnected = tncStatus == ConnectionStatus.connected;
-    // Show the active TNC card (with its Disconnect button) whenever a BLE
-    // session is in progress — not just when fully connected. This lets the
-    // user cancel a reconnect or waiting-for-device phase.
-    final tncSessionActive =
-        tncConnected ||
-        tncStatus == ConnectionStatus.reconnecting ||
-        tncStatus == ConnectionStatus.waitingForDevice;
-    final anyConnected = aprsConnected || tncConnected;
+    final activeConnections = registry.all.where((c) {
+      return c.status == ConnectionStatus.connected ||
+          c.status == ConnectionStatus.reconnecting ||
+          c.status == ConnectionStatus.waitingForDevice;
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(title: const Text('Connection')),
@@ -231,45 +181,35 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
 
             // ── Active connections ────────────────────────────────────────
-            if (anyConnected) ...[
+            if (activeConnections.isNotEmpty) ...[
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: _SectionLabel('Active connections'),
               ),
-              if (aprsConnected) ...[
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _AprsActiveCard(
-                    packetCount: _aprsIsCount,
-                    onDisconnect: _onAprsDisconnectTap,
+              ...activeConnections.map(
+                (conn) => Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: _ActiveConnectionCard(
+                    connection: conn,
+                    packetCount: _packetCountById[conn.id] ?? 0,
                   ),
                 ),
-              ],
-              if (tncSessionActive) ...[
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: _TncActiveCard(
-                    tncService: tncService,
-                    packetCount: _tncCount,
-                    onDisconnect: _onDisconnectTncTap,
-                  ),
-                ),
-              ],
+              ),
               const SizedBox(height: 20),
               const Divider(height: 1),
             ],
 
             // ── Segmented control + tabs ──────────────────────────────────
             const SizedBox(height: 20),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: _buildSegmentedControl(),
-            ),
+            if (available.length > 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _buildSegmentedControl(available),
+              ),
             const SizedBox(height: 20),
-            _buildTabContent(aprsStatus, tncStatus),
+            if (available.isNotEmpty)
+              _buildTabContent(available[_tab.clamp(0, available.length - 1)]),
           ],
         ),
       ),
@@ -280,17 +220,14 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Segmented control
   // ---------------------------------------------------------------------------
 
-  Widget _buildSegmentedControl() {
+  Widget _buildSegmentedControl(List<MeridianConnection> available) {
     if (!kIsWeb && Platform.isIOS) {
       final children = <int, Widget>{
-        0: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          child: Text('APRS-IS'),
-        ),
-        1: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12),
-          child: Text('BLE TNC'),
-        ),
+        for (var i = 0; i < available.length; i++)
+          i: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(available[i].displayName),
+          ),
       };
       return CupertinoSlidingSegmentedControl<int>(
         groupValue: _tab,
@@ -299,55 +236,44 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       );
     }
 
-    final segments = <ButtonSegment<int>>[
-      const ButtonSegment(value: 0, label: Text('APRS-IS')),
-      if (_isBlePlatform) const ButtonSegment(value: 1, label: Text('BLE TNC')),
-      if (_isSerialPlatform)
-        const ButtonSegment(value: 2, label: Text('Serial TNC')),
-    ];
-
-    // If only one segment (e.g. web), just show the single label without the
-    // segmented control chrome.
-    if (segments.length == 1) {
-      return const SizedBox.shrink();
-    }
-
     return SegmentedButton<int>(
-      segments: segments,
-      selected: {_tab},
+      segments: [
+        for (var i = 0; i < available.length; i++)
+          ButtonSegment(value: i, label: Text(available[i].displayName)),
+      ],
+      selected: {_tab.clamp(0, available.length - 1)},
       onSelectionChanged: (s) => setState(() => _tab = s.first),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Tab content
+  // Tab content dispatch
   // ---------------------------------------------------------------------------
 
-  Widget _buildTabContent(
-    ConnectionStatus aprsStatus,
-    ConnectionStatus tncStatus,
-  ) {
-    return switch (_tab) {
-      1 when _isBlePlatform => _buildBleTab(tncStatus),
-      2 when _isSerialPlatform => _buildSerialTab(tncStatus),
-      _ => _buildAprsTab(aprsStatus),
-    };
+  Widget _buildTabContent(MeridianConnection conn) {
+    if (conn is AprsIsConnection) return _buildAprsTab(conn);
+    if (conn is BleConnection) return _buildBleTab(conn);
+    if (conn is SerialConnection) return _buildSerialTab(conn);
+    // Fallback for test fakes or unknown connection types.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Text(conn.displayName),
+    );
   }
 
   // ── APRS-IS tab ────────────────────────────────────────────────────────────
 
-  Widget _buildAprsTab(ConnectionStatus aprsStatus) {
+  Widget _buildAprsTab(AprsIsConnection conn) {
     final theme = Theme.of(context);
     final settings = context.read<StationSettingsService>();
-    final isConnected = aprsStatus == ConnectionStatus.connected;
-    final isConnecting = aprsStatus == ConnectionStatus.connecting;
+    final isConnected = conn.status == ConnectionStatus.connected;
+    final isConnecting = conn.status == ConnectionStatus.connecting;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Server info (read-only for v0.6 — server is set at app startup).
           Card(
             margin: EdgeInsets.zero,
             child: Padding(
@@ -400,7 +326,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: isConnecting ? null : _onAprsConnectTap,
+                onPressed: isConnecting ? null : conn.connect,
                 child: Text(
                   isConnecting ? 'Connecting\u2026' : 'Connect APRS-IS',
                 ),
@@ -413,21 +339,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   // ── BLE TNC tab ────────────────────────────────────────────────────────────
 
-  Widget _buildBleTab(ConnectionStatus tncStatus) {
-    if (!_isBlePlatform) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16),
-        child: _TncUnavailableCard(
-          message: 'BLE TNC is available on iOS and Android.',
-        ),
-      );
-    }
+  Widget _buildBleTab(BleConnection conn) {
+    final isSessionActive =
+        conn.status == ConnectionStatus.connected ||
+        conn.status == ConnectionStatus.reconnecting ||
+        conn.status == ConnectionStatus.waitingForDevice;
 
-    final isBleConnected =
-        tncStatus == ConnectionStatus.connected &&
-        context.read<TncService>().activeTransportType == TransportType.ble;
-
-    if (isBleConnected) {
+    if (isSessionActive) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Text(
@@ -439,21 +357,12 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       );
     }
 
-    final tncService = context.read<TncService>();
-    // Lazy: only instantiate BleScannerSheet when this tab is active.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: BleScannerSheet(
-        tncService: tncService,
+        bleConnection: conn,
         showDragHandle: false,
-        // onBack must be non-null when embedded inline. BleScannerSheet calls
-        // Navigator.pop() when onBack is null, which pops the root route and
-        // leaves a black screen. A no-op here is correct: the _tncSub in
-        // _ConnectionScreenState fires on connect and rebuilds the Active
-        // Connections section automatically.
         onBack: () {},
-        // Suppress the back arrow — this is embedded in a screen with its
-        // own navigation; there is nothing to "go back" to.
         showBackButton: false,
       ),
     );
@@ -461,22 +370,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   // ── Serial TNC tab ─────────────────────────────────────────────────────────
 
-  Widget _buildSerialTab(ConnectionStatus tncStatus) {
-    if (!_isSerialPlatform) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16),
-        child: _TncUnavailableCard(
-          message: 'USB serial TNC is available on Linux, macOS, and Windows.',
-        ),
-      );
-    }
-
+  Widget _buildSerialTab(SerialConnection conn) {
     final theme = Theme.of(context);
-    final isConnected =
-        tncStatus == ConnectionStatus.connected &&
-        context.read<TncService>().activeTransportType == TransportType.serial;
-    final isConnecting = tncStatus == ConnectionStatus.connecting;
-    final errorMessage = context.read<TncService>().lastErrorMessage;
+    final isConnected = conn.status == ConnectionStatus.connected;
+    final isConnecting = conn.status == ConnectionStatus.connecting;
+    final errorMessage = conn.lastErrorMessage;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -555,37 +453,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
                         onPressed: isConnecting
                             ? null
                             : () => setState(
-                                () => _refreshPorts(initial: _selectedPort),
+                                () =>
+                                    _refreshSerialPorts(initial: _selectedPort),
                               ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Baud rate selector.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Baud rate',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                      DropdownButton<int>(
-                        value: _baudRate,
-                        items: _baudRates.map((baud) {
-                          return DropdownMenuItem<int>(
-                            value: baud,
-                            child: Text(baud.toString()),
-                          );
-                        }).toList(),
-                        onChanged: isConnecting
-                            ? null
-                            : (baud) {
-                                if (baud != null) {
-                                  setState(() => _baudRate = baud);
-                                }
-                              },
                       ),
                     ],
                   ),
@@ -614,7 +484,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               ),
             )
           else ...[
-            // No ports found hint.
             if (_availablePorts.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -630,7 +499,13 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               child: FilledButton(
                 onPressed: (_selectedPort == null || isConnecting)
                     ? null
-                    : _onConnectTap,
+                    : () async {
+                        final config = TncConfig.fromPreset(
+                          _selectedPreset,
+                          port: _selectedPort!,
+                        );
+                        await conn.connectWithConfig(config);
+                      },
                 child: Text(isConnecting ? 'Connecting\u2026' : 'Connect'),
               ),
             ),
@@ -642,109 +517,43 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 }
 
 // =============================================================================
-// Active connection cards
+// Active connection card (unified)
 // =============================================================================
 
-class _AprsActiveCard extends StatelessWidget {
-  const _AprsActiveCard({
+class _ActiveConnectionCard extends StatelessWidget {
+  const _ActiveConnectionCard({
+    required this.connection,
     required this.packetCount,
-    required this.onDisconnect,
   });
 
+  final MeridianConnection connection;
   final int packetCount;
-  final VoidCallback onDisconnect;
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Symbols.wifi, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('APRS-IS', style: theme.textTheme.titleSmall),
-                ),
-                const MeridianStatusPill(
-                  status: ConnectionStatus.connected,
-                  label: 'Connected',
-                ),
-                const SizedBox(width: 8),
-                Consumer<TxService>(
-                  builder: (_, txSvc, _) {
-                    if (!txSvc.beaconToAprsIs) return const SizedBox.shrink();
-                    return _TxBadge();
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'rotate.aprs2.net:14580',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              _formatCount(packetCount),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            Consumer<TxService>(
-              builder: (_, txSvc, _) => SwitchListTile.adaptive(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Beacon'),
-                value: txSvc.beaconToAprsIs,
-                onChanged: (v) =>
-                    context.read<TxService>().setBeaconToAprsIs(v),
-              ),
-            ),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: MeridianColors.danger,
-                  side: const BorderSide(color: MeridianColors.danger),
-                ),
-                onPressed: onDisconnect,
-                child: const Text('Disconnect'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+  static IconData _iconFor(ConnectionType type) => switch (type) {
+    ConnectionType.aprsIs => Symbols.wifi,
+    ConnectionType.bleTnc => Symbols.bluetooth,
+    ConnectionType.serialTnc => Symbols.usb,
+  };
+
+  static String _subtitleFor(MeridianConnection conn) {
+    if (conn.type == ConnectionType.aprsIs) return 'rotate.aprs2.net:14580';
+    if (conn is SerialConnection) {
+      return conn.activeConfig?.port ?? 'Serial TNC';
+    }
+    if (conn.type == ConnectionType.bleTnc) return 'BLE TNC';
+    return conn.displayName;
   }
 
   static String _formatCount(int n) => '$n packet${n == 1 ? '' : 's'} received';
-}
-
-class _TncActiveCard extends StatelessWidget {
-  const _TncActiveCard({
-    required this.tncService,
-    required this.packetCount,
-    required this.onDisconnect,
-  });
-
-  final TncService tncService;
-  final int packetCount;
-  final VoidCallback onDisconnect;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final type = tncService.activeTransportType;
-    final typeLabel = type == TransportType.ble ? 'BLE' : 'Serial';
-    final deviceLabel = tncService.activeConfig?.port ?? typeLabel;
+    final conn = connection;
+    final status = conn.status;
+    final displayStatus = status == ConnectionStatus.connected
+        ? status
+        : ConnectionStatus.connecting;
 
     return Card(
       margin: EdgeInsets.zero,
@@ -755,33 +564,29 @@ class _TncActiveCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  type == TransportType.ble ? Symbols.bluetooth : Symbols.usb,
-                  size: 20,
-                ),
+                Icon(_iconFor(conn.type), size: 20),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '$typeLabel TNC',
+                    conn.displayName,
                     style: theme.textTheme.titleSmall,
                   ),
                 ),
-                const MeridianStatusPill(
-                  status: ConnectionStatus.connected,
-                  label: 'Connected',
+                MeridianStatusPill(
+                  status: displayStatus,
+                  label: status == ConnectionStatus.connected
+                      ? 'Connected'
+                      : 'Reconnecting\u2026',
                 ),
-                const SizedBox(width: 8),
-                Consumer<TxService>(
-                  builder: (_, txSvc, _) {
-                    if (!txSvc.beaconToTnc) return const SizedBox.shrink();
-                    return _TxBadge();
-                  },
-                ),
+                if (conn.beaconingEnabled) ...[
+                  const SizedBox(width: 8),
+                  _TxBadge(),
+                ],
               ],
             ),
             const SizedBox(height: 4),
             Text(
-              deviceLabel,
+              _subtitleFor(conn),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -793,14 +598,12 @@ class _TncActiveCard extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
-            Consumer<TxService>(
-              builder: (_, txSvc, _) => SwitchListTile.adaptive(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Beacon'),
-                value: txSvc.beaconToTnc,
-                onChanged: (v) => context.read<TxService>().setBeaconToTnc(v),
-              ),
+            SwitchListTile.adaptive(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Beacon'),
+              value: conn.beaconingEnabled,
+              onChanged: (v) => conn.setBeaconingEnabled(v),
             ),
             SizedBox(
               width: double.infinity,
@@ -809,7 +612,7 @@ class _TncActiveCard extends StatelessWidget {
                   foregroundColor: MeridianColors.danger,
                   side: const BorderSide(color: MeridianColors.danger),
                 ),
-                onPressed: onDisconnect,
+                onPressed: conn.disconnect,
                 child: const Text('Disconnect'),
               ),
             ),
@@ -818,8 +621,6 @@ class _TncActiveCard extends StatelessWidget {
       ),
     );
   }
-
-  static String _formatCount(int n) => '$n packet${n == 1 ? '' : 's'} received';
 }
 
 // =============================================================================
@@ -896,37 +697,6 @@ class _SectionLabel extends StatelessWidget {
         color: theme.colorScheme.primary,
         fontWeight: FontWeight.w700,
         letterSpacing: 0.8,
-      ),
-    );
-  }
-}
-
-class _TncUnavailableCard extends StatelessWidget {
-  const _TncUnavailableCard({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Opacity(
-      opacity: 0.5,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              const Icon(Symbols.info, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  message,
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }
