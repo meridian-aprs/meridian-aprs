@@ -468,7 +468,6 @@ class BackgroundServiceManager extends ChangeNotifier
             s == ConnectionStatus.disconnected) {
           return true;
         }
-        if (!_isInBackground && s == ConnectionStatus.connecting) return true;
         return false;
       });
       final next = anyIssue

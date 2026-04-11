@@ -58,6 +58,7 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   int disconnectCallCount = 0;
   int requestMtuCallCount = 0;
   int discoverCallCount = 0;
+  int clearGattCacheCallCount = 0;
 
   // ----- connection state stream -----
   final _connStateController =
@@ -97,6 +98,11 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
       throw Exception('FakeBleDeviceAdapter: discoverServices failed');
     }
     return services;
+  }
+
+  @override
+  Future<void> clearGattCache() async {
+    clearGattCacheCallCount++;
   }
 
   @override
@@ -167,6 +173,23 @@ void main() {
 
       expect(fakeAdapter.connectCallCount, 1);
       expect(fakeAdapter.discoverCallCount, greaterThanOrEqualTo(1));
+    });
+
+    // 3a ----------------------------------------------------------------------
+    test('connect() clears GATT cache before connecting', () async {
+      await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+      expect(fakeAdapter.clearGattCacheCallCount, 1);
+    });
+
+    // 3b ----------------------------------------------------------------------
+    test('connectBackground() skips GATT cache clear', () async {
+      await expectLater(
+        transport.connectBackground(),
+        throwsA(isA<Exception>()),
+      );
+
+      expect(fakeAdapter.clearGattCacheCallCount, 0);
     });
 
     // 4 -----------------------------------------------------------------------

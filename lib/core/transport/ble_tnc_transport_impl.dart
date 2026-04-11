@@ -25,6 +25,13 @@ abstract interface class BleDeviceAdapter {
   Future<int> requestMtu(int desired);
   int get mtu;
   Future<List<BluetoothService>> discoverServices();
+
+  /// Clears the Android GATT service cache for this device.
+  ///
+  /// A no-op on iOS/desktop — implementations should swallow any
+  /// platform exception so callers never need to handle it.
+  Future<void> clearGattCache();
+
   Stream<BluetoothConnectionState> get connectionState;
   String get platformName;
 }
@@ -53,6 +60,15 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
   @override
   Future<List<BluetoothService>> discoverServices() =>
       _device.discoverServices();
+
+  @override
+  Future<void> clearGattCache() async {
+    try {
+      await _device.clearGattCache();
+    } catch (_) {
+      // Not supported on iOS/desktop — silently ignore.
+    }
+  }
 
   @override
   Stream<BluetoothConnectionState> get connectionState =>
@@ -147,7 +163,17 @@ class BleTncTransport extends KissTncTransport {
           : ConnectionStatus.connecting,
     );
     try {
-      // 1. Connect to the device.
+      // 1. Clear the Android GATT cache before connecting.
+      //    Stale cached service tables from prior sessions are the most
+      //    common cause of GATT status 133 (ANDROID_SPECIFIC_ERROR) on
+      //    reconnect. Clearing forces fresh service discovery.
+      //    Skipped for autoConnect — the OS manages that session and the
+      //    cache is not the source of issues there.
+      if (!autoConnect) {
+        await _adapter.clearGattCache();
+      }
+
+      // 2. Connect to the device.
       //    autoConnect: true — OS manages background scanning; no explicit
       //    timeout needed beyond a ceiling to avoid hanging forever if the
       //    device is turned off permanently.
@@ -158,7 +184,7 @@ class BleTncTransport extends KissTncTransport {
         autoConnect: autoConnect,
       );
 
-      // 2. Read the negotiated MTU.
+      // 3. Read the negotiated MTU.
       //    flutter_blue_plus on Android auto-requests MTU 512 inside
       //    connect(); issuing a second requestMtu() immediately after causes
       //    Mobilinkd (and some other TNCs) to drop the link with
@@ -170,7 +196,7 @@ class BleTncTransport extends KissTncTransport {
       _mtu = max(20, negotiated - 3);
       debugPrint('BleTncTransport: MTU $negotiated, using $_mtu byte chunks');
 
-      // 3. Discover services (retry up to 3× — Android BLE stacks sometimes
+      // 4. Discover services (retry up to 3× — Android BLE stacks sometimes
       //    need a moment after connect() before the GATT cache is ready).
       List<BluetoothService>? services;
       for (int attempt = 1; attempt <= 3; attempt++) {
@@ -190,7 +216,7 @@ class BleTncTransport extends KissTncTransport {
         }
       }
 
-      // 4. Find the TNC GATT service.
+      // 5. Find the TNC GATT service.
       final targetServiceGuid = Guid(_serviceUuid);
       final service = services!
           .where((s) => s.serviceUuid == targetServiceGuid)
@@ -202,7 +228,7 @@ class BleTncTransport extends KissTncTransport {
         );
       }
 
-      // 5. Find TX (notify) and RX (write) characteristics.
+      // 6. Find TX (notify) and RX (write) characteristics.
       final txGuid = Guid(_txCharUuid);
       final rxGuid = Guid(_rxCharUuid);
       _txChar = service.characteristics
@@ -219,14 +245,14 @@ class BleTncTransport extends KissTncTransport {
         );
       }
 
-      // 6. Subscribe to TX characteristic notifications.
+      // 7. Subscribe to TX characteristic notifications.
       await _txChar!.setNotifyValue(true);
       _notifySub = _txChar!.onValueReceived.listen(_onBleChunk);
 
-      // 7. Wire KissFramer output → frameStream.
+      // 8. Wire KissFramer output → frameStream.
       _framesSub = _kissFramer.frames.listen(_framesController.add);
 
-      // 8. Monitor for unexpected disconnects.
+      // 9. Monitor for unexpected disconnects.
       _connStateSub = _adapter.connectionState.listen(_onBleConnectionState);
 
       _setStatus(ConnectionStatus.connected);
@@ -234,7 +260,7 @@ class BleTncTransport extends KissTncTransport {
         'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
       );
 
-      // 9. Start the idle keepalive timer.
+      // 10. Start the idle keepalive timer.
       //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
       //    of post-connect silence. The keepalive sends a single TXDELAY frame
       //    every 2 s to hold the link open.
