@@ -48,7 +48,16 @@ class DefaultSerialPortAdapter implements SerialPortAdapter {
   }
 
   @override
-  void write(Uint8List data) => _port.write(data);
+  void write(Uint8List data) {
+    final written = _port.write(data);
+    if (written != data.length) {
+      // sp_nonblocking_write returned fewer bytes than requested — the serial
+      // tx buffer was full or the port is in an error state. Treat as a write
+      // error so the caller (SerialKissTransport.sendFrame) can trigger
+      // disconnect and the exception propagates to the message/beacon layer.
+      throw Exception('Serial write incomplete: $written/${data.length} bytes');
+    }
+  }
 
   @override
   void close() {
