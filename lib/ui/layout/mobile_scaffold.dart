@@ -244,7 +244,25 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 onActiveFilterTap: widget.onOpenFilterPanel,
                 visibleStationCount: widget.visibleStationCount,
                 totalStationCount: widget.totalStationCount,
+                showCountChip: false,
               ),
+              // Station count chip — left side, vertically centered on the
+              // beacon FAB (16 px bottom padding + 28 px half-FAB = 44 px
+              // from SafeArea bottom; chip ~28 px tall → bottom edge at 30 px).
+              if (widget.visibleStationCount < widget.totalStationCount &&
+                  widget.totalStationCount > 0)
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 12, bottom: 30),
+                      child: _StationCountChip(
+                        visible: widget.visibleStationCount,
+                        total: widget.totalStationCount,
+                      ),
+                    ),
+                  ),
+                ),
               // FAB cluster — bottom-right above navigation bar.
               SafeArea(
                 child: Align(
@@ -350,6 +368,22 @@ class _MobileScaffoldState extends State<MobileScaffold> {
           const ConnectionScreen(),
         ],
       ),
+    );
+  }
+}
+
+class _StationCountChip extends StatelessWidget {
+  const _StationCountChip({required this.visible, required this.total});
+
+  final int visible;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      avatar: const Icon(Icons.layers, size: 16),
+      label: Text('$visible of $total stations'),
+      visualDensity: VisualDensity.compact,
     );
   }
 }

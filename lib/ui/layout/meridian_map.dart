@@ -38,6 +38,7 @@ class MeridianMap extends StatelessWidget {
     this.onActiveFilterTap,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
+    this.showCountChip = true,
   });
 
   final MapController mapController;
@@ -84,6 +85,10 @@ class MeridianMap extends StatelessWidget {
 
   /// Total number of known stations (unfiltered).
   final int totalStationCount;
+
+  /// When false, suppresses the station count chip (use when the caller renders
+  /// it itself, e.g. MobileScaffold aligns it with the beacon FAB).
+  final bool showCountChip;
 
   @override
   Widget build(BuildContext context) {
@@ -147,7 +152,9 @@ class MeridianMap extends StatelessWidget {
               onTap: onActiveFilterTap,
             ),
           ),
-        if (visibleStationCount < totalStationCount && totalStationCount > 0)
+        if (showCountChip &&
+            visibleStationCount < totalStationCount &&
+            totalStationCount > 0)
           Positioned(
             bottom: 32,
             left: 12,

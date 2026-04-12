@@ -285,6 +285,7 @@ class _MapScreenState extends State<MapScreen> {
     point: LatLng(s.lat, s.lon),
     width: 44,
     height: 44,
+    rotate: true,
     child: GestureDetector(
       onTap: () => showModalBottomSheet(
         context: context,
@@ -348,6 +349,7 @@ class _MapScreenState extends State<MapScreen> {
     point: g.center,
     width: 48,
     height: 48,
+    rotate: true,
     child: GestureDetector(
       onTapDown: (d) => _showClusterPopover(d.globalPosition, g.stations),
       child: _ClusterWidget(typeCounts: g.typeCounts, count: g.stations.length),
@@ -473,7 +475,10 @@ class _ClusterWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CustomPaint(
-      painter: _ClusterRingPainter(typeCounts: typeCounts, total: count),
+      foregroundPainter: _ClusterRingPainter(
+        typeCounts: typeCounts,
+        total: count,
+      ),
       child: Container(
         width: 48,
         height: 48,

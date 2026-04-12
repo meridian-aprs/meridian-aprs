@@ -14,9 +14,15 @@ import 'meridian_connection.dart';
 /// interface. Beaconing is enabled by default and persisted to
 /// SharedPreferences under the key `beacon_enabled_aprs_is`.
 class AprsIsConnection extends MeridianConnection {
-  AprsIsConnection(this._transport);
+  AprsIsConnection(this._transport) {
+    // Mirror every transport state change into a ChangeNotifier notification so
+    // that ConnectionRegistry (and all UI widgets watching it) rebuild whenever
+    // the socket connects, disconnects, or drops unexpectedly.
+    _stateSub = _transport.connectionState.listen((_) => notifyListeners());
+  }
 
   final AprsIsTransport _transport;
+  StreamSubscription<ConnectionStatus>? _stateSub;
 
   static const _kBeaconingKey = 'beacon_enabled_aprs_is';
 
@@ -98,6 +104,7 @@ class AprsIsConnection extends MeridianConnection {
 
   @override
   Future<void> dispose() async {
+    await _stateSub?.cancel();
     await _transport.dispose();
     super.dispose();
   }
