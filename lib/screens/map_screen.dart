@@ -305,14 +305,17 @@ class _MapScreenState extends State<MapScreen> {
   // Clustering
   // ---------------------------------------------------------------------------
 
-  /// Geographic clustering radius in degrees, equivalent to ~50 screen pixels
-  /// at the current zoom level. Derived from the tile-pixel relationship:
-  /// 1° ≈ 0.711 × 2^zoom pixels, so 50 px ≈ 70.3 / 2^zoom degrees.
+  /// Geographic clustering radius in degrees, equivalent to ~28 screen pixels
+  /// at the current zoom level — roughly the overlap threshold for 44 px tap
+  /// targets. Stations cluster only when they are nearly on top of each other.
+  ///
+  /// Derived from the tile-pixel relationship: 1° ≈ 0.711 × 2^zoom pixels,
+  /// so N px ≈ (N / 0.711) / 2^zoom degrees.
   ///
   /// Example values:
-  ///   zoom 10 → ~0.069° (~7.5 km)
-  ///   zoom 12 → ~0.017° (~1.9 km)
-  ///   zoom 14 → ~0.004° (~450 m)
+  ///   zoom 10 → ~0.039° (~4.3 km)
+  ///   zoom 12 → ~0.010° (~1.1 km)
+  ///   zoom 14 → ~0.002° (~270 m)
   double get _clusterRadiusDegrees {
     double zoom;
     try {
@@ -320,7 +323,7 @@ class _MapScreenState extends State<MapScreen> {
     } catch (_) {
       zoom = 9.0;
     }
-    return 70.3 / math.pow(2, zoom);
+    return 40.0 / math.pow(2, zoom);
   }
 
   /// Greedy O(n²) geographic cluster grouping.
