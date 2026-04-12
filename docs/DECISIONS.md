@@ -525,18 +525,20 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 **Status:** Accepted
 **Date:** 2026-04-12
 
-**Decision:** Replace the fixed-radius `#filter r/LAT/LON/RADIUS` APRS-IS filter with a viewport-derived bounding-box `#filter b/S/W/N/E` filter. The bounding box is computed from the visible map area, padded 25% on each edge, with a minimum half-extent of ≈0.45° (≈50 km) enforced on each axis. The filter is sent on map camera-idle with a 500 ms debounce. At connect time a default 1.5° half-extent box centred on the last-known map position is used.
+**Decision:** Replace the fixed-radius `#filter r/LAT/LON/RADIUS` APRS-IS filter with a viewport-derived bounding-box `#filter a/N/W/S/E` filter. The bounding box is computed from the visible map area, padded 25% on each edge, with a minimum half-extent of ≈0.45° (≈50 km) enforced on each axis. The filter is sent on map camera-idle with a 500 ms debounce. At connect time a default 1.5° half-extent box centred on the last-known map position is used.
 
 **Rationale:** A fixed-radius filter returns a circular region regardless of the device's screen orientation, aspect ratio, or zoom level. At high zoom a 150 km radius grossly over-fetches; at low zoom it under-fetches the visible area. A bounding box matches the actual screen geometry and scales automatically with zoom. The 25% padding prefetches stations that are just outside the visible edge so panning feels instant. The 50 km minimum floor prevents the filter from becoming uselessly small on very close zooms.
 
+**Filter syntax note:** The APRS-IS area filter is `a/latN/lonW/latS/lonE` (javAPRS/aprsc spec at aprs-is.net/javAPRSFilter.aspx). `b/` is the *budget* (callsign) filter — using `b/` with lat/lon coordinates produces a syntactically valid but geographically useless filter that matches no callsigns and delivers no packets, even though the server confirms it "active". Always use `a/` for geographic bounding boxes.
+
 **Alternatives considered:**
 - **Keep fixed radius**: Simple but wastes bandwidth on very large radii at high zoom; under-fetches at low zoom.
-- **Radius computed from bounding-box diagonal**: Numerically equivalent to a bounding box on rotate.aprs2.net but loses directional specificity; server supports `b/` directly so there is no reason to convert.
+- **Radius computed from bounding-box diagonal**: Numerically equivalent to a bounding box but loses directional specificity; server supports `a/` directly so there is no reason to convert.
 
 **Consequences:**
 - `AprsIsConnection.updateFilter` now takes `LatLngBounds` instead of `(double lat, double lon, {int radiusKm})`. Callers (map_screen.dart, tests) updated accordingly.
 - The static helper `AprsIsConnection.defaultFilterLine(lat, lon)` is exposed for use at connect time when no viewport bounds are available.
-- `rotate.aprs2.net` supports the `b/` filter type as of the current APRS-IS filter specification.
+- Filter format is `a/N/W/S/E` (North, West, South, East) as per the APRS-IS specification.
 
 ---
 
