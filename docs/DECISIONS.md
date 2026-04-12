@@ -517,3 +517,40 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 - `IosBackgroundService` is a lightweight `ChangeNotifier` that manages the Live Activity and background location permission signalling; it does not start any isolate or foreground service.
 - `MeridianConnectionTask` is Android-only and remains unchanged.
 - If Apple tightens background execution policies in a future iOS release, this architecture may need to be revisited (e.g., migrating to `BGProcessingTask` for beaconing).
+
+---
+
+## ADR-033: Viewport-adaptive APRS-IS bounding-box filter
+
+**Status:** Accepted
+**Date:** 2026-04-12
+
+**Decision:** Replace the fixed-radius `#filter r/LAT/LON/RADIUS` APRS-IS filter with a viewport-derived bounding-box `#filter b/S/W/N/E` filter. The bounding box is computed from the visible map area, padded 25% on each edge, with a minimum half-extent of ≈0.45° (≈50 km) enforced on each axis. The filter is sent on map camera-idle with a 500 ms debounce. At connect time a default 1.5° half-extent box centred on the last-known map position is used.
+
+**Rationale:** A fixed-radius filter returns a circular region regardless of the device's screen orientation, aspect ratio, or zoom level. At high zoom a 150 km radius grossly over-fetches; at low zoom it under-fetches the visible area. A bounding box matches the actual screen geometry and scales automatically with zoom. The 25% padding prefetches stations that are just outside the visible edge so panning feels instant. The 50 km minimum floor prevents the filter from becoming uselessly small on very close zooms.
+
+**Alternatives considered:**
+- **Keep fixed radius**: Simple but wastes bandwidth on very large radii at high zoom; under-fetches at low zoom.
+- **Radius computed from bounding-box diagonal**: Numerically equivalent to a bounding box on rotate.aprs2.net but loses directional specificity; server supports `b/` directly so there is no reason to convert.
+
+**Consequences:**
+- `AprsIsConnection.updateFilter` now takes `LatLngBounds` instead of `(double lat, double lon, {int radiusKm})`. Callers (map_screen.dart, tests) updated accordingly.
+- The static helper `AprsIsConnection.defaultFilterLine(lat, lon)` is exposed for use at connect time when no viewport bounds are available.
+- `rotate.aprs2.net` supports the `b/` filter type as of the current APRS-IS filter specification.
+
+---
+
+## ADR-034: Time filter default of 60 min and position history cap of 500 entries
+
+**Status:** Accepted
+**Date:** 2026-04-12
+
+**Decision:** Default the station display time filter (`stationMaxAgeMinutes`) to 60 minutes. Cap per-station position history at 500 entries. Store the time filter in SharedPreferences under `station_max_age_minutes`; absence of the key is treated as "use default (60)" on first launch.
+
+**Rationale:** A 1-hour window matches the typical expectation for what "currently active" means on APRS — a station heard more than an hour ago is unlikely to still be at that position. It also keeps the station count manageable on busy APRS networks (e.g. urban APRS-IS feeds with hundreds of stations per hour).
+
+The 500-entry history cap prevents unbounded memory growth for high-speed mobile stations (e.g. aircraft). At one packet per minute, 500 entries covers ≈8 hours — more than the maximum supported time filter window (12 hours). The cap is enforced on every position update; it does not require a periodic sweep.
+
+**Consequences:**
+- First-run users see at most 60 minutes of history; users who previously ran without a filter will see their station map trimmed on the first prune pass.
+- Position history is not persisted across app restarts (only `lat`/`lon`/`lastHeard` are serialised). This is acceptable — history rebuilds organically as new packets arrive.

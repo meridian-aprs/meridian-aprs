@@ -17,7 +17,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.7 — Android Background | MeridianConnectionService foreground service, persistent notification, bg packet capture + beaconing, auto-reconnect | ✅ Complete |
 | v0.8 — Platform Parity | iOS Cupertino audit, Stadia Maps tile swap (TileProvider abstraction) | ✅ Complete |
 | v0.9 — iOS Background | iOS background beaconing — background location + Live Activity | ✅ Complete |
-| v0.10 — APRS Symbol Icon Set | New repo: `meridian-aprs-symbols` (CC BY 4.0). Style guide, SVG generation, Figma polish, sprite sheets. Integration into Meridian. | — |
+| v0.10 — Map Experience | Viewport-adaptive APRS-IS filter, configurable time filter, track history polylines, map filters UI | ✅ Complete |
 | v0.11 — Map Filters & Stations | Map filters, station profiles | — |
 | v0.12 — Map Enhancement | Track history, cluster markers, object/item display, altitude in position packets | — |
 | v0.13 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | — |
@@ -45,17 +45,14 @@ Bring iOS to parity with Android's background beaconing capability.
 
 ---
 
-### v0.10 — APRS Symbol Icon Set
-A standalone, community-usable APRS symbol set released as a separate open-source project.
+### ~~v0.10 — Map Experience~~ ✅
 
-**Repo:** `meridian-aprs-symbols`
-**License:** CC BY 4.0 — free to use, attribution required ("APRS Symbols by Meridian APRS")
+Make the map functional at real-world scale with adaptive data fetching, time-bounded display, and track history.
 
-- Define visual style guide (stroke weight, corner radius, color palette, grid)
-- Generate SVGs for all primary and overlay APRS symbols
-- Figma polish pass
-- Export sprite sheets indexed to standard APRS two-character symbol codes
-- Integrate into Meridian, replacing placeholder symbol rendering
+- ✅ Viewport-adaptive APRS-IS server-side filter — bounding box (`b/`) derived from visible map bounds with 25% padding and a 50 km minimum floor; replaces fixed 100/150 km radius filters; 500ms debounce on camera idle
+- ✅ Configurable time filter for stale station pruning — default 1 hr, hard-cut (stations older than the window are removed from the map and station list); prune runs every 60s and immediately on setting change
+- ✅ Track history per station ��� `TimestampedPosition` list per station (capped at 500 entries); position history polylines on the map, bounded by the active time filter window
+- ✅ Map filters UI — time window picker and show/hide tracks toggle, accessible from the map screen via a filter FAB (mobile) or toolbar button (tablet/desktop); active filter chip shown on map surface when non-default window is set; Map section in Settings screen with time filter picker
 
 ---
 
@@ -140,7 +137,8 @@ The release milestone. No new features — quality, stability, and store readine
 - **Tocall:** `APMDNx` allocation filed via `aprsorg/aprs-deviceid`. Placeholder `APZMDN` with `TODO(tocall)` in use until confirmed.
 - **macOS/Windows serial TNC testing:** Deferred from v0.4. Still pending physical hardware validation.
 - **Stadia Maps tier:** Free tier in use (non-commercial OSS). Upgrade to paid tier when monetization begins.
+- **APRS Symbol Icon Set:** Deferred from v0.10. Standalone `meridian-aprs-symbols` repo (CC BY 4.0) — style guide, SVG generation, Figma polish, sprite sheets, integration into Meridian. Schedule TBD.
 
 ---
 
-*Last updated: 2026-04-05*
+*Last updated: 2026-04-11*
