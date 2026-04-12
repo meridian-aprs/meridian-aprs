@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/aprs_packet.dart';
@@ -40,6 +41,10 @@ class StationService extends ChangeNotifier {
   static const _keyStationDays = 'history_station_days';
   static const _keyPacketLog = 'packet_log_v1';
   static const _keyStationHistory = 'station_history_v1';
+  static const _keyStationMaxAgeMinutes = 'station_max_age_minutes';
+
+  /// Maximum number of position history entries kept per station.
+  static const int _kMaxPositionHistory = 500;
 
   /// Sentinel value meaning "keep forever" (no age-based pruning).
   static const int forever = 0;
@@ -60,9 +65,13 @@ class StationService extends ChangeNotifier {
   int _packetHistoryDays = 30;
   int _stationHistoryDays = 90;
 
+  // Map display filter: max age in minutes; null = no limit. Default: 60 min.
+  int? _stationMaxAgeMinutes = 60;
+
   // Persistence state.
   SharedPreferences? _prefs;
   Timer? _persistTimer;
+  Timer? _pruneTimer;
 
   StationService();
 
@@ -88,6 +97,7 @@ class StationService extends ChangeNotifier {
   /// Closes stream controllers and cancels timers.
   Future<void> stop() async {
     _persistTimer?.cancel();
+    _pruneTimer?.cancel();
     await _stationController.close();
     await _packetController.close();
   }
@@ -130,6 +140,26 @@ class StationService extends ChangeNotifier {
   /// Max age of persisted stations in days. [forever] (0) means no age limit.
   int get stationHistoryDays => _stationHistoryDays;
 
+  /// Max age for the map display filter in minutes. [null] means no limit.
+  ///
+  /// Stations older than this threshold are removed from [currentStations] and
+  /// their [Station.positionHistory] is trimmed on the next prune pass. Changing
+  /// this value triggers an immediate prune so the map updates instantly.
+  int? get stationMaxAgeMinutes => _stationMaxAgeMinutes;
+
+  /// Update the map station age filter. Set to [null] to disable filtering.
+  Future<void> setStationMaxAgeMinutes(int? value) async {
+    if (value == _stationMaxAgeMinutes) return;
+    _stationMaxAgeMinutes = value;
+    if (value == null) {
+      await _prefs?.remove(_keyStationMaxAgeMinutes);
+    } else {
+      await _prefs?.setInt(_keyStationMaxAgeMinutes, value);
+    }
+    notifyListeners();
+    _pruneNow();
+  }
+
   // ---------------------------------------------------------------------------
   // Ingest
   // ---------------------------------------------------------------------------
@@ -152,6 +182,18 @@ class StationService extends ChangeNotifier {
 
     _packetHistoryDays = prefs.getInt(_keyPacketDays) ?? 30;
     _stationHistoryDays = prefs.getInt(_keyStationDays) ?? 90;
+    _stationMaxAgeMinutes = prefs.containsKey(_keyStationMaxAgeMinutes)
+        ? prefs.getInt(_keyStationMaxAgeMinutes)
+        : 60;
+
+    // Start the periodic prune timer now that prefs are available. Doing this
+    // here (rather than in the constructor) avoids leaving a pending timer in
+    // unit/widget tests that construct StationService without calling this method.
+    _pruneTimer?.cancel();
+    _pruneTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _pruneNow(),
+    );
 
     // Restore station map, skipping entries older than the configured limit.
     final stationsRaw = prefs.getString(_keyStationHistory);
@@ -281,6 +323,17 @@ class StationService extends ChangeNotifier {
   Station _mergeStation(Station incoming) {
     final prev = _stations[incoming.callsign];
     if (prev == null) return incoming;
+
+    // Append the previous position to the history track before overwriting it.
+    final newEntry = TimestampedPosition(
+      prev.lastHeard,
+      LatLng(prev.lat, prev.lon),
+    );
+    var history = [...prev.positionHistory, newEntry];
+    if (history.length > _kMaxPositionHistory) {
+      history = history.sublist(history.length - _kMaxPositionHistory);
+    }
+
     return Station(
       callsign: incoming.callsign,
       lat: incoming.lat,
@@ -291,6 +344,7 @@ class StationService extends ChangeNotifier {
       symbolCode: incoming.symbolCode,
       comment: incoming.comment.isNotEmpty ? incoming.comment : prev.comment,
       device: incoming.device ?? prev.device,
+      positionHistory: history,
     );
   }
 
@@ -317,6 +371,45 @@ class StationService extends ChangeNotifier {
     comment: p.comment,
     device: p.device,
   );
+
+  // ---------------------------------------------------------------------------
+  // Map display pruning
+  // ---------------------------------------------------------------------------
+
+  /// Remove stations (and trim position history) older than [stationMaxAgeMinutes].
+  ///
+  /// Called on a 60-second periodic timer and immediately when the setting
+  /// changes. No-op when [stationMaxAgeMinutes] is null.
+  void _pruneNow() {
+    final maxAge = _stationMaxAgeMinutes;
+    if (maxAge == null) return;
+
+    final cutoff = DateTime.now().toUtc().subtract(Duration(minutes: maxAge));
+    var changed = false;
+
+    _stations.removeWhere((_, s) {
+      if (s.lastHeard.toUtc().isBefore(cutoff)) {
+        changed = true;
+        return true;
+      }
+      return false;
+    });
+
+    // Trim position history for surviving stations.
+    for (final key in _stations.keys.toList()) {
+      final s = _stations[key]!;
+      if (s.positionHistory.isEmpty) continue;
+      final trimmed = s.positionHistory
+          .where((p) => !p.timestamp.toUtc().isBefore(cutoff))
+          .toList();
+      if (trimmed.length != s.positionHistory.length) {
+        _stations[key] = s.copyWith(positionHistory: trimmed);
+        changed = true;
+      }
+    }
+
+    if (changed) _stationController.add(Map.unmodifiable(_stations));
+  }
 
   // ---------------------------------------------------------------------------
   // Persistence helpers
