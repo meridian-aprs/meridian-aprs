@@ -78,6 +78,8 @@ class _MapScreenState extends State<MapScreen> {
     _service = widget.service;
     _tileProvider = widget.tileProvider ?? _UncachedTileProvider();
     _service.stationUpdates.listen(_onStationsUpdated);
+    // Rebuild markers when the display filter setting changes (notifyListeners).
+    _service.addListener(_onServiceSettingChanged);
     // Seed markers from persisted stations already loaded before runApp.
     _onStationsUpdated(_service.currentStations);
     _txEventSub = context.read<TxService>().events.listen(_onTxEvent);
@@ -92,8 +94,15 @@ class _MapScreenState extends State<MapScreen> {
     _filterDebounce?.cancel();
     _markerDebounce?.cancel();
     _txEventSub?.cancel();
+    _service.removeListener(_onServiceSettingChanged);
     _tileProvider.dispose();
     super.dispose();
+  }
+
+  /// Called when [StationService] notifies — e.g. when [stationMaxAgeMinutes]
+  /// changes. Rebuilds markers so the display filter takes effect immediately.
+  void _onServiceSettingChanged() {
+    _onStationsUpdated(_service.currentStations);
   }
 
   void _onTxEvent(TxEvent event) {
@@ -168,31 +177,52 @@ class _MapScreenState extends State<MapScreen> {
     _markerDebounce = Timer(const Duration(milliseconds: 300), () {
       if (!mounted) return;
       setState(() {
-        // Sort ascending by lastHeard so newest stations render on top.
-        final sorted = _service.currentStations.values.toList()
-          ..sort((a, b) => a.lastHeard.compareTo(b.lastHeard));
-        _markers = sorted.map(_buildMarker).toList();
-        _trackPolylines = _buildTrackPolylines(_service.currentStations);
+        final visible = _visibleStations();
+        _markers = visible.map(_buildMarker).toList();
+        _trackPolylines = _buildTrackPolylines(visible);
       });
     });
   }
 
-  List<Polyline> _buildTrackPolylines(Map<String, Station> stations) {
+  /// Returns the subset of stations that pass the current display-age filter,
+  /// sorted ascending by [Station.lastHeard] so newest render on top.
+  ///
+  /// This is a **view filter only** — no station data is deleted.
+  List<Station> _visibleStations() {
+    final maxAge = _service.stationMaxAgeMinutes;
+    final cutoff = maxAge != null
+        ? DateTime.now().toUtc().subtract(Duration(minutes: maxAge))
+        : null;
+    return _service.currentStations.values
+        .where((s) => cutoff == null || !s.lastHeard.toUtc().isBefore(cutoff))
+        .toList()
+      ..sort((a, b) => a.lastHeard.compareTo(b.lastHeard));
+  }
+
+  List<Polyline> _buildTrackPolylines(List<Station> visible) {
     final secondary = Theme.of(
       context,
     ).colorScheme.secondary.withValues(alpha: 0.6);
-    return stations.values
+    final maxAge = _service.stationMaxAgeMinutes;
+    final cutoff = maxAge != null
+        ? DateTime.now().toUtc().subtract(Duration(minutes: maxAge))
+        : null;
+    return visible
         .where((s) => s.positionHistory.isNotEmpty)
-        .map(
-          (s) => Polyline(
-            points: [
-              ...s.positionHistory.map((p) => p.position),
-              LatLng(s.lat, s.lon),
-            ],
+        .map((s) {
+          final pts = cutoff == null
+              ? s.positionHistory
+              : s.positionHistory
+                    .where((p) => !p.timestamp.toUtc().isBefore(cutoff))
+                    .toList();
+          if (pts.isEmpty) return null;
+          return Polyline(
+            points: [...pts.map((p) => p.position), LatLng(s.lat, s.lon)],
             color: secondary,
             strokeWidth: 2.0,
-          ),
-        )
+          );
+        })
+        .whereType<Polyline>()
         .toList();
   }
 

@@ -66,12 +66,13 @@ class StationService extends ChangeNotifier {
   int _stationHistoryDays = 90;
 
   // Map display filter: max age in minutes; null = no limit. Default: 60 min.
+  // This is a VIEW filter only — it does not delete station data. The station
+  // map is filtered in the UI layer (map_screen.dart) before building markers.
   int? _stationMaxAgeMinutes = 60;
 
   // Persistence state.
   SharedPreferences? _prefs;
   Timer? _persistTimer;
-  Timer? _pruneTimer;
 
   StationService();
 
@@ -97,7 +98,6 @@ class StationService extends ChangeNotifier {
   /// Closes stream controllers and cancels timers.
   Future<void> stop() async {
     _persistTimer?.cancel();
-    _pruneTimer?.cancel();
     await _stationController.close();
     await _packetController.close();
   }
@@ -142,9 +142,10 @@ class StationService extends ChangeNotifier {
 
   /// Max age for the map display filter in minutes. [null] means no limit.
   ///
-  /// Stations older than this threshold are removed from [currentStations] and
-  /// their [Station.positionHistory] is trimmed on the next prune pass. Changing
-  /// this value triggers an immediate prune so the map updates instantly.
+  /// This is a view filter only — changing it never deletes station data.
+  /// The map screen filters [currentStations] by this value before building
+  /// markers and polylines. Station data is retained according to
+  /// [stationHistoryDays].
   int? get stationMaxAgeMinutes => _stationMaxAgeMinutes;
 
   /// Update the map station age filter. Set to [null] to disable filtering.
@@ -157,7 +158,6 @@ class StationService extends ChangeNotifier {
       await _prefs?.setInt(_keyStationMaxAgeMinutes, value);
     }
     notifyListeners();
-    _pruneNow();
   }
 
   // ---------------------------------------------------------------------------
@@ -185,15 +185,6 @@ class StationService extends ChangeNotifier {
     _stationMaxAgeMinutes = prefs.containsKey(_keyStationMaxAgeMinutes)
         ? prefs.getInt(_keyStationMaxAgeMinutes)
         : 60;
-
-    // Start the periodic prune timer now that prefs are available. Doing this
-    // here (rather than in the constructor) avoids leaving a pending timer in
-    // unit/widget tests that construct StationService without calling this method.
-    _pruneTimer?.cancel();
-    _pruneTimer = Timer.periodic(
-      const Duration(seconds: 60),
-      (_) => _pruneNow(),
-    );
 
     // Restore station map, skipping entries older than the configured limit.
     final stationsRaw = prefs.getString(_keyStationHistory);
@@ -371,45 +362,6 @@ class StationService extends ChangeNotifier {
     comment: p.comment,
     device: p.device,
   );
-
-  // ---------------------------------------------------------------------------
-  // Map display pruning
-  // ---------------------------------------------------------------------------
-
-  /// Remove stations (and trim position history) older than [stationMaxAgeMinutes].
-  ///
-  /// Called on a 60-second periodic timer and immediately when the setting
-  /// changes. No-op when [stationMaxAgeMinutes] is null.
-  void _pruneNow() {
-    final maxAge = _stationMaxAgeMinutes;
-    if (maxAge == null) return;
-
-    final cutoff = DateTime.now().toUtc().subtract(Duration(minutes: maxAge));
-    var changed = false;
-
-    _stations.removeWhere((_, s) {
-      if (s.lastHeard.toUtc().isBefore(cutoff)) {
-        changed = true;
-        return true;
-      }
-      return false;
-    });
-
-    // Trim position history for surviving stations.
-    for (final key in _stations.keys.toList()) {
-      final s = _stations[key]!;
-      if (s.positionHistory.isEmpty) continue;
-      final trimmed = s.positionHistory
-          .where((p) => !p.timestamp.toUtc().isBefore(cutoff))
-          .toList();
-      if (trimmed.length != s.positionHistory.length) {
-        _stations[key] = s.copyWith(positionHistory: trimmed);
-        changed = true;
-      }
-    }
-
-    if (changed) _stationController.add(Map.unmodifiable(_stations));
-  }
 
   // ---------------------------------------------------------------------------
   // Persistence helpers
