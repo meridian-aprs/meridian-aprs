@@ -41,6 +41,10 @@ class MobileScaffold extends StatefulWidget {
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
+    this.showTracks = false,
+    this.trackPolylines = const [],
+    required this.onOpenFilterPanel,
+    this.activeFilterLabel,
   });
 
   final StationService service;
@@ -53,6 +57,10 @@ class MobileScaffold extends StatefulWidget {
   final double initialZoom;
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
+  final bool showTracks;
+  final List<Polyline> trackPolylines;
+  final VoidCallback onOpenFilterPanel;
+  final String? activeFilterLabel;
 
   @override
   State<MobileScaffold> createState() => _MobileScaffoldState();
@@ -226,6 +234,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 northUpLocked: widget.northUpLocked,
                 isAnyConnected: registry.isAnyConnected,
                 onNotConnectedTap: _navigateToConnection,
+                showTracks: widget.showTracks,
+                trackPolylines: widget.trackPolylines,
+                activeFilterLabel: widget.activeFilterLabel,
+                onActiveFilterTap: widget.onOpenFilterPanel,
               ),
               // FAB cluster — bottom-right above navigation bar.
               SafeArea(
@@ -241,6 +253,13 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            FloatingActionButton.small(
+                              heroTag: 'filter_fab',
+                              onPressed: widget.onOpenFilterPanel,
+                              tooltip: 'Map filters',
+                              child: const Icon(Symbols.filter_list),
+                            ),
+                            const SizedBox(width: 8),
                             FloatingActionButton.small(
                               heroTag: 'north_up_fab',
                               onPressed: widget.onToggleNorthUp,

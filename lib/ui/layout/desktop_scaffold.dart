@@ -43,6 +43,10 @@ class DesktopScaffold extends StatefulWidget {
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
+    this.showTracks = false,
+    this.trackPolylines = const [],
+    required this.onOpenFilterPanel,
+    this.activeFilterLabel,
   });
 
   final StationService service;
@@ -55,6 +59,10 @@ class DesktopScaffold extends StatefulWidget {
   final double initialZoom;
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
+  final bool showTracks;
+  final List<Polyline> trackPolylines;
+  final VoidCallback onOpenFilterPanel;
+  final String? activeFilterLabel;
 
   @override
   State<DesktopScaffold> createState() => _DesktopScaffoldState();
@@ -162,6 +170,11 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
           ),
           _BeaconToolbarButton(),
           IconButton(
+            icon: const Icon(Symbols.filter_list),
+            tooltip: 'Map filters',
+            onPressed: widget.onOpenFilterPanel,
+          ),
+          IconButton(
             icon: const Icon(Symbols.search),
             tooltip: 'Search callsign',
             onPressed: _searchCallsign,
@@ -260,6 +273,10 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                             .read<ConnectionRegistry>()
                             .isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
+                        showTracks: widget.showTracks,
+                        trackPolylines: widget.trackPolylines,
+                        activeFilterLabel: widget.activeFilterLabel,
+                        onActiveFilterTap: widget.onOpenFilterPanel,
                       ),
                     ),
                     AnimatedSize(

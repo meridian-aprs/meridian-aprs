@@ -32,6 +32,10 @@ class MeridianMap extends StatelessWidget {
     this.northUpLocked = true,
     this.isAnyConnected = true,
     this.onNotConnectedTap,
+    this.showTracks = false,
+    this.trackPolylines = const [],
+    this.activeFilterLabel,
+    this.onActiveFilterTap,
   });
 
   final MapController mapController;
@@ -59,6 +63,20 @@ class MeridianMap extends StatelessWidget {
   /// Called when the user taps the not-connected nudge chip.
   final VoidCallback? onNotConnectedTap;
 
+  /// Whether to render station movement tracks.
+  final bool showTracks;
+
+  /// Pre-built polylines from each station's position history.
+  /// Only rendered when [showTracks] is true.
+  final List<Polyline> trackPolylines;
+
+  /// When non-null, a compact chip is shown on the map surface indicating the
+  /// active time filter (e.g. "30 min"). Tapping it calls [onActiveFilterTap].
+  final String? activeFilterLabel;
+
+  /// Called when the user taps the active filter chip.
+  final VoidCallback? onActiveFilterTap;
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -79,6 +97,9 @@ class MeridianMap extends StatelessWidget {
               urlTemplate: tileUrl,
               tileProvider: tileProvider,
               userAgentPackageName: 'com.meridianaprs.app',
+            ),
+            PolylineLayer(
+              polylines: showTracks ? trackPolylines : const <Polyline>[],
             ),
             MarkerLayer(markers: markers),
             RichAttributionWidget(
@@ -107,6 +128,15 @@ class MeridianMap extends StatelessWidget {
                 visible: !isAnyConnected,
                 onTap: onNotConnectedTap!,
               ),
+            ),
+          ),
+        if (activeFilterLabel != null)
+          Positioned(
+            top: 12,
+            left: 12,
+            child: _ActiveFilterChip(
+              label: activeFilterLabel!,
+              onTap: onActiveFilterTap,
             ),
           ),
       ],
@@ -138,6 +168,25 @@ class _NotConnectedNudge extends StatelessWidget {
           visualDensity: VisualDensity.compact,
         ),
       ),
+    );
+  }
+}
+
+/// Compact chip shown on the map surface when a non-default time filter is
+/// active. Tapping it opens the filter panel.
+class _ActiveFilterChip extends StatelessWidget {
+  const _ActiveFilterChip({required this.label, this.onTap});
+
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return ActionChip(
+      avatar: const Icon(Symbols.filter_list, size: 16),
+      label: Text(label),
+      onPressed: onTap,
+      visualDensity: VisualDensity.compact,
     );
   }
 }

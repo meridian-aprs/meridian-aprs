@@ -28,6 +28,10 @@ class ResponsiveLayout extends StatelessWidget {
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
+    this.showTracks = false,
+    this.trackPolylines = const [],
+    required this.onOpenFilterPanel,
+    this.activeFilterLabel,
   });
 
   final StationService service;
@@ -40,6 +44,13 @@ class ResponsiveLayout extends StatelessWidget {
   final double initialZoom;
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
+  final bool showTracks;
+  final List<Polyline> trackPolylines;
+  final VoidCallback onOpenFilterPanel;
+
+  /// Non-null label shown as a chip on the map surface when a non-default
+  /// time filter is active.
+  final String? activeFilterLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +68,10 @@ class ResponsiveLayout extends StatelessWidget {
         initialZoom: initialZoom,
         northUpLocked: northUpLocked,
         onToggleNorthUp: onToggleNorthUp,
+        showTracks: showTracks,
+        trackPolylines: trackPolylines,
+        onOpenFilterPanel: onOpenFilterPanel,
+        activeFilterLabel: activeFilterLabel,
       );
     }
     if (width < 1024) {
@@ -71,6 +86,10 @@ class ResponsiveLayout extends StatelessWidget {
         initialZoom: initialZoom,
         northUpLocked: northUpLocked,
         onToggleNorthUp: onToggleNorthUp,
+        showTracks: showTracks,
+        trackPolylines: trackPolylines,
+        onOpenFilterPanel: onOpenFilterPanel,
+        activeFilterLabel: activeFilterLabel,
       );
     }
     return DesktopScaffold(
@@ -84,6 +103,10 @@ class ResponsiveLayout extends StatelessWidget {
       initialZoom: initialZoom,
       northUpLocked: northUpLocked,
       onToggleNorthUp: onToggleNorthUp,
+      showTracks: showTracks,
+      trackPolylines: trackPolylines,
+      onOpenFilterPanel: onOpenFilterPanel,
+      activeFilterLabel: activeFilterLabel,
     );
   }
 }
