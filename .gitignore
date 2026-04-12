@@ -1,3 +1,6 @@
+# Local development overrides (never commit)
+ios/Flutter/local.xcconfig
+
 # Miscellaneous
 *.class
 *.log
