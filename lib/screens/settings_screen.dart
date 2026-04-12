@@ -42,6 +42,7 @@ class SettingsScreen extends StatelessWidget {
       const _BeaconingSection(),
       const _ConnectionSection(),
       const _HistorySection(),
+      const _MapSection(),
       const _DisplaySection(),
       const _NotificationsSection(),
       const _AccountSection(),
@@ -1372,6 +1373,112 @@ class _HistorySection extends StatelessWidget {
                 },
               ),
             ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Map
+// ---------------------------------------------------------------------------
+
+class _MapSection extends StatelessWidget {
+  const _MapSection();
+
+  static const _options = <({String label, int? value})>[
+    (label: '15 min', value: 15),
+    (label: '30 min', value: 30),
+    (label: '1 hour', value: 60),
+    (label: '2 hours', value: 120),
+    (label: '6 hours', value: 360),
+    (label: '12 hours', value: 720),
+    (label: 'No limit', value: null),
+  ];
+
+  static String _labelFor(int? value) => _options
+      .firstWhere((o) => o.value == value, orElse: () => _options[2])
+      .label;
+
+  @override
+  Widget build(BuildContext context) {
+    final stations = context.watch<StationService>();
+    final current = stations.stationMaxAgeMinutes;
+
+    if (!kIsWeb && Platform.isIOS) {
+      return _buildIos(context, stations, current);
+    }
+    return _buildMaterial(context, stations, current);
+  }
+
+  Widget _buildMaterial(
+    BuildContext context,
+    StationService stations,
+    int? current,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Map'),
+        ListTile(
+          title: const Text('Station timeout'),
+          subtitle: const Text('Hide stations not heard within this window.'),
+          trailing: DropdownButton<int?>(
+            value: current,
+            underline: const SizedBox.shrink(),
+            items: _options
+                .map(
+                  (o) => DropdownMenuItem<int?>(
+                    value: o.value,
+                    child: Text(o.label),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => stations.setStationMaxAgeMinutes(v),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildIos(
+    BuildContext context,
+    StationService stations,
+    int? current,
+  ) {
+    final selectedIndex = _options
+        .indexWhere((o) => o.value == current)
+        .clamp(0, _options.length - 1);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Map'),
+        ListTile(
+          title: const Text('Station timeout'),
+          subtitle: const Text('Hide stations not heard within this window.'),
+          trailing: CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: () => showCupertinoModalPopup<void>(
+              context: context,
+              builder: (_) => SizedBox(
+                height: 216,
+                child: CupertinoPicker(
+                  backgroundColor: CupertinoTheme.of(
+                    context,
+                  ).scaffoldBackgroundColor,
+                  scrollController: FixedExtentScrollController(
+                    initialItem: selectedIndex,
+                  ),
+                  itemExtent: 36,
+                  onSelectedItemChanged: (i) =>
+                      stations.setStationMaxAgeMinutes(_options[i].value),
+                  children: _options.map((o) => Text(o.label)).toList(),
+                ),
+              ),
+            ),
+            child: Text(_labelFor(current)),
           ),
         ),
       ],
