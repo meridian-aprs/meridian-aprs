@@ -15,9 +15,11 @@ import '../map/meridian_tile_provider.dart';
 import '../services/station_service.dart';
 import '../services/tx_service.dart';
 import '../ui/layout/responsive_layout.dart';
+import '../ui/widgets/map_filter_panel.dart';
 import '../theme/theme_controller.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/utils/platform_route.dart';
+import '../ui/widgets/meridian_bottom_sheet.dart';
 import '../ui/widgets/station_info_sheet.dart';
 import 'settings_screen.dart';
 
@@ -63,10 +65,12 @@ class _MapScreenState extends State<MapScreen> {
   late final MeridianTileProvider _tileProvider;
   final _mapController = MapController();
   List<Marker> _markers = [];
+  List<Polyline> _trackPolylines = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
   StreamSubscription<TxEvent>? _txEventSub;
   bool _northUpLocked = true;
+  bool _showTracks = false;
 
   @override
   void initState() {
@@ -142,13 +146,14 @@ class _MapScreenState extends State<MapScreen> {
 
   void _onMapMoveEnd(MapEventMoveEnd event) {
     _filterDebounce?.cancel();
-    _filterDebounce = Timer(const Duration(milliseconds: 800), () {
-      final center = event.camera.center;
-      final zoom = event.camera.zoom;
-      debugPrint('Filter update: ${center.latitude}, ${center.longitude}');
+    _filterDebounce = Timer(const Duration(milliseconds: 500), () {
+      final camera = event.camera;
+      final center = camera.center;
+      final zoom = camera.zoom;
+      debugPrint('Filter update: bounds=${camera.visibleBounds}');
       final aprsIsConn = context.read<ConnectionRegistry>().byId('aprs_is');
       if (aprsIsConn is AprsIsConnection) {
-        aprsIsConn.updateFilter(center.latitude, center.longitude);
+        aprsIsConn.updateFilter(camera.visibleBounds);
       }
       SharedPreferences.getInstance().then((prefs) {
         prefs.setDouble('map_last_lat', center.latitude);
@@ -167,8 +172,54 @@ class _MapScreenState extends State<MapScreen> {
         final sorted = _service.currentStations.values.toList()
           ..sort((a, b) => a.lastHeard.compareTo(b.lastHeard));
         _markers = sorted.map(_buildMarker).toList();
+        _trackPolylines = _buildTrackPolylines(_service.currentStations);
       });
     });
+  }
+
+  List<Polyline> _buildTrackPolylines(Map<String, Station> stations) {
+    final secondary = Theme.of(
+      context,
+    ).colorScheme.secondary.withValues(alpha: 0.6);
+    return stations.values
+        .where((s) => s.positionHistory.isNotEmpty)
+        .map(
+          (s) => Polyline(
+            points: [
+              ...s.positionHistory.map((p) => p.position),
+              LatLng(s.lat, s.lon),
+            ],
+            color: secondary,
+            strokeWidth: 2.0,
+          ),
+        )
+        .toList();
+  }
+
+  /// Returns a short label string when [maxAge] is non-default (not 60 min),
+  /// or null when no chip should be shown.
+  String? _activeFilterLabel(int? maxAge) {
+    if (maxAge == 60) return null; // default — no chip
+    if (maxAge == null) return 'No limit';
+    if (maxAge < 60) return '$maxAge min';
+    final hours = maxAge ~/ 60;
+    return '${hours}h';
+  }
+
+  void _openFilterPanel() {
+    final stationService = context.read<StationService>();
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => MeridianBottomSheet(
+        child: MapFilterPanel(
+          currentMaxAgeMinutes: stationService.stationMaxAgeMinutes,
+          showTracks: _showTracks,
+          onMaxAgeChanged: (v) => stationService.setStationMaxAgeMinutes(v),
+          onShowTracksChanged: (v) => setState(() => _showTracks = v),
+        ),
+      ),
+    );
   }
 
   Marker _buildMarker(Station s) => Marker(
@@ -210,6 +261,10 @@ class _MapScreenState extends State<MapScreen> {
       ThemeMode.system => MediaQuery.of(context).platformBrightness,
     };
 
+    // Show an active-filter chip when the time window is non-default (≠60 min).
+    final maxAge = context.watch<StationService>().stationMaxAgeMinutes;
+    final activeFilterLabel = _activeFilterLabel(maxAge);
+
     return ResponsiveLayout(
       service: _service,
       mapController: _mapController,
@@ -221,6 +276,10 @@ class _MapScreenState extends State<MapScreen> {
       initialZoom: widget.initialZoom,
       northUpLocked: _northUpLocked,
       onToggleNorthUp: _toggleNorthUp,
+      showTracks: _showTracks,
+      trackPolylines: _trackPolylines,
+      onOpenFilterPanel: _openFilterPanel,
+      activeFilterLabel: activeFilterLabel,
     );
   }
 }

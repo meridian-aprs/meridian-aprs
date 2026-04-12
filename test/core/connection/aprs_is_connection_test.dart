@@ -1,6 +1,8 @@
 import 'dart:async';
 
+import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:meridian_aprs/core/connection/aprs_is_connection.dart';
 import 'package:meridian_aprs/core/connection/meridian_connection.dart';
 import 'package:meridian_aprs/core/transport/aprs_is_transport.dart';
@@ -149,8 +151,18 @@ void main() {
     await conn2.dispose();
   });
 
-  test('updateFilter sends correct filter line', () async {
-    conn.updateFilter(47.61, -122.33, radiusKm: 100);
-    expect(transport.sentLines, ['#filter r/47.61/-122.33/100\r\n']);
+  test('updateFilter sends bounding-box filter line', () async {
+    // A 1°×1° box centred on Seattle, padded 25% each edge.
+    // south=47.0, north=48.0, west=-123.0, east=-122.0
+    // padded: s=46.75, n=48.25, w=-123.25, e=-121.75
+    // minimum half-extent check: midLat=47.5, midLon=-122.5 → already >0.45
+    final bounds = LatLngBounds(
+      const LatLng(47.0, -123.0),
+      const LatLng(48.0, -122.0),
+    );
+    conn.updateFilter(bounds);
+    expect(transport.sentLines.length, 1);
+    expect(transport.sentLines.first, startsWith('#filter b/'));
+    expect(transport.sentLines.first, endsWith('\r\n'));
   });
 }

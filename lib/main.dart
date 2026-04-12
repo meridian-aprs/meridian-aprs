@@ -86,8 +86,7 @@ Future<void> main() async {
   final aprsIsTransport = AprsIsTransport(
     loginLine:
         'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
-    filterLine:
-        '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
+    filterLine: AprsIsConnection.defaultFilterLine(mapLat, mapLon),
   );
   final aprsIsConn = AprsIsConnection(aprsIsTransport);
 
