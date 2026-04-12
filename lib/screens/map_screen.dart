@@ -68,6 +68,10 @@ class _MapScreenState extends State<MapScreen> {
   List<Polyline> _trackPolylines = [];
   Timer? _filterDebounce;
   Timer? _markerDebounce;
+  // Periodic tick so the display-age filter slides in real time even when no
+  // new packets arrive. Fires every 60 s to fade/restore stations at the
+  // current time-window boundary without deleting any underlying data.
+  Timer? _slidingWindowTick;
   StreamSubscription<TxEvent>? _txEventSub;
   bool _northUpLocked = true;
   bool _showTracks = false;
@@ -82,6 +86,12 @@ class _MapScreenState extends State<MapScreen> {
     _service.addListener(_onServiceSettingChanged);
     // Seed markers from persisted stations already loaded before runApp.
     _onStationsUpdated(_service.currentStations);
+    // Sliding-window tick: re-evaluate visible stations every 60 s so stations
+    // fade off (or pop back) as real time crosses the filter boundary.
+    _slidingWindowTick = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _onStationsUpdated(_service.currentStations),
+    );
     _txEventSub = context.read<TxService>().events.listen(_onTxEvent);
     _mapController.mapEventStream
         .where((e) => e is MapEventMoveEnd)
@@ -93,6 +103,7 @@ class _MapScreenState extends State<MapScreen> {
   void dispose() {
     _filterDebounce?.cancel();
     _markerDebounce?.cancel();
+    _slidingWindowTick?.cancel();
     _txEventSub?.cancel();
     _service.removeListener(_onServiceSettingChanged);
     _tileProvider.dispose();
