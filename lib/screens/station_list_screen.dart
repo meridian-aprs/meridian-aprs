@@ -1,27 +1,59 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:material_symbols_icons/symbols.dart';
 
 import '../core/packet/station.dart';
 import '../services/station_service.dart';
 import '../ui/widgets/station_info_sheet.dart';
 import '../ui/widgets/station_list_tile.dart';
+import '../ui/widgets/station_search_delegate.dart';
 
 /// Full-screen station list showing all currently heard APRS stations.
 ///
 /// Receives [StationService] from the caller so it shares the same live
 /// connection — no second TCP session is opened.
+///
+/// [onShowOnMap], when provided, adds a "Show on map" button to each station's
+/// info sheet. The callback receives the selected station so the caller can
+/// pan the map to it and switch to the map tab.
 class StationListScreen extends StatelessWidget {
-  const StationListScreen({super.key, required this.service});
+  const StationListScreen({super.key, required this.service, this.onShowOnMap});
 
   final StationService service;
+  final void Function(Station)? onShowOnMap;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Stations')),
-      body: StationListBody(service: service),
+      appBar: AppBar(
+        title: const Text('Stations'),
+        actions: [
+          IconButton(
+            icon: const Icon(Symbols.search),
+            tooltip: 'Search stations',
+            onPressed: () => _openSearch(context),
+          ),
+        ],
+      ),
+      body: StationListBody(service: service, onShowOnMap: onShowOnMap),
     );
+  }
+
+  Future<void> _openSearch(BuildContext context) async {
+    final station = await showSearch<Station?>(
+      context: context,
+      delegate: StationSearchDelegate(stations: service.currentStations),
+    );
+    if (station != null && context.mounted) {
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => StationInfoSheet(
+          station: station,
+          onShowOnMap: onShowOnMap != null ? () => onShowOnMap!(station) : null,
+        ),
+      );
+    }
   }
 }
 
@@ -31,9 +63,10 @@ class StationListScreen extends StatelessWidget {
 /// to [StationService.stationUpdates] for incremental changes. The list is
 /// sorted newest-heard first.
 class StationListBody extends StatefulWidget {
-  const StationListBody({super.key, required this.service});
+  const StationListBody({super.key, required this.service, this.onShowOnMap});
 
   final StationService service;
+  final void Function(Station)? onShowOnMap;
 
   @override
   State<StationListBody> createState() => _StationListBodyState();
@@ -76,7 +109,12 @@ class _StationListBodyState extends State<StationListBody> {
   void _showInfo(BuildContext context, Station station) {
     showModalBottomSheet<void>(
       context: context,
-      builder: (_) => StationInfoSheet(station: station),
+      builder: (_) => StationInfoSheet(
+        station: station,
+        onShowOnMap: widget.onShowOnMap != null
+            ? () => widget.onShowOnMap!(station)
+            : null,
+      ),
     );
   }
 

@@ -16,9 +16,10 @@ import '../../screens/packet_log_screen.dart';
 import '../../screens/station_list_screen.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
+import '../../services/station_settings_service.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
-import '../widgets/station_search_delegate.dart';
+import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
 /// Tablet (600–1024 px) scaffold: collapsed navigation rail + full map +
@@ -46,6 +47,9 @@ class TabletScaffold extends StatefulWidget {
     this.activeFilterLabel,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
+    this.nearestWxStation,
+    this.isFilterActive = false,
+    this.onMapLongPress,
   });
 
   final StationService service;
@@ -64,6 +68,9 @@ class TabletScaffold extends StatefulWidget {
   final String? activeFilterLabel;
   final int visibleStationCount;
   final int totalStationCount;
+  final Station? nearestWxStation;
+  final bool isFilterActive;
+  final void Function(LatLng)? onMapLongPress;
 
   @override
   State<TabletScaffold> createState() => _TabletScaffoldState();
@@ -133,16 +140,41 @@ class _TabletScaffoldState extends State<TabletScaffold> {
     }
   }
 
-  Future<void> _searchCallsign() async {
-    // TODO(ios): replace with Cupertino search UI once iOS theme is validated
-    final station = await showSearch<Station?>(
-      context: context,
-      delegate: StationSearchDelegate(stations: widget.service.currentStations),
-    );
-    if (station != null && mounted) {
-      setState(() => _selectedIndex = 0);
-      widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+  void _showStationOnMap(Station station) {
+    setState(() => _selectedIndex = 0);
+    widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+  }
+
+  void _showOwnStation() {
+    final settings = context.read<StationSettingsService>();
+    final service = context.read<StationService>();
+
+    if (settings.callsign.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set your callsign in Settings first.')),
+      );
+      return;
     }
+
+    final ownAddress = settings.fullAddress;
+    final station = service.currentStations[ownAddress];
+
+    if (station == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$ownAddress hasn\'t been heard yet.')),
+      );
+      return;
+    }
+
+    setState(() => _selectedIndex = 0);
+    widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => StationInfoSheet(station: station),
+      );
+    });
   }
 
   @override
@@ -168,15 +200,19 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                 : 'Free rotation — tap to lock North Up',
             onPressed: widget.onToggleNorthUp,
           ),
-          IconButton(
-            icon: const Icon(Symbols.filter_list),
-            tooltip: 'Map filters',
-            onPressed: widget.onOpenFilterPanel,
+          Badge(
+            isLabelVisible: widget.isFilterActive,
+            smallSize: 8,
+            child: IconButton(
+              icon: const Icon(Symbols.filter_list),
+              tooltip: 'Map filters',
+              onPressed: widget.onOpenFilterPanel,
+            ),
           ),
           IconButton(
-            icon: const Icon(Symbols.search),
-            tooltip: 'Search callsign',
-            onPressed: _searchCallsign,
+            icon: const Icon(Symbols.person_pin),
+            tooltip: 'Find my station',
+            onPressed: _showOwnStation,
           ),
           IconButton(
             icon: _locating
@@ -278,6 +314,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         onActiveFilterTap: widget.onOpenFilterPanel,
                         visibleStationCount: widget.visibleStationCount,
                         totalStationCount: widget.totalStationCount,
+                        nearestWxStation: widget.nearestWxStation,
+                        onMapLongPress: widget.onMapLongPress,
                       ),
                     ),
                     // Collapsed bottom panel — tapping switches to the Log tab.
@@ -292,7 +330,10 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                 PacketLogScreen(service: widget.service),
 
                 // Index 2 — Station list.
-                StationListScreen(service: widget.service),
+                StationListScreen(
+                  service: widget.service,
+                  onShowOnMap: _showStationOnMap,
+                ),
 
                 // Index 3 — Messages.
                 const MessagesScreen(),

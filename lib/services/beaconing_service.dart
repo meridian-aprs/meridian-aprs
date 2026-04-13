@@ -206,8 +206,11 @@ class BeaconingService extends ChangeNotifier {
       hasMessaging: true,
     );
 
-    await _tx.sendBeacon(aprsLine);
+    // Self-ingest before transmitting so the user's own station and packet are
+    // always recorded locally, even if the TX attempt fails or the transport
+    // does not echo the packet back.
     onBeaconSent?.call(aprsLine);
+    await _tx.sendBeacon(aprsLine);
     _lastBeaconAt = DateTime.now();
 
     if (_isActive) await _restartTimer();

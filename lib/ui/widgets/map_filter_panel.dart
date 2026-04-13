@@ -18,6 +18,8 @@ class MapFilterPanel extends StatefulWidget {
     required this.onShowTracksChanged,
     required this.currentHiddenTypes,
     required this.onHiddenTypesChanged,
+    this.visibleStationCount = 0,
+    this.totalStationCount = 0,
   });
 
   /// Currently active station timeout in minutes, or null for no limit.
@@ -37,6 +39,12 @@ class MapFilterPanel extends StatefulWidget {
 
   /// Called when the hidden-type set changes.
   final ValueChanged<Set<StationType>> onHiddenTypesChanged;
+
+  /// Number of stations passing the current display filter.
+  final int visibleStationCount;
+
+  /// Total number of known stations (unfiltered).
+  final int totalStationCount;
 
   static const _timeOptions = <({String label, int? value})>[
     (label: '15 min', value: 15),
@@ -83,6 +91,20 @@ class _MapFilterPanelState extends State<MapFilterPanel> {
     }
   }
 
+  bool get _isNonDefault =>
+      _maxAgeMinutes != 60 || !_showTracks || _hiddenTypes.isNotEmpty;
+
+  void _resetToDefaults() {
+    setState(() {
+      _maxAgeMinutes = 60;
+      _showTracks = true;
+      _hiddenTypes = {};
+    });
+    widget.onMaxAgeChanged(60);
+    widget.onShowTracksChanged(true);
+    widget.onHiddenTypesChanged({});
+  }
+
   void _toggleType(StationType type) {
     setState(() {
       if (_hiddenTypes.contains(type)) {
@@ -102,13 +124,27 @@ class _MapFilterPanelState extends State<MapFilterPanel> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: Text(
-            'MAP FILTERS',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.8,
-            ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'MAP FILTERS',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              if (widget.totalStationCount > 0)
+                Text(
+                  widget.visibleStationCount < widget.totalStationCount
+                      ? '${widget.visibleStationCount} of ${widget.totalStationCount} stations'
+                      : '${widget.totalStationCount} stations',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
           ),
         ),
         ListTile(
@@ -169,6 +205,15 @@ class _MapFilterPanelState extends State<MapFilterPanel> {
             widget.onShowTracksChanged(v);
           },
         ),
+        if (_isNonDefault)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+            child: TextButton.icon(
+              icon: const Icon(Symbols.restart_alt, size: 18),
+              label: const Text('Reset to defaults'),
+              onPressed: _resetToDefaults,
+            ),
+          ),
         const SizedBox(height: 16),
       ],
     );

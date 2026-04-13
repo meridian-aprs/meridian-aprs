@@ -17,10 +17,11 @@ import '../../screens/station_list_screen.dart';
 import '../../services/beaconing_service.dart';
 import '../../services/message_service.dart';
 import '../../services/station_service.dart';
+import '../../services/station_settings_service.dart';
 import '../widgets/beacon_fab.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
-import '../widgets/station_search_delegate.dart';
+import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
 /// Mobile (< 600 px) scaffold: full-screen map, FAB cluster, M3 Navigation Bar.
@@ -47,6 +48,9 @@ class MobileScaffold extends StatefulWidget {
     this.activeFilterLabel,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
+    this.nearestWxStation,
+    this.isFilterActive = false,
+    this.onMapLongPress,
   });
 
   final StationService service;
@@ -65,6 +69,9 @@ class MobileScaffold extends StatefulWidget {
   final String? activeFilterLabel;
   final int visibleStationCount;
   final int totalStationCount;
+  final Station? nearestWxStation;
+  final bool isFilterActive;
+  final void Function(LatLng)? onMapLongPress;
 
   @override
   State<MobileScaffold> createState() => _MobileScaffoldState();
@@ -140,16 +147,41 @@ class _MobileScaffoldState extends State<MobileScaffold> {
     }
   }
 
-  Future<void> _searchCallsign() async {
-    // TODO(ios): replace with Cupertino search UI once iOS theme is validated
-    final station = await showSearch<Station?>(
-      context: context,
-      delegate: StationSearchDelegate(stations: widget.service.currentStations),
-    );
-    if (station != null && mounted) {
-      setState(() => _selectedIndex = 0);
-      widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+  void _showStationOnMap(Station station) {
+    setState(() => _selectedIndex = 0);
+    widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+  }
+
+  void _showOwnStation() {
+    final settings = context.read<StationSettingsService>();
+    final service = context.read<StationService>();
+
+    if (settings.callsign.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Set your callsign in Settings first.')),
+      );
+      return;
     }
+
+    final ownAddress = settings.fullAddress;
+    final station = service.currentStations[ownAddress];
+
+    if (station == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$ownAddress hasn\'t been heard yet.')),
+      );
+      return;
+    }
+
+    setState(() => _selectedIndex = 0);
+    widget.mapController.move(LatLng(station.lat, station.lon), 13.0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        builder: (_) => StationInfoSheet(station: station),
+      );
+    });
   }
 
   @override
@@ -245,24 +277,9 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                 visibleStationCount: widget.visibleStationCount,
                 totalStationCount: widget.totalStationCount,
                 showCountChip: false,
+                nearestWxStation: widget.nearestWxStation,
+                onMapLongPress: widget.onMapLongPress,
               ),
-              // Station count chip — left side, vertically centered on the
-              // beacon FAB (16 px bottom padding + 28 px half-FAB = 44 px
-              // from SafeArea bottom; chip ~28 px tall → bottom edge at 30 px).
-              if (widget.visibleStationCount < widget.totalStationCount &&
-                  widget.totalStationCount > 0)
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 12, bottom: 30),
-                      child: _StationCountChip(
-                        visible: widget.visibleStationCount,
-                        total: widget.totalStationCount,
-                      ),
-                    ),
-                  ),
-                ),
               // FAB cluster — bottom-right above navigation bar.
               SafeArea(
                 child: Align(
@@ -277,11 +294,15 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            FloatingActionButton.small(
-                              heroTag: 'filter_fab',
-                              onPressed: widget.onOpenFilterPanel,
-                              tooltip: 'Map filters',
-                              child: const Icon(Symbols.filter_list),
+                            Badge(
+                              isLabelVisible: widget.isFilterActive,
+                              smallSize: 8,
+                              child: FloatingActionButton.small(
+                                heroTag: 'filter_fab',
+                                onPressed: widget.onOpenFilterPanel,
+                                tooltip: 'Map filters',
+                                child: const Icon(Symbols.filter_list),
+                              ),
                             ),
                             const SizedBox(width: 8),
                             FloatingActionButton.small(
@@ -298,10 +319,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                             ),
                             const SizedBox(width: 8),
                             FloatingActionButton.small(
-                              heroTag: 'search_fab',
-                              onPressed: _searchCallsign,
-                              tooltip: 'Search callsign',
-                              child: const Icon(Symbols.search),
+                              heroTag: 'my_station_fab',
+                              onPressed: _showOwnStation,
+                              tooltip: 'Find my station',
+                              child: const Icon(Symbols.person_pin),
                             ),
                             const SizedBox(width: 8),
                             FloatingActionButton.small(
@@ -359,7 +380,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
           PacketLogScreen(service: widget.service),
 
           // Index 2 — Station list.
-          StationListScreen(service: widget.service),
+          StationListScreen(
+            service: widget.service,
+            onShowOnMap: _showStationOnMap,
+          ),
 
           // Index 3 — Messages.
           const MessagesScreen(),
@@ -368,22 +392,6 @@ class _MobileScaffoldState extends State<MobileScaffold> {
           const ConnectionScreen(),
         ],
       ),
-    );
-  }
-}
-
-class _StationCountChip extends StatelessWidget {
-  const _StationCountChip({required this.visible, required this.total});
-
-  final int visible;
-  final int total;
-
-  @override
-  Widget build(BuildContext context) {
-    return Chip(
-      avatar: const Icon(Icons.layers, size: 16),
-      label: Text('$visible of $total stations'),
-      visualDensity: VisualDensity.compact,
     );
   }
 }

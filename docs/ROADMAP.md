@@ -109,6 +109,7 @@ Optimize for real-world sustained use.
 - Profile and reduce background service battery drain
 - Packet processing efficiency review
 - Memory usage audit for large station counts
+- Evaluate migrating station/packet persistence from SharedPreferences JSON blobs to SQLite (via `drift`): current flat-JSON approach is fine for hundreds of stations but will not scale to large history windows or dense RF environments; SQLite enables indexed bounding-box queries and avoids loading the full dataset into RAM on startup
 
 ---
 

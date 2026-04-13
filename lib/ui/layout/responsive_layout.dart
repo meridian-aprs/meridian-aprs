@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/packet/station.dart';
 import '../../map/meridian_tile_provider.dart';
 
 import '../../services/station_service.dart';
@@ -34,6 +35,9 @@ class ResponsiveLayout extends StatelessWidget {
     this.activeFilterLabel,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
+    this.nearestWxStation,
+    this.isFilterActive = false,
+    this.onMapLongPress,
   });
 
   final StationService service;
@@ -57,6 +61,17 @@ class ResponsiveLayout extends StatelessWidget {
   final int visibleStationCount;
   final int totalStationCount;
 
+  /// Nearest weather station within 50 km of the map center.
+  /// Non-null only when the overlay is enabled and a WX station is in range.
+  final Station? nearestWxStation;
+
+  /// Whether any map filter is set to a non-default value. Used to badge the
+  /// filter FAB/button so users know active filters are in effect.
+  final bool isFilterActive;
+
+  /// Called when the user long-presses on the map canvas.
+  final void Function(LatLng)? onMapLongPress;
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -79,6 +94,9 @@ class ResponsiveLayout extends StatelessWidget {
         activeFilterLabel: activeFilterLabel,
         visibleStationCount: visibleStationCount,
         totalStationCount: totalStationCount,
+        nearestWxStation: nearestWxStation,
+        isFilterActive: isFilterActive,
+        onMapLongPress: onMapLongPress,
       );
     }
     if (width < 1024) {
@@ -99,6 +117,9 @@ class ResponsiveLayout extends StatelessWidget {
         activeFilterLabel: activeFilterLabel,
         visibleStationCount: visibleStationCount,
         totalStationCount: totalStationCount,
+        nearestWxStation: nearestWxStation,
+        isFilterActive: isFilterActive,
+        onMapLongPress: onMapLongPress,
       );
     }
     return DesktopScaffold(
@@ -118,6 +139,9 @@ class ResponsiveLayout extends StatelessWidget {
       activeFilterLabel: activeFilterLabel,
       visibleStationCount: visibleStationCount,
       totalStationCount: totalStationCount,
+      nearestWxStation: nearestWxStation,
+      isFilterActive: isFilterActive,
+      onMapLongPress: onMapLongPress,
     );
   }
 }

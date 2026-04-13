@@ -43,6 +43,14 @@ class StationService extends ChangeNotifier {
   static const _keyStationHistory = 'station_history_v1';
   static const _keyStationMaxAgeMinutes = 'station_max_age_minutes';
   static const _keyHiddenTypes = 'station_hidden_types';
+  static const _keyShowWeatherOverlay = 'show_weather_overlay';
+  static const _keyShowTracks = 'show_tracks';
+  static const _keyUseImperialUnits = 'use_imperial_units';
+
+  // Weather overlay sub-settings
+  static const _keyWeatherRadiusKm = 'weather_overlay_radius_km';
+  static const _keyWeatherUseCelsius = 'weather_overlay_use_celsius';
+  static const _keyWeatherMaxAgeMinutes = 'weather_overlay_max_age_minutes';
 
   /// Maximum number of position history entries kept per station.
   static const int _kMaxPositionHistory = 500;
@@ -74,6 +82,20 @@ class StationService extends ChangeNotifier {
   // Station type display filter — types in this set are hidden on the map.
   // View filter only; no data is deleted.
   Set<StationType> _hiddenTypes = {};
+
+  // Whether to render movement trail polylines on the map.
+  bool _showTracks = false;
+
+  // Whether to display distances in imperial units (miles/feet) instead of
+  // metric (km/m).
+  bool _useImperialUnits = false;
+
+  // Whether to show the weather overlay chip on the map.
+  bool _showWeatherOverlay = false;
+
+  int _weatherOverlayRadiusKm = 50;
+  bool _weatherOverlayUseCelsius = false;
+  int _weatherOverlayMaxAgeMinutes = 60;
 
   // Persistence state.
   SharedPreferences? _prefs;
@@ -168,6 +190,65 @@ class StationService extends ChangeNotifier {
   /// Station types currently hidden on the map (display filter, not deletion).
   Set<StationType> get hiddenTypes => Set.unmodifiable(_hiddenTypes);
 
+  /// Whether to render track polylines on the map.
+  bool get showTracks => _showTracks;
+
+  /// Update the show-tracks toggle. Persists the selection.
+  Future<void> setShowTracks(bool value) async {
+    if (_showTracks == value) return;
+    _showTracks = value;
+    await _prefs?.setBool(_keyShowTracks, value);
+    notifyListeners();
+  }
+
+  /// Whether distances are displayed in imperial units (mi/ft) rather than
+  /// metric (km/m).
+  bool get useImperialUnits => _useImperialUnits;
+
+  /// Toggle the distance unit preference. Persists the selection.
+  Future<void> setUseImperialUnits(bool value) async {
+    if (_useImperialUnits == value) return;
+    _useImperialUnits = value;
+    await _prefs?.setBool(_keyUseImperialUnits, value);
+    notifyListeners();
+  }
+
+  /// Whether to show the weather overlay chip on the map.
+  bool get showWeatherOverlay => _showWeatherOverlay;
+
+  int get weatherOverlayRadiusKm => _weatherOverlayRadiusKm;
+  bool get weatherOverlayUseCelsius => _weatherOverlayUseCelsius;
+  int get weatherOverlayMaxAgeMinutes => _weatherOverlayMaxAgeMinutes;
+
+  /// Update the weather overlay toggle. Persists the selection.
+  Future<void> setShowWeatherOverlay(bool value) async {
+    if (_showWeatherOverlay == value) return;
+    _showWeatherOverlay = value;
+    await _prefs?.setBool(_keyShowWeatherOverlay, value);
+    notifyListeners();
+  }
+
+  Future<void> setWeatherOverlayRadiusKm(int km) async {
+    if (_weatherOverlayRadiusKm == km) return;
+    _weatherOverlayRadiusKm = km;
+    await _prefs?.setInt(_keyWeatherRadiusKm, km);
+    notifyListeners();
+  }
+
+  Future<void> setWeatherOverlayUseCelsius(bool value) async {
+    if (_weatherOverlayUseCelsius == value) return;
+    _weatherOverlayUseCelsius = value;
+    await _prefs?.setBool(_keyWeatherUseCelsius, value);
+    notifyListeners();
+  }
+
+  Future<void> setWeatherOverlayMaxAgeMinutes(int minutes) async {
+    if (_weatherOverlayMaxAgeMinutes == minutes) return;
+    _weatherOverlayMaxAgeMinutes = minutes;
+    await _prefs?.setInt(_keyWeatherMaxAgeMinutes, minutes);
+    notifyListeners();
+  }
+
   /// Update which station types are hidden. Persists the selection.
   Future<void> setHiddenTypes(Set<StationType> types) async {
     _hiddenTypes = Set.of(types);
@@ -207,6 +288,12 @@ class StationService extends ChangeNotifier {
         .map((n) => StationType.values.where((t) => t.name == n).firstOrNull)
         .whereType<StationType>()
         .toSet();
+    _showTracks = prefs.getBool(_keyShowTracks) ?? false;
+    _useImperialUnits = prefs.getBool(_keyUseImperialUnits) ?? false;
+    _showWeatherOverlay = prefs.getBool(_keyShowWeatherOverlay) ?? false;
+    _weatherOverlayRadiusKm = prefs.getInt(_keyWeatherRadiusKm) ?? 50;
+    _weatherOverlayUseCelsius = prefs.getBool(_keyWeatherUseCelsius) ?? false;
+    _weatherOverlayMaxAgeMinutes = prefs.getInt(_keyWeatherMaxAgeMinutes) ?? 60;
 
     // Restore station map, skipping entries older than the configured limit.
     final stationsRaw = prefs.getString(_keyStationHistory);
@@ -346,6 +433,12 @@ class StationService extends ChangeNotifier {
         _stations[station.callsign] = station;
         _stationController.add(Map.unmodifiable(_stations));
       }
+    } else if (packet is WeatherPacket) {
+      if (packet.lat != null && packet.lon != null) {
+        final station = _mergeStation(_stationFromWeather(packet));
+        _stations[station.callsign] = station;
+        _stationController.add(Map.unmodifiable(_stations));
+      }
     } else if (packet is UnknownPacket) {
       debugPrint('SKIP: ${packet.reason} -- $raw');
     }
@@ -434,6 +527,18 @@ class StationService extends ChangeNotifier {
     type: StationType.object,
   );
 
+  Station _stationFromWeather(WeatherPacket p) => Station(
+    callsign: p.source,
+    lat: p.lat!,
+    lon: p.lon!,
+    rawPacket: p.rawLine,
+    lastHeard: p.receivedAt,
+    symbolTable: p.symbolTable,
+    symbolCode: p.symbolCode,
+    comment: p.rawLine, // store raw for fallback display
+    type: StationType.weather,
+  );
+
   // ---------------------------------------------------------------------------
   // Persistence helpers
   // ---------------------------------------------------------------------------
@@ -506,6 +611,16 @@ class StationService extends ChangeNotifier {
     'rawPacket': s.rawPacket,
     'type': s.type.name,
     if (s.device != null) 'device': s.device,
+    if (s.positionHistory.isNotEmpty)
+      'positionHistory': s.positionHistory
+          .map(
+            (p) => {
+              'ts': p.timestamp.millisecondsSinceEpoch,
+              'lat': p.position.latitude,
+              'lon': p.position.longitude,
+            },
+          )
+          .toList(),
   };
 
   Station _stationFromJson(Map<String, dynamic> json) {
@@ -516,6 +631,18 @@ class StationService extends ChangeNotifier {
         ? StationType.values.where((t) => t.name == typeStr).firstOrNull ??
               classifyStationType(symbolTable, symbolCode)
         : classifyStationType(symbolTable, symbolCode);
+
+    final historyRaw = json['positionHistory'] as List<dynamic>?;
+    final positionHistory =
+        historyRaw?.map((e) {
+          final m = e as Map<String, dynamic>;
+          return TimestampedPosition(
+            DateTime.fromMillisecondsSinceEpoch(m['ts'] as int, isUtc: true),
+            LatLng((m['lat'] as num).toDouble(), (m['lon'] as num).toDouble()),
+          );
+        }).toList() ??
+        const [];
+
     return Station(
       callsign: json['callsign'] as String,
       lat: (json['lat'] as num).toDouble(),
@@ -527,6 +654,7 @@ class StationService extends ChangeNotifier {
       rawPacket: (json['rawPacket'] as String?) ?? '',
       device: json['device'] as String?,
       type: type,
+      positionHistory: positionHistory,
     );
   }
 }

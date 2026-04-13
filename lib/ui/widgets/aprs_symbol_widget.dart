@@ -13,9 +13,9 @@ import 'package:flutter/widgets.dart';
 ///   col = pos % 16
 ///   row = pos ÷ 16
 ///
-/// Overlay symbols (symbolTable is a digit or letter rather than '\') are
-/// shown using the alternate-table base symbol; overlay character rendering
-/// is a future improvement.
+/// Overlay symbols (symbolTable is a digit 0–9 or uppercase letter A–Z) are
+/// rendered using the alternate-table base symbol with the overlay character
+/// drawn as white bold text centered on top of the icon.
 class AprsSymbolWidget extends StatelessWidget {
   const AprsSymbolWidget({
     super.key,
@@ -37,6 +37,14 @@ class AprsSymbolWidget extends StatelessWidget {
   static const int _kCols = 16;
   static const int _kRows = 6;
 
+  /// Returns true when [symbolTable] is an overlay character (digit 0–9 or
+  /// uppercase letter A–Z) rather than a standard table selector ('/' or '\').
+  bool get _isOverlaySymbol {
+    if (symbolTable.isEmpty) return false;
+    final c = symbolTable.codeUnitAt(0);
+    return (c >= 48 && c <= 57) || (c >= 65 && c <= 90);
+  }
+
   @override
   Widget build(BuildContext context) {
     final int pos = symbolCode.isNotEmpty
@@ -45,6 +53,7 @@ class AprsSymbolWidget extends StatelessWidget {
     final int col = pos % _kCols;
     final int row = pos ~/ _kCols;
 
+    // Overlay symbols use the alternate table sheet as their base image.
     final String sheet = symbolTable == '/'
         ? 'assets/aprs_symbols/aprs-symbols-64-0.png'
         : 'assets/aprs_symbols/aprs-symbols-64-1.png';
@@ -69,6 +78,21 @@ class AprsSymbolWidget extends StatelessWidget {
               fit: BoxFit.fill,
             ),
           ),
+          if (_isOverlaySymbol)
+            Center(
+              child: Text(
+                symbolTable,
+                style: TextStyle(
+                  fontSize: size * 0.55,
+                  fontWeight: FontWeight.bold,
+                  color: const Color(0xFFFFFFFF),
+                  height: 1.0,
+                  shadows: const [
+                    Shadow(color: Color(0x89000000), blurRadius: 2),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );
