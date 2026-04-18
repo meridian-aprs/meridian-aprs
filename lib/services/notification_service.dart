@@ -414,22 +414,28 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       NotificationChannels.messages,
     );
 
+    final notifId = callsign.hashCode.abs() % 100000 + 1;
+
+    // Always post/update the per-callsign notification so the new-message
+    // heads-up alert fires regardless of how many other conversations are
+    // unread. Replacing an existing notification by the same ID still triggers
+    // heads-up on Android when there is new content.
+    await _dispatchSingleNotification(
+      notifId,
+      callsign,
+      text,
+      withSound,
+      withVibration,
+    );
+
+    // When multiple conversations are unread, also post a silent group summary
+    // so Android groups them in the shade — matching the Google Messages model
+    // of one summary + N individual conversation notifications.
     final unreadConvs = _messageService.conversations
         .where((c) => c.unreadCount > 0)
         .toList();
-
-    final notifId = callsign.hashCode.abs() % 100000 + 1;
-
-    if (unreadConvs.length >= 3) {
-      await _dispatchGroupedNotification(unreadConvs, withSound, withVibration);
-    } else {
-      await _dispatchSingleNotification(
-        notifId,
-        callsign,
-        text,
-        withSound,
-        withVibration,
-      );
+    if (unreadConvs.length >= 2) {
+      await _dispatchGroupSummary(unreadConvs);
     }
   }
 
@@ -559,11 +565,10 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
-  Future<void> _dispatchGroupedNotification(
-    List<Conversation> unreadConvs,
-    bool withSound,
-    bool withVibration,
-  ) async {
+  /// Posts a silent Android group summary so the notification shade groups all
+  /// per-callsign notifications together. Does not play sound or vibrate —
+  /// the per-callsign notification already alerted the user.
+  Future<void> _dispatchGroupSummary(List<Conversation> unreadConvs) async {
     final total = unreadConvs.fold<int>(0, (s, c) => s + c.unreadCount);
     final lines = unreadConvs.map((c) {
       final preview = c.lastMessage?.text ?? '';
@@ -576,8 +581,8 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       channelDescription: 'Incoming APRS messages addressed to you.',
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
-      playSound: withSound,
-      enableVibration: withVibration,
+      playSound: false,
+      enableVibration: false,
       groupKey: _kGroupKey,
       setAsGroupSummary: true,
       styleInformation: InboxStyleInformation(
