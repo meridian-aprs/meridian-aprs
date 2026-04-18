@@ -18,7 +18,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.8 — Platform Parity | iOS Cupertino audit, Stadia Maps tile swap (TileProvider abstraction) | ✅ Complete |
 | v0.9 — iOS Background | iOS background beaconing — background location + Live Activity | ✅ Complete |
 | v0.10 — Map Experience | Viewport-adaptive APRS-IS filter, configurable time filter, track history polylines, map filters UI | ✅ Complete |
-| v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | 🔄 In progress |
+| v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | ✅ Complete |
 | v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | — |
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | — |
 | v0.14 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
@@ -54,7 +54,7 @@ Make the map functional at real-world scale with adaptive data fetching, time-bo
 
 ---
 
-### v0.11 — Notifications
+### ~~v0.11 — Notifications~~ ✅
 Keep operators informed when Meridian is in the background.
 
 - ✅ `NotificationService` — main-isolate dispatch to `flutter_local_notifications` (Android/iOS/macOS) and `local_notifier` (Windows/Linux)
@@ -131,4 +131,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-17*
+*Last updated: 2026-04-18*

@@ -57,14 +57,14 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.8~~ | ~~Cross-platform parity pass (iOS Cupertino audit, Stadia Maps tile swap)~~ ✓ |
 | ~~v0.9~~ | ~~iOS Background Beaconing (background location + Live Activity)~~ ✓ |
 | ~~v0.10~~ | ~~Map experience — viewport-adaptive APRS-IS filter, time filter, track history, cluster markers, station type filters, object/item display~~ ✓ |
-| **v0.11** | Background notifications + in-app banner system |
+| ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
 | **v0.12** | Onboarding improvements |
 | **v0.13** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
 | **v0.14** | Battery & performance optimization pass |
 | **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.11 in progress (notifications milestone). v0.10 complete — map experience milestone (viewport-adaptive APRS-IS area filter, time filter, track history, cluster markers, station type filters). v0.11 adds: `NotificationService` (main-isolate dispatch, `flutter_local_notifications` on mobile/macOS, `local_notifier` on Windows/Linux); four notification channels (`messages`, `alerts`, `nearby`, `system`); Android `BigTextStyle`/`InboxStyle` + `RemoteInput` inline reply; iOS `UNTextInputAction` inline reply + foreground delivery; `InAppBannerOverlay` at app root; `NotificationPreferences` model + settings UI; cold-start navigation via global `navigatorKey`. ADRs 001–038 in `docs/DECISIONS.md`.**
+**Current status: v0.11 complete (notifications milestone). v0.12 next — Onboarding improvements. v0.11 added: `NotificationService` (main-isolate dispatch, `flutter_local_notifications` on mobile/macOS, `local_notifier` on Windows/Linux); four notification channels (`messages`, `alerts`, `nearby`, `system`); Android `MessagingStyle` + `RemoteInput` inline reply via native `BroadcastReceiver` + `FlutterEngineCache`; iOS `UNTextInputAction` inline reply + foreground delivery; `InAppBannerOverlay` at app root; `NotificationPreferences` model + settings UI; cold-start navigation via global `navigatorKey`; APRS-IS connection opt-in (no auto-connect on launch). ADRs 001–038 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
