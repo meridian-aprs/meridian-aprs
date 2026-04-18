@@ -85,7 +85,10 @@ class MainActivity : FlutterActivity() {
 
         val mePerson = Person.Builder().setName("You").setBot(true).build()
         val peerPerson = Person.Builder().setName(callsign).setBot(true).build()
+        val baseCallsign = callsign.substringBefore('-')
         val style = NotificationCompat.MessagingStyle(mePerson)
+            .setGroupConversation(true)
+            .setConversationTitle("Message from $baseCallsign")
         for (msg in messages) {
             val sender = msg["sender"] as? String
             val text = msg["text"] as? String ?: continue
