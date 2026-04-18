@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -230,6 +231,58 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(f.messageService.conversations, isEmpty);
+    });
+  });
+
+  group('NotificationService — Android MethodChannel reply', () {
+    late _Fixture f;
+
+    setUp(() async {
+      f = await _Fixture.create();
+    });
+
+    tearDown(() => f.dispose());
+
+    test('handleReply sends message to correct callsign', () async {
+      await f.notificationService.handleNativeCallForTest(
+        const MethodCall('handleReply', {
+          'callsign': 'WB5XYZ',
+          'text': 'Android inline reply',
+          'notificationId': 42,
+        }),
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.messageService.conversationWith('WB5XYZ');
+      expect(conv, isNotNull);
+      final outgoing = conv!.messages.where((m) => m.isOutgoing).toList();
+      expect(outgoing, hasLength(1));
+      expect(outgoing.first.text, 'Android inline reply');
+    });
+
+    test('handleMarkRead marks conversation as read', () async {
+      // Inject an inbound message so there is an unread conversation.
+      f.injectInbound('WB5XYZ', 'Are you there?');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(f.messageService.conversationWith('WB5XYZ')?.unreadCount, 1);
+
+      await f.notificationService.handleNativeCallForTest(
+        const MethodCall('handleMarkRead', {'callsign': 'WB5XYZ'}),
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(f.messageService.conversationWith('WB5XYZ')?.unreadCount, 0);
+    });
+
+    test('navigateToThread is handled without throwing', () async {
+      // Navigation requires a real navigator; just verify no exception thrown.
+      await expectLater(
+        f.notificationService.handleNativeCallForTest(
+          const MethodCall('navigateToThread', {'callsign': 'WB5XYZ'}),
+        ),
+        completes,
+      );
     });
   });
 }

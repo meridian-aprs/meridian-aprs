@@ -12,6 +12,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,6 +32,12 @@ const _kGroupSummaryId = 0;
 const _kReplyActionId = 'reply';
 const _kMarkReadActionId = 'mark_read';
 const _kGroupKey = 'meridian_messages';
+
+// MethodChannel shared with MainActivity and MeridianNotificationActionReceiver.
+// Used for bidirectional Android notification coordination:
+//   Dart  → native: postMessageNotification, getPendingNavigation
+//   native → Dart:  handleReply, handleMarkRead, navigateToThread
+const _kNativeChannel = MethodChannel('meridian/notifications');
 
 class NotificationService extends ChangeNotifier {
   NotificationService({
@@ -88,6 +95,13 @@ class NotificationService extends ChangeNotifier {
           shortcutPolicy: ShortcutPolicy.requireCreate,
         );
         _desktopNotifierReady = true;
+      }
+
+      // Android-specific: register the native MethodChannel handler and check
+      // for a pending navigation from a cold-start notification tap.
+      if (Platform.isAndroid) {
+        _kNativeChannel.setMethodCallHandler(_handleNativeCall);
+        _schedulePendingNavCheck();
       }
     }
 
@@ -199,6 +213,66 @@ class NotificationService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Android native channel handler
+  // ---------------------------------------------------------------------------
+
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    switch (call.method) {
+      case 'handleReply':
+        final callsign = call.arguments['callsign'] as String;
+        final text = call.arguments['text'] as String;
+        final notifId = call.arguments['notificationId'] as int;
+        await _messageService.sendMessage(callsign, text);
+        // Re-post with alertOnce:true so the spinner dismisses without heads-up.
+        if (!kIsWeb && Platform.isAndroid) {
+          await _dispatchAndroidNotification(
+            notifId,
+            callsign,
+            _notifPrefs.isSoundEnabled(NotificationChannels.messages),
+            _notifPrefs.isVibrationEnabled(NotificationChannels.messages),
+            alertOnce: true,
+          );
+        }
+
+      case 'handleMarkRead':
+        final callsign = call.arguments['callsign'] as String;
+        _messageService.markRead(callsign);
+        // Cancel group summary if fewer than 2 conversations remain unread.
+        final remaining = _messageService.conversations
+            .where((c) => c.unreadCount > 0)
+            .length;
+        if (remaining < 2 && _initialized) {
+          _plugin
+              .cancel(_kGroupSummaryId)
+              .catchError((_) {}); // ignore: unawaited_futures
+        }
+
+      case 'navigateToThread':
+        final callsign = call.arguments['callsign'] as String;
+        if (callsign.isNotEmpty) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _navigateToThread(callsign);
+          });
+        }
+    }
+  }
+
+  /// Checks for a pending notification-tap navigation from a cold start.
+  /// MainActivity holds the callsign until Dart calls `getPendingNavigation`.
+  void _schedulePendingNavCheck() {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        final callsign = await _kNativeChannel.invokeMethod<String>(
+          'getPendingNavigation',
+        );
+        if (callsign != null && callsign.isNotEmpty) {
+          _navigateToThread(callsign);
+        }
+      } catch (_) {}
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Thread tracking (called from MessageThreadScreen)
   // ---------------------------------------------------------------------------
 
@@ -278,49 +352,69 @@ class NotificationService extends ChangeNotifier {
     final withVibration = _notifPrefs.isVibrationEnabled(
       NotificationChannels.messages,
     );
-
     final notifId = callsign.hashCode.abs() % 100000 + 1;
 
-    // Always post/update the per-callsign notification so the new-message
-    // heads-up alert fires regardless of how many other conversations are
-    // unread. Replacing an existing notification by the same ID still triggers
-    // heads-up on Android when there is new content.
-    await _dispatchSingleNotification(
-      notifId,
-      callsign,
-      text,
-      withSound,
-      withVibration,
-    );
+    if (!kIsWeb && Platform.isAndroid) {
+      // Android: post natively so inline reply works without opening the app.
+      await _dispatchAndroidNotification(
+        notifId,
+        callsign,
+        withSound,
+        withVibration,
+      );
 
-    // When multiple conversations are unread, also post a silent group summary
-    // so Android groups them in the shade — matching the Google Messages model
-    // of one summary + N individual conversation notifications.
-    final unreadConvs = _messageService.conversations
-        .where((c) => c.unreadCount > 0)
-        .toList();
-    if (unreadConvs.length >= 2) {
-      await _dispatchGroupSummary(unreadConvs);
+      // Group summary for 2+ unread conversations.
+      final unreadConvs = _messageService.conversations
+          .where((c) => c.unreadCount > 0)
+          .toList();
+      if (unreadConvs.length >= 2) {
+        await _dispatchGroupSummary(unreadConvs);
+      }
+    } else {
+      // iOS / macOS: use flutter_local_notifications.
+      await _dispatchSingleNotification(
+        notifId,
+        callsign,
+        text,
+        withSound,
+        withVibration,
+      );
     }
   }
 
-  MessagingStyleInformation _buildMessagingStyle(String callsign) {
-    const mePerson = Person(name: 'You', bot: true);
-    final peerPerson = Person(name: callsign, bot: true);
-
+  /// Posts an Android notification natively via [MainActivity] so that the
+  /// custom [MeridianNotificationActionReceiver] PendingIntents are used for
+  /// inline reply and mark-as-read — enabling reply without opening the app.
+  Future<void> _dispatchAndroidNotification(
+    int id,
+    String callsign,
+    bool withSound,
+    bool withVibration, {
+    bool alertOnce = false,
+  }) async {
     final conv = _messageService.conversationWith(callsign);
     final all = conv?.messages ?? [];
     final recent = all.length > 6 ? all.sublist(all.length - 6) : all;
 
-    return MessagingStyleInformation(
-      mePerson,
-      messages: recent.map((m) {
-        final body = m.text.length > 80
-            ? '${m.text.substring(0, 80)}…'
-            : m.text;
-        return Message(body, m.timestamp, m.isOutgoing ? null : peerPerson);
-      }).toList(),
-    );
+    final messages = recent.map((m) {
+      final body = m.text.length > 80 ? '${m.text.substring(0, 80)}…' : m.text;
+      return <String, Object?>{
+        'sender': m.isOutgoing ? null : callsign,
+        'text': body,
+        'timestampMs': m.timestamp.millisecondsSinceEpoch,
+      };
+    }).toList();
+
+    try {
+      await _kNativeChannel.invokeMethod<void>('postMessageNotification', {
+        'callsign': callsign,
+        'notificationId': id,
+        'messages': messages,
+        'withSound': withSound,
+        'withVibration': withVibration,
+        'alertOnce': alertOnce,
+      });
+    } catch (_) {}
   }
 
   Future<void> _dispatchSingleNotification(
@@ -330,33 +424,7 @@ class NotificationService extends ChangeNotifier {
     bool withSound,
     bool withVibration,
   ) async {
-    final androidDetails = AndroidNotificationDetails(
-      NotificationChannels.messages,
-      'Messages',
-      channelDescription: 'Incoming APRS messages addressed to you.',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-      playSound: withSound,
-      enableVibration: withVibration,
-      groupKey: _kGroupKey,
-      styleInformation: _buildMessagingStyle(callsign),
-      actions: [
-        const AndroidNotificationAction(
-          _kMarkReadActionId,
-          'Mark as read',
-          showsUserInterface: false,
-          cancelNotification: true,
-        ),
-        AndroidNotificationAction(
-          _kReplyActionId,
-          'Reply',
-          inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
-          showsUserInterface: true,
-          cancelNotification: true,
-        ),
-      ],
-    );
-
+    // iOS / macOS only — Android uses _dispatchAndroidNotification.
     final darwinDetails = DarwinNotificationDetails(
       categoryIdentifier: NotificationChannels.messages,
       threadIdentifier: callsign,
@@ -370,11 +438,7 @@ class NotificationService extends ChangeNotifier {
       id,
       callsign,
       preview,
-      NotificationDetails(
-        android: androidDetails,
-        iOS: darwinDetails,
-        macOS: darwinDetails,
-      ),
+      NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
       payload: callsign,
     );
   }
@@ -444,6 +508,10 @@ class NotificationService extends ChangeNotifier {
   @visibleForTesting
   void handleMessageServiceChange() => _onMessageServiceChange();
 
+  @visibleForTesting
+  Future<dynamic> handleNativeCallForTest(MethodCall call) =>
+      _handleNativeCall(call);
+
   void _onNotificationResponse(NotificationResponse response) {
     final callsign = response.payload ?? '';
 
@@ -482,13 +550,14 @@ class NotificationService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // Cold-start launch details
+  // Cold-start launch details (iOS / macOS via FLN)
   // ---------------------------------------------------------------------------
 
   void _schedulePostFrameLaunchCheck() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (kIsWeb) return;
       if (!Platform.isAndroid && !Platform.isIOS) return;
+      if (Platform.isAndroid) return; // Android uses _schedulePendingNavCheck.
       try {
         final details = await _plugin.getNotificationAppLaunchDetails();
         if (details == null || !details.didNotificationLaunchApp) return;
