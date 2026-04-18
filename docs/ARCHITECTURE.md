@@ -484,6 +484,62 @@ The `NSLocationWhenInUseUsageDescription` and Bluetooth usage description keys a
 
 ---
 
+## Notification System (v0.11)
+
+### Overview
+
+v0.11 adds a full notification layer for incoming APRS messages. Delivery happens on the **main Dart isolate** on both platforms — there is no cross-isolate dispatch path needed because both Android (via `flutter_foreground_task` foreground service) and iOS (via VoIP `UIBackgroundMode`) keep the main isolate alive while backgrounded. See ADR-035.
+
+### Channel Taxonomy
+
+Four notification channels are registered at startup and serve as an extensible taxonomy for future alert types:
+
+| Channel ID | Label | Default | Purpose |
+|---|---|---|---|
+| `messages` | Messages | Sound + vibration | Inbound APRS messages addressed to user |
+| `alerts` | Alerts | Sound + vibration | WX/NWS alerts (reserved for future milestone) |
+| `nearby` | Nearby | Vibration only | Nearby station activity (reserved) |
+| `system` | System | Silent | Connection and TNC status (reserved) |
+
+### `NotificationService` (`lib/services/notification_service.dart`)
+
+`ChangeNotifier` service initialized in `main.dart` before `runApp`. Sits between `MessageService` and all platform delivery paths.
+
+Responsibilities:
+- Subscribes to `MessageService` via `addListener`; detects new inbound messages by comparing current vs. previous unread counts per callsign
+- Checks `NotificationPreferences` (channel enabled, sound, vibration) before dispatching
+- Dispatches system notifications via `flutter_local_notifications` on Android/iOS/macOS
+- Dispatches desktop toasts via `local_notifier` on Windows/Linux (tap-to-navigate, no inline reply)
+- Triggers `InAppBannerController` unless the user is already in that conversation's thread
+- Handles inline reply action payloads from Android `RemoteInput` and iOS `UNTextInputAction`; routes reply text to `MessageService.sendMessage()`
+- Handles cold-start navigation via `getNotificationAppLaunchDetails()` (post-frame callback)
+- Drains a SharedPreferences reply outbox on startup for terminated-app inline replies
+
+**Android:** `BigTextStyleInformation` for single messages; `InboxStyleInformation` grouped summary when 3+ conversations have unread messages. `RemoteInput` inline reply action on the `messages` channel.
+
+**iOS:** `DarwinNotificationCategory('messages')` with `DarwinNotificationAction.text` for inline reply. Notifications present in foreground via `presentAlert: true` (handled automatically by `flutter_local_notifications` — no custom `AppDelegate` code needed).
+
+**Background inline reply (terminated app):** The `@pragma('vm:entry-point')` top-level handler `onNotificationBackgroundResponse` writes replies to a SharedPreferences outbox (`notification_reply_outbox`). `NotificationService._drainReplyOutbox()` processes the queue on the next main-isolate startup.
+
+**Navigation from notification tap:** A `GlobalKey<NavigatorState> navigatorKey` is declared in `lib/main.dart` and passed to all three `MaterialApp`/`CupertinoApp` instances. `NotificationService` holds a reference and calls `navigatorKey.currentState?.push(buildPlatformRoute(...))`.
+
+### `InAppBannerOverlay` (`lib/ui/widgets/in_app_banner_overlay.dart`)
+
+In-app slide-in notification banner. Wraps the home widget in `MeridianApp.build()` so it appears on every screen.
+
+- **Mobile:** Full-width, anchored top, slides in from above using `SlideTransition`
+- **Desktop (>1024 px):** Fixed-width (320 px), anchored top-right via `Positioned`
+- Auto-dismisses after 4 seconds; swipe up to dismiss early; tap navigates to `MessageThreadScreen`
+- Suppressed if `MessageThreadScreen` for that callsign is the current route (set via `NotificationService.setActiveThread`)
+
+`InAppBannerController` is a `ChangeNotifier` that the overlay widget watches. Both it and `NotificationService` are added to the Provider tree in `main.dart`.
+
+### `NotificationPreferences` (`lib/models/notification_preferences.dart`)
+
+Immutable value object persisted to SharedPreferences (keys: `notif_channel_<id>`, `notif_sound_<id>`, `notif_vibration_<id>`). Defaults: all channels enabled; sound/vibration on for `messages` and `alerts`, off for `nearby` and `system`. `copyWithChannel`/`copyWithSound`/`copyWithVibration` return new instances; `NotificationService` holds the current instance and calls `notifyListeners()` after each update.
+
+---
+
 ## Key Dependencies
 
 | Package | Purpose |
@@ -495,6 +551,8 @@ The `NSLocationWhenInUseUsageDescription` and Bluetooth usage description keys a
 | `flutter_foreground_task` | Android foreground service keepalive (added v0.7) |
 | `permission_handler` | Android permission requests (background location, notifications); iOS background location check (added v0.7, upgraded ^12.0.1 in v0.9) |
 | `live_activities` | iOS Live Activity bridge — Dart → ActivityKit → Lock Screen / Dynamic Island (added v0.9) |
+| `flutter_local_notifications` | System notification dispatch on Android, iOS, and macOS; inline reply via RemoteInput/UNTextInputAction (added v0.11) |
+| `local_notifier` | Desktop system tray toast notifications on macOS, Windows, and Linux (added v0.11) |
 | `provider` | ChangeNotifier wiring throughout service layer |
 | `shared_preferences` | Theme mode, settings, beaconing config, and session state persistence |
 | `dynamic_color` | Android 12+ wallpaper-derived ColorScheme |

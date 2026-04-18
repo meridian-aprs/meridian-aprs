@@ -18,13 +18,11 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.8 — Platform Parity | iOS Cupertino audit, Stadia Maps tile swap (TileProvider abstraction) | ✅ Complete |
 | v0.9 — iOS Background | iOS background beaconing — background location + Live Activity | ✅ Complete |
 | v0.10 — Map Experience | Viewport-adaptive APRS-IS filter, configurable time filter, track history polylines, map filters UI | ✅ Complete |
-| v0.11 — Map Filters & Stations | Map filters, station profiles | — |
-| v0.12 — Map Enhancement | Track history, cluster markers, object/item display, altitude in position packets | — |
-| v0.13 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | — |
-| v0.14 — Notifications | Background notifications, in-app banner system, notification preferences | — |
-| v0.15 — Security | Passcode secure storage, APRS-IS filter configuration | — |
-| v0.16 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
-| v0.17 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
+| v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | 🔄 In progress |
+| v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | — |
+| v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | — |
+| v0.14 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
+| v0.15 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
 | v1.0 — Launch | Final polish, all-platform store submission (iOS App Store, Google Play, macOS, Windows, Linux) | — |
 
 ---
@@ -56,27 +54,27 @@ Make the map functional at real-world scale with adaptive data fetching, time-bo
 
 ---
 
-### v0.11 — Map Filters & Station Profiles
-Core usability features that make the map manageable at scale.
+### v0.11 — Notifications
+Keep operators informed when Meridian is in the background.
 
-- Filter by station type, symbol, distance, path, and more
-- Named filter presets (save and recall)
-- Station profile view — packet history, path info, heard-by digipeaters, message log
-- Map tap → station profile flow
+- ✅ `NotificationService` — main-isolate dispatch to `flutter_local_notifications` (Android/iOS/macOS) and `local_notifier` (Windows/Linux)
+- ✅ Four notification channels registered: `messages`, `alerts`, `nearby`, `system`
+- ✅ Android `BigTextStyle` single + `InboxStyle` grouped (3+ conversations) notifications
+- ✅ Android inline reply via `RemoteInput` action; terminated-app replies via SharedPreferences outbox
+- ✅ iOS inline reply via `UNTextInputAction` / `DarwinNotificationCategory`; foreground delivery via `presentAlert: true`
+- ✅ `InAppBannerOverlay` at app root — slide-in banner with callsign/preview/timestamp; full-width mobile, 320 px top-right desktop
+- ✅ Banner suppressed when `MessageThreadScreen` for that callsign is active
+- ✅ `NotificationPreferences` model — per-channel enabled/sound/vibration, persisted to SharedPreferences, default-on for messages+alerts
+- ✅ Notifications settings section — per-channel toggles with sound/vibration sub-toggles (mobile only)
+- ✅ Cold-start navigation via `getNotificationAppLaunchDetails()` post-frame
+- ✅ Global `navigatorKey` wired to all three `MaterialApp`/`CupertinoApp` variants
+- ✅ Nav badge persistence verified (no-op: `unreadCount` was already serialized in `MessageService`)
+- ✅ Unit tests: `NotificationPreferences` round-trip, banner dispatch logic, inline reply routing, reply outbox drain
+- ✅ ADRs 035–038 in `docs/DECISIONS.md`
 
 ---
 
-### v0.12 — Map Enhancement
-Deeper map capabilities for tracking and situational awareness.
-
-- Track history — display position history trails for stations
-- Cluster markers at low zoom levels
-- Object and item packet display
-- Altitude field in outgoing position packets
-
----
-
-### v0.13 — Onboarding Improvements
+### v0.12 — Onboarding Improvements
 Make the first-launch experience complete and self-sufficient.
 
 - BLE TNC selection in onboarding triggers BLE pairing flow
@@ -86,16 +84,7 @@ Make the first-launch experience complete and self-sufficient.
 
 ---
 
-### v0.14 — Notifications
-Keep operators informed when Meridian is in the background.
-
-- Background notifications for incoming APRS messages
-- In-app banner system for alerts
-- Notification preferences screen
-
----
-
-### v0.15 — Security
+### v0.13 — Security
 Harden credential handling and network filtering.
 
 - Passcode stored in platform secure storage (Keychain / Keystore)
@@ -103,7 +92,7 @@ Harden credential handling and network filtering.
 
 ---
 
-### v0.16 — Battery & Performance
+### v0.14 — Battery & Performance
 Optimize for real-world sustained use.
 
 - Profile and reduce background service battery drain
@@ -113,7 +102,7 @@ Optimize for real-world sustained use.
 
 ---
 
-### v0.17 — Bug Triage
+### v0.15 — Bug Triage
 Dedicated milestone for clearing the bug backlog before final polish.
 
 - Triage all open `bug` issues
@@ -142,4 +131,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-11*
+*Last updated: 2026-04-17*

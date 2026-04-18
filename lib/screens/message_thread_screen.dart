@@ -10,6 +10,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../services/message_service.dart';
+import '../services/notification_service.dart';
 import '../services/tx_service.dart';
 
 class MessageThreadScreen extends StatefulWidget {
@@ -28,14 +29,16 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
   @override
   void initState() {
     super.initState();
-    // Mark conversation as read when thread is opened.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       context.read<MessageService>().markRead(widget.peerCallsign);
+      context.read<NotificationService>().setActiveThread(widget.peerCallsign);
     });
   }
 
   @override
   void dispose() {
+    context.read<NotificationService>().setActiveThread(null);
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
