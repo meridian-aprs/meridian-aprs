@@ -53,6 +53,13 @@ void onNotificationBackgroundResponse(NotificationResponse response) async {
   final outbox = prefs.getStringList(_kReplyOutboxKey) ?? [];
   outbox.add(jsonEncode({'callsign': response.payload ?? '', 'text': input}));
   await prefs.setStringList(_kReplyOutboxKey, outbox);
+
+  // Dismiss the notification so Android clears the inline-reply spinner.
+  final callsign = response.payload ?? '';
+  final notifId = callsign.hashCode.abs() % 100000 + 1;
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.cancel(notifId);
+  await plugin.cancel(_kGroupSummaryId);
 }
 
 class NotificationService extends ChangeNotifier {
@@ -461,6 +468,12 @@ class NotificationService extends ChangeNotifier {
           callsign,
           input,
         ); // ignore: unawaited_futures
+        // Dismiss the notification so Android clears the inline-reply spinner.
+        if (_initialized) {
+          final notifId = callsign.hashCode.abs() % 100000 + 1;
+          _plugin.cancel(notifId); // ignore: unawaited_futures
+          _plugin.cancel(_kGroupSummaryId); // ignore: unawaited_futures
+        }
       }
       return;
     }
