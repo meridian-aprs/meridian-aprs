@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 432" width="432" height="432">
+  <!--
+    Meridian APRS - Android adaptive icon FOREGROUND layer.
+    Canvas 432x432 (108dp at 4x). Mark centered in 66dp safe zone.
+    Transparent background.
+  -->
+  <title>Meridian APRS adaptive foreground</title>
+  <g transform="translate(64.8 58.3) scale(0.5906)">
+    <path fill="#4D1D8C" fill-rule="evenodd" d="
+      M 256 420
+      C 226 288.9 148 235.9 150 220
+      A 106 106 0 0 1 362 220
+      C 364 235.9 286 288.9 256 420
+      Z
+
+      M 204 158
+      L 228 158
+      L 256 216
+      L 284 158
+      L 308 158
+      Q 314 158 314 164
+      L 314 280
+      Q 314 286 308 286
+      L 288 286
+      Q 282 286 282 280
+      L 282 210
+      L 256 262
+      L 230 210
+      L 230 280
+      Q 230 286 224 286
+      L 204 286
+      Q 198 286 198 280
+      L 198 164
+      Q 198 158 204 158
+      Z
+    "/>
+  </g>
+</svg>

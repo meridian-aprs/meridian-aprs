@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 432 432" width="432" height="432">
+  <!--
+    Meridian APRS - Android adaptive icon BACKGROUND layer.
+    Solid fill. Android 12+ may override with Material You dynamic color.
+    Light neutral chosen to pair with the boosted-purple foreground without
+    competing for attention.
+  -->
+  <title>Meridian APRS adaptive background</title>
+  <rect width="432" height="432" fill="#F4F6F8"/>
+</svg>
