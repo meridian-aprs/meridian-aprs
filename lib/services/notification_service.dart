@@ -237,6 +237,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         DarwinNotificationCategory(
           NotificationChannels.messages,
           actions: [
+            DarwinNotificationAction.plain(_kMarkReadActionId, 'Mark as Read'),
             DarwinNotificationAction.text(
               _kReplyActionId,
               'Reply',
@@ -470,6 +471,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
 
     final darwinDetails = DarwinNotificationDetails(
       categoryIdentifier: NotificationChannels.messages,
+      threadIdentifier: callsign,
       presentAlert: true,
       presentSound: withSound,
       presentBadge: true,
