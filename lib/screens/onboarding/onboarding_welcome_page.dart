@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:material_symbols_icons/symbols.dart';
+import 'package:meridian_aprs/ui/widgets/meridian_wordmark.dart';
 
 /// First onboarding page — welcome and value proposition.
 ///
@@ -30,16 +30,8 @@ class OnboardingWelcomePage extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Spacer(),
-            Icon(Symbols.radio, size: 80, color: colorScheme.primary),
+            const MeridianWordmark.stacked(height: 200),
             const SizedBox(height: 24),
-            Text(
-              'Meridian',
-              style: theme.textTheme.displaySmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
-              ),
-            ),
-            const SizedBox(height: 8),
             Text(
               'APRS for the Modern Ham.',
               style: theme.textTheme.titleMedium?.copyWith(

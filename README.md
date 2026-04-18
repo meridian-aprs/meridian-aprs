@@ -1,4 +1,6 @@
-# Meridian APRS
+<p align="center">
+  <img src="assets/wordmarks/wordmark-horizontal-primary.svg" alt="Meridian APRS" height="120">
+</p>
 
 > **APRS for the Modern Ham.**
 

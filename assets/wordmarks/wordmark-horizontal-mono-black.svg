@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 788 258" width="788" height="258">
+  <!--
+    Meridian APRS wordmark — horizontal lockup
+    Monochrome — pure black (print, single-color)
+    Icon color: #0A0A0C   Text color: #0A0A0C
+    Font: "Inter", "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif
+  -->
+  <title>Meridian APRS</title>
+  
+  <g transform="translate(-78.039 -45.510) scale(0.6536)">
+    <path fill="#0A0A0C" fill-rule="evenodd" d="M 256 420
+    C 226 288.9 148 235.9 150 220
+    A 106 106 0 0 1 362 220
+    C 364 235.9 286 288.9 256 420
+    Z
+
+    M 204 158
+    L 228 158
+    L 256 216
+    L 284 158
+    L 308 158
+    Q 314 158 314 164
+    L 314 280
+    Q 314 286 308 286
+    L 288 286
+    Q 282 286 282 280
+    L 282 210
+    L 256 262
+    L 230 210
+    L 230 280
+    Q 230 286 224 286
+    L 204 286
+    Q 198 286 198 280
+    L 198 164
+    Q 198 158 204 158
+    Z"/>
+  </g>
+  <text x="198.56209150326796" y="163.0"
+        font-family='"Inter", "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' font-weight="700" font-size="150"
+        fill="#0A0A0C" letter-spacing="-3">Meridian</text>
+  <text x="198.56209150326796" y="217.2"
+        font-family='"Inter", "Inter Tight", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' font-weight="500" font-size="48"
+        fill="#0A0A0C" letter-spacing="10">APRS</text>
+</svg>

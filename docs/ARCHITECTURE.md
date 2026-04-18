@@ -68,6 +68,28 @@ The web platform cannot open raw TCP sockets. Web users connect via a WebSocket-
 
 ---
 
+## Brand Assets
+
+### Wordmarks (`assets/wordmarks/`)
+
+Five SVG variants, all locked lockups (icon + text):
+
+| File | Use case |
+|---|---|
+| `wordmark-horizontal-primary.svg` | Default — about screens, README, documentation |
+| `wordmark-stacked-primary.svg` | Square/portrait contexts — onboarding welcome |
+| `wordmark-horizontal-mono-black.svg` | Print-like or light-background monochrome |
+| `wordmark-horizontal-mono-white.svg` | Dark-theme monochrome |
+| `wordmark-stacked-mono-black.svg` | Square monochrome |
+
+Use via `MeridianWordmark` widget (`lib/ui/widgets/meridian_wordmark.dart`) — five named constructors mirror the five variants.
+
+### Typography (`assets/fonts/`)
+
+Inter (weights 400/500/600/700) is bundled offline and registered in `pubspec.yaml` as family `Inter`. It is used **only for the wordmark** — the app's default text theme uses platform defaults (Material 3 / Roboto on Android, SF Pro on iOS, M3 default on desktop). Do not change the app's `TextTheme` to use Inter without a separate ADR.
+
+---
+
 ## Data Flow (Receive Path)
 
 ```

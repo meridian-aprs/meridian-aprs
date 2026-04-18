@@ -653,3 +653,26 @@ The handoff spec described a "background isolate" dispatch path — this was bas
 **Alternatives considered:**
 - Keep Meridian Blue — rejected; mismatch with purple icon would be incoherent.
 - Pin theme primary to the literal seed — rejected in favor of M3 convention (`ColorScheme.fromSeed` selects its own primary tone, which is standard M3 behavior).
+
+---
+
+## ADR-040: Wordmark & Inter Font Integration
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** Bundle Inter TTFs offline in `assets/fonts/`. Bundle 5 wordmark SVG variants in `assets/wordmarks/`. Expose via `MeridianWordmark` widget with five named constructors. Use wordmark only in canonical brand moments: splash background, onboarding welcome, about screen, README.
+
+**Rationale:**
+- Offline bundling ensures consistent rendering in low-connectivity environments (core APRS use case).
+- Inter is reserved for the wordmark specifically — full app typography stays on platform defaults (M3/Roboto on Android, SF Pro on iOS, M3 default on desktop).
+- Wordmark does not appear in app bars; those show screen titles for navigation clarity.
+- iOS launch screen is icon-only per Apple HIG; wordmark appears on first in-app screen (onboarding welcome).
+- Android 12+ native splash is icon-only per Google guidance; pre-12 fallback via `flutter_native_splash`.
+- Five named constructors (horizontal, stacked, horizontalMono, horizontalMonoWhite, stackedMono) provide clear intent at call sites.
+
+**Alternatives considered:**
+- `google_fonts` runtime loading — rejected; offline-first requirement.
+- Inter as app default typography — rejected; scope creep, separate concern.
+- Wordmark in app bars — rejected; app bars belong to screen navigation.
+- `lib/widgets/` top-level directory — rejected; project convention is `lib/ui/widgets/`.

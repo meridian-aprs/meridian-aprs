@@ -23,6 +23,7 @@ import '../ui/utils/distance_formatter.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
+import '../ui/widgets/meridian_wordmark.dart';
 import '../models/notification_preferences.dart';
 import '../services/notification_service.dart';
 import '../theme/meridian_colors.dart';
@@ -1851,18 +1852,8 @@ class _AboutSection extends StatelessWidget {
               child: Center(
                 child: Column(
                   children: [
-                    Icon(
-                      Symbols.wifi_tethering,
-                      size: 48,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Meridian APRS',
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const MeridianWordmark.horizontal(height: 64),
+                    const SizedBox(height: 16),
                     const SizedBox(height: 4),
                     Text(
                       'Version $_kVersion',
@@ -1880,6 +1871,13 @@ class _AboutSection extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       '© 2026 Eric Pasch  ·  GPL v3',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Inter typeface by Rasmus Andersson (SIL OFL)',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
