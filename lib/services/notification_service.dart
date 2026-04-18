@@ -62,7 +62,7 @@ void onNotificationBackgroundResponse(NotificationResponse response) async {
   await plugin.cancel(_kGroupSummaryId);
 }
 
-class NotificationService extends ChangeNotifier {
+class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   NotificationService({
     required MessageService messageService,
     required SharedPreferences prefs,
@@ -107,6 +107,7 @@ class NotificationService extends ChangeNotifier {
     if (_initialized) return;
     _initialized = true;
 
+    WidgetsBinding.instance.addObserver(this);
     _notifPrefs = await NotificationPreferences.load(_prefs);
 
     if (!kIsWeb) {
@@ -531,7 +532,15 @@ class NotificationService extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _drainReplyOutbox(); // ignore: unawaited_futures
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _messageService.removeListener(_onMessageServiceChange);
     super.dispose();
   }
