@@ -510,8 +510,8 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         (all.length > 10 ? all.length - 10 : 0);
     final slice = startIdx < all.length ? all.sublist(startIdx) : all;
 
-    final peer = Person(key: callsign);
-    const me = Person(key: 'me');
+    final peer = Person(name: callsign);
+    const me = Person(name: 'You');
 
     return MessagingStyleInformation(
       me,

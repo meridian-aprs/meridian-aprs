@@ -189,7 +189,7 @@ void main() {
       expect(style.messages, hasLength(2));
       // Inbound: person key = peer callsign (no name = no avatar bubble)
       expect(style.messages!.first.text, 'Hello');
-      expect(style.messages!.first.person?.key, 'WB5XYZ');
+      expect(style.messages!.first.person?.name, 'WB5XYZ');
       // Outgoing: person = null (sent by "You")
       expect(style.messages!.last.text, 'Hi back');
       expect(style.messages!.last.person, isNull);
