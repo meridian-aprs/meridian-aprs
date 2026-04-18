@@ -152,9 +152,9 @@ class _AppColorSection extends StatelessWidget {
   const _AppColorSection();
 
   static const _swatches = [
-    (label: 'Meridian Blue', color: MeridianColors.primary),
+    (label: 'Meridian Purple', color: MeridianColors.brandSeed),
     (label: 'Slate', color: Color(0xFF64748B)),
-    (label: 'Violet', color: Color(0xFF7C3AED)),
+    (label: 'Indigo', color: Color(0xFF4F46E5)),
     (label: 'Rose', color: Color(0xFFE11D48)),
     (label: 'Amber', color: Color(0xFFD97706)),
     (label: 'Teal', color: Color(0xFF0D9488)),

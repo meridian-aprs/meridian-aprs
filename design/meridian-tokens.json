@@ -1,0 +1,195 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "meridian": {
+    "$description": "Meridian APRS brand palette",
+    "brand": {
+      "$description": "Brand tonal palette derived from boosted purple seed (#4D1D8C)",
+      "0": {
+        "$type": "color",
+        "$value": "#000000"
+      },
+      "10": {
+        "$type": "color",
+        "$value": "#19141F"
+      },
+      "20": {
+        "$type": "color",
+        "$value": "#312145"
+      },
+      "30": {
+        "$type": "color",
+        "$value": "#472277"
+      },
+      "40": {
+        "$type": "color",
+        "$value": "#5D23A9"
+      },
+      "50": {
+        "$type": "color",
+        "$value": "#742CD3"
+      },
+      "60": {
+        "$type": "color",
+        "$value": "#9056DC"
+      },
+      "70": {
+        "$type": "color",
+        "$value": "#AC80E5"
+      },
+      "80": {
+        "$type": "color",
+        "$value": "#C8B0E8"
+      },
+      "90": {
+        "$type": "color",
+        "$value": "#E4DCEF"
+      },
+      "95": {
+        "$type": "color",
+        "$value": "#F2F0F5"
+      },
+      "99": {
+        "$type": "color",
+        "$value": "#FCFCFD"
+      },
+      "100": {
+        "$type": "color",
+        "$value": "#FFFFFF"
+      }
+    },
+    "neutral": {
+      "$description": "Warm-tinted gray neutrals that harmonize with brand hue",
+      "0": {
+        "$type": "color",
+        "$value": "#000000"
+      },
+      "10": {
+        "$type": "color",
+        "$value": "#19181B"
+      },
+      "20": {
+        "$type": "color",
+        "$value": "#332F37"
+      },
+      "30": {
+        "$type": "color",
+        "$value": "#4C4752"
+      },
+      "40": {
+        "$type": "color",
+        "$value": "#655F6D"
+      },
+      "50": {
+        "$type": "color",
+        "$value": "#7E7788"
+      },
+      "60": {
+        "$type": "color",
+        "$value": "#9892A0"
+      },
+      "70": {
+        "$type": "color",
+        "$value": "#B2ADB8"
+      },
+      "80": {
+        "$type": "color",
+        "$value": "#CCC8D0"
+      },
+      "90": {
+        "$type": "color",
+        "$value": "#E5E4E7"
+      },
+      "95": {
+        "$type": "color",
+        "$value": "#F2F1F3"
+      },
+      "99": {
+        "$type": "color",
+        "$value": "#FCFCFD"
+      },
+      "100": {
+        "$type": "color",
+        "$value": "#FFFFFF"
+      }
+    },
+    "neutral-variant": {
+      "$description": "Slightly more chromatic neutrals for subtle outlines",
+      "0": {
+        "$type": "color",
+        "$value": "#000000"
+      },
+      "10": {
+        "$type": "color",
+        "$value": "#19161D"
+      },
+      "20": {
+        "$type": "color",
+        "$value": "#322C3A"
+      },
+      "30": {
+        "$type": "color",
+        "$value": "#4B4356"
+      },
+      "40": {
+        "$type": "color",
+        "$value": "#645973"
+      },
+      "50": {
+        "$type": "color",
+        "$value": "#7D6F90"
+      },
+      "60": {
+        "$type": "color",
+        "$value": "#978CA6"
+      },
+      "70": {
+        "$type": "color",
+        "$value": "#B1A9BC"
+      },
+      "80": {
+        "$type": "color",
+        "$value": "#CBC5D3"
+      },
+      "90": {
+        "$type": "color",
+        "$value": "#E5E2E9"
+      },
+      "95": {
+        "$type": "color",
+        "$value": "#F2F1F4"
+      },
+      "99": {
+        "$type": "color",
+        "$value": "#FCFCFD"
+      },
+      "100": {
+        "$type": "color",
+        "$value": "#FFFFFF"
+      }
+    },
+    "semantic": {
+      "$description": "Fixed APRS protocol meaning \u2014 do NOT apply dynamic color",
+      "signal": {
+        "$type": "color",
+        "$value": "#10B981"
+      },
+      "warning": {
+        "$type": "color",
+        "$value": "#F59E0B"
+      },
+      "danger": {
+        "$type": "color",
+        "$value": "#EF4444"
+      },
+      "info": {
+        "$type": "color",
+        "$value": "#3B82F6"
+      }
+    },
+    "brand-seed": {
+      "$type": "color",
+      "$value": "#4D1D8C",
+      "$description": "The anchor color. Used for app icon and as Material 3 seed."
+    }
+  }
+}

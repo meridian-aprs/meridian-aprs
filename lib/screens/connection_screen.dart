@@ -630,16 +630,17 @@ class _ActiveConnectionCard extends StatelessWidget {
 class _TxBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       decoration: BoxDecoration(
-        color: MeridianColors.primary.withValues(alpha: 0.15),
+        color: primary.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         'TX',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: MeridianColors.primary,
+          color: primary,
           fontWeight: FontWeight.w700,
         ),
       ),
