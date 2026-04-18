@@ -232,48 +232,4 @@ void main() {
       expect(f.messageService.conversations, isEmpty);
     });
   });
-
-  group('NotificationService — terminated-app reply outbox', () {
-    test('pending replies are drained and sent on initialize', () async {
-      SharedPreferences.setMockInitialValues({
-        'user_callsign': 'W1AW',
-        'user_ssid': 9,
-        'message_id_counter': 0,
-        'notification_reply_outbox': [
-          '{"callsign":"WB5XYZ","text":"Pending reply"}',
-          '{"callsign":"K6ABC","text":"Another reply"}',
-        ],
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      final settings = StationSettingsService(prefs);
-      final stationService = StationService();
-      final registry = ConnectionRegistry();
-      final txService = _SilentTxService(registry);
-      final messageService = MessageService(
-        settings,
-        txService,
-        stationService,
-      );
-      final bannerController = InAppBannerController();
-      final notificationService = NotificationService(
-        messageService: messageService,
-        prefs: prefs,
-        navigatorKey: _navigatorKey,
-        bannerController: bannerController,
-      );
-
-      await notificationService.drainReplyOutboxForTest();
-      await Future.delayed(const Duration(milliseconds: 50));
-
-      expect(messageService.conversationWith('WB5XYZ'), isNotNull);
-      expect(messageService.conversationWith('K6ABC'), isNotNull);
-
-      // Outbox is cleared after drain.
-      expect(prefs.getStringList('notification_reply_outbox'), isNull);
-
-      notificationService.dispose();
-      messageService.dispose();
-    });
-  });
 }

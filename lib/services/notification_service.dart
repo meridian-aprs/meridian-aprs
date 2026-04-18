@@ -8,7 +8,6 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
@@ -32,40 +31,8 @@ const _kGroupSummaryId = 0;
 const _kReplyActionId = 'reply';
 const _kMarkReadActionId = 'mark_read';
 const _kGroupKey = 'meridian_messages';
-const _kReplyOutboxKey = 'notification_reply_outbox';
 
-/// Top-level handler for background/terminated-app inline reply and mark-read
-/// actions.
-///
-/// flutter_local_notifications spawns the background handler in a fresh
-/// FlutterEngine, so cross-isolate mechanisms like IsolateNameServer do not
-/// see the main isolate's registered ports. The reliable path is: queue the
-/// reply in SharedPreferences, let the main isolate drain it on resume (or on
-/// the next cold start via [NotificationService.initialize]).
-///
-/// The Reply action uses [cancelNotification: true] so Android auto-dismisses
-/// the notification (and its RemoteInput spinner) the moment the user taps
-/// Send — no explicit cancel needed here.
-@pragma('vm:entry-point')
-void onNotificationBackgroundResponse(NotificationResponse response) async {
-  if (response.notificationResponseType !=
-      NotificationResponseType.selectedNotificationAction) {
-    return;
-  }
-  if (response.actionId != _kReplyActionId) return;
-
-  final input = response.input;
-  final callsign = response.payload ?? '';
-  if (input == null || input.isEmpty || callsign.isEmpty) return;
-
-  WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final outbox = prefs.getStringList(_kReplyOutboxKey) ?? [];
-  outbox.add(jsonEncode({'callsign': callsign, 'text': input}));
-  await prefs.setStringList(_kReplyOutboxKey, outbox);
-}
-
-class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
+class NotificationService extends ChangeNotifier {
   NotificationService({
     required MessageService messageService,
     required SharedPreferences prefs,
@@ -109,7 +76,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
     if (_initialized) return;
     _initialized = true;
 
-    WidgetsBinding.instance.addObserver(this);
     _notifPrefs = await NotificationPreferences.load(_prefs);
 
     if (!kIsWeb) {
@@ -125,7 +91,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    await _drainReplyOutbox();
     _schedulePostFrameLaunchCheck();
 
     _messageService.addListener(_onMessageServiceChange);
@@ -174,8 +139,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
     await _plugin.initialize(
       settings,
       onDidReceiveNotificationResponse: _onNotificationResponse,
-      onDidReceiveBackgroundNotificationResponse:
-          onNotificationBackgroundResponse,
     );
 
     if (!kIsWeb && Platform.isAndroid) {
@@ -242,7 +205,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   void setActiveThread(String? callsign) {
     if (callsign != null && _initialized) {
       final notifId = callsign.hashCode.abs() % 100000 + 1;
-      _plugin.cancel(notifId); // ignore: unawaited_futures
+      _plugin.cancel(notifId).catchError((_) {}); // ignore: unawaited_futures
     }
     _activeThreadCallsign = callsign?.toUpperCase();
   }
@@ -371,7 +334,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
           _kReplyActionId,
           'Reply',
           inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
-          showsUserInterface: false,
+          showsUserInterface: true,
           cancelNotification: true,
         ),
       ],
@@ -463,9 +426,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   void handleMessageServiceChange() => _onMessageServiceChange();
 
-  @visibleForTesting
-  Future<void> drainReplyOutboxForTest() => _drainReplyOutbox();
-
   void _onNotificationResponse(NotificationResponse response) {
     final callsign = response.payload ?? '';
 
@@ -520,43 +480,8 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Reply outbox (terminated-app inline replies)
-  // ---------------------------------------------------------------------------
-
-  Future<void> _drainReplyOutbox() async {
-    // Reload is required: the background handler (separate isolate/engine)
-    // writes to disk, but _prefs holds a stale in-memory cache until reloaded.
-    await _prefs.reload();
-    final outbox = _prefs.getStringList(_kReplyOutboxKey);
-    if (outbox == null || outbox.isEmpty) return;
-    await _prefs.remove(_kReplyOutboxKey);
-    for (final entry in outbox) {
-      try {
-        final map = jsonDecode(entry) as Map<String, dynamic>;
-        final callsign = map['callsign'] as String? ?? '';
-        final text = map['text'] as String? ?? '';
-        if (callsign.isNotEmpty && text.isNotEmpty) {
-          await _messageService.sendMessage(callsign, text);
-        }
-      } catch (e) {
-        debugPrint('NotificationService: failed to drain reply: $e');
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _drainReplyOutbox(); // ignore: unawaited_futures
-    }
-  }
-
   @override
   void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
     _messageService.removeListener(_onMessageServiceChange);
     super.dispose();
   }
