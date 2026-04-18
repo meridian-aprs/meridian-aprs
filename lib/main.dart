@@ -137,10 +137,13 @@ Future<void> main() async {
     );
   }
 
-  // Start APRS-IS connection on launch.
-  aprsIsConn.connect().catchError((Object e) {
-    debugPrint('APRS-IS connection failed: $e');
-  });
+  // Reconnect APRS-IS only if the user chose to connect last session.
+  // Defaults to off on first launch so the connection is always opt-in.
+  if (aprsIsConn.autoConnect) {
+    aprsIsConn.connect().catchError((Object e) {
+      debugPrint('APRS-IS connection failed: $e');
+    });
+  }
 
   final stationSettings = StationSettingsService(prefs);
   final txService = TxService(registry);

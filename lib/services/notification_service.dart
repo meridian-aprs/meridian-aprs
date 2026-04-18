@@ -66,6 +66,12 @@ class NotificationService extends ChangeNotifier {
   /// Snapshot of per-callsign unread counts used to detect new messages.
   final _lastUnread = <String, int>{};
 
+  /// Per-callsign index into the messages list marking where the current
+  /// notification session started. Only messages at or after this index are
+  /// shown in the notification. Reset when the notification is dismissed,
+  /// mark-as-read, or the thread is opened.
+  final _notifAnchor = <String, int>{};
+
   bool _initialized = false;
   bool _androidEnabled = true;
   bool _desktopNotifierReady = false;
@@ -237,6 +243,7 @@ class NotificationService extends ChangeNotifier {
       case 'handleMarkRead':
         final callsign = call.arguments['callsign'] as String;
         _messageService.markRead(callsign);
+        _notifAnchor.remove(callsign);
         // Cancel group summary if fewer than 2 conversations remain unread.
         final remaining = _messageService.conversations
             .where((c) => c.unreadCount > 0)
@@ -246,6 +253,10 @@ class NotificationService extends ChangeNotifier {
               .cancel(_kGroupSummaryId)
               .catchError((_) {}); // ignore: unawaited_futures
         }
+
+      case 'handleDismissed':
+        final callsign = call.arguments['callsign'] as String;
+        _notifAnchor.remove(callsign);
 
       case 'navigateToThread':
         final callsign = call.arguments['callsign'] as String;
@@ -280,6 +291,7 @@ class NotificationService extends ChangeNotifier {
     if (callsign != null && _initialized) {
       final notifId = callsign.hashCode.abs() % 100000 + 1;
       _plugin.cancel(notifId).catchError((_) {}); // ignore: unawaited_futures
+      _notifAnchor.remove(callsign);
     }
     _activeThreadCallsign = callsign?.toUpperCase();
   }
@@ -394,7 +406,21 @@ class NotificationService extends ChangeNotifier {
   }) async {
     final conv = _messageService.conversationWith(callsign);
     final all = conv?.messages ?? [];
-    final recent = all.length > 6 ? all.sublist(all.length - 6) : all;
+
+    // Set the anchor to the triggering message on the first dispatch, then
+    // keep it so subsequent messages accumulate while the notification is open.
+    // Cleared on dismiss, mark-as-read, or thread open — so the next message
+    // always starts a fresh notification with no pre-dismissal history.
+    if (!_notifAnchor.containsKey(callsign) && all.isNotEmpty) {
+      _notifAnchor[callsign] = all.length - 1;
+    }
+    final anchor = _notifAnchor[callsign] ?? (all.isEmpty ? 0 : all.length - 1);
+    final fromAnchor = anchor < all.length
+        ? all.sublist(anchor)
+        : (all.isNotEmpty ? [all.last] : []);
+    final recent = fromAnchor.length > 6
+        ? fromAnchor.sublist(fromAnchor.length - 6)
+        : fromAnchor;
 
     final messages = recent.map((m) {
       final body = m.text.length > 80 ? '${m.text.substring(0, 80)}…' : m.text;

@@ -134,10 +134,22 @@ class MainActivity : FlutterActivity() {
             PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
         )
 
+        // Delete intent — fired when the user swipes the notification away.
+        val dismissedIntent = Intent(MeridianNotificationActionReceiver.ACTION_DISMISSED).apply {
+            setClass(appContext, MeridianNotificationActionReceiver::class.java)
+            putExtra(MeridianNotificationActionReceiver.EXTRA_CALLSIGN, callsign)
+            putExtra(MeridianNotificationActionReceiver.EXTRA_NOTIFICATION_ID, notifId)
+        }
+        val dismissedPi = PendingIntent.getBroadcast(
+            appContext, notifId + 400_000, dismissedIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or immutableFlag()
+        )
+
         val notification = NotificationCompat.Builder(appContext, CHANNEL_ID_MESSAGES)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setStyle(style)
             .setContentIntent(tapPi)
+            .setDeleteIntent(dismissedPi)
             .setAutoCancel(false)
             .setGroup(GROUP_KEY)
             .setOnlyAlertOnce(alertOnce)
