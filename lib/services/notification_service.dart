@@ -10,8 +10,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform;
-import 'dart:isolate';
-import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -36,76 +34,35 @@ const _kMarkReadActionId = 'mark_read';
 const _kGroupKey = 'meridian_messages';
 const _kReplyOutboxKey = 'notification_reply_outbox';
 
-/// IsolateNameServer port name for routing background replies to the live main
-/// isolate (foreground service keeps it alive even when no Activity is visible).
-const _kReplyPortName = 'meridian_notification_reply';
-
 /// Top-level handler for background/terminated-app inline reply and mark-read
 /// actions.
 ///
-/// When the foreground service is running, the main Dart isolate is alive and
-/// has registered [_kReplyPortName] — messages are routed directly via
-/// [IsolateNameServer] so they are processed immediately without touching the
-/// reply outbox.
+/// flutter_local_notifications spawns the background handler in a fresh
+/// FlutterEngine, so cross-isolate mechanisms like IsolateNameServer do not
+/// see the main isolate's registered ports. The reliable path is: queue the
+/// reply in SharedPreferences, let the main isolate drain it on resume (or on
+/// the next cold start via [NotificationService.initialize]).
 ///
-/// When the app is fully terminated, the outbox path is used instead and the
-/// spinner is cleared by cancelling the notification after plugin init.
+/// The Reply action uses [cancelNotification: true] so Android auto-dismisses
+/// the notification (and its RemoteInput spinner) the moment the user taps
+/// Send — no explicit cancel needed here.
 @pragma('vm:entry-point')
 void onNotificationBackgroundResponse(NotificationResponse response) async {
   if (response.notificationResponseType !=
       NotificationResponseType.selectedNotificationAction) {
     return;
   }
-  WidgetsFlutterBinding.ensureInitialized();
-  final callsign = response.payload ?? '';
+  if (response.actionId != _kReplyActionId) return;
 
-  // --- Mark as read ---
-  if (response.actionId == _kMarkReadActionId) {
-    final mainPort = IsolateNameServer.lookupPortByName(_kReplyPortName);
-    if (mainPort != null) {
-      mainPort.send({'action': 'mark_read', 'callsign': callsign});
-      return;
-    }
-    // Terminated — just dismiss the notification (no MessageService to call).
-    await _cancelNotificationForCallsign(callsign);
-    return;
-  }
-
-  // --- Inline reply ---
   final input = response.input;
-  if (input == null || input.isEmpty) return;
+  final callsign = response.payload ?? '';
+  if (input == null || input.isEmpty || callsign.isEmpty) return;
 
-  final mainPort = IsolateNameServer.lookupPortByName(_kReplyPortName);
-  if (mainPort != null) {
-    // Foreground service is running — route reply directly to main isolate.
-    mainPort.send({'action': 'reply', 'callsign': callsign, 'text': input});
-    return;
-  }
-
-  // Terminated-app fallback: queue in outbox, drain on next foreground resume.
+  WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
   final outbox = prefs.getStringList(_kReplyOutboxKey) ?? [];
   outbox.add(jsonEncode({'callsign': callsign, 'text': input}));
   await prefs.setStringList(_kReplyOutboxKey, outbox);
-
-  // Dismiss the spinner by cancelling the notification.
-  await _cancelNotificationForCallsign(callsign);
-}
-
-/// Cancels a per-callsign notification and the group summary.
-/// Initialises the plugin minimally when called from a background isolate.
-Future<void> _cancelNotificationForCallsign(String callsign) async {
-  final notifId = callsign.hashCode.abs() % 100000 + 1;
-  try {
-    final plugin = FlutterLocalNotificationsPlugin();
-    await plugin.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
-    );
-    await plugin.cancel(notifId);
-    await plugin.cancel(_kGroupSummaryId);
-  } catch (_) {}
 }
 
 class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
@@ -134,15 +91,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Snapshot of per-callsign unread counts used to detect new messages.
   final _lastUnread = <String, int>{};
-
-  /// Index into [Conversation.messages] at which the current notification
-  /// thread started (i.e. the first message that triggered the notification).
-  /// Cleared when the user opens the thread via [setActiveThread].
-  final _notifStartIndex = <String, int>{};
-
-  /// ReceivePort registered under [_kReplyPortName] so the background handler
-  /// can route replies directly to the live main isolate.
-  ReceivePort? _replyPort;
 
   bool _initialized = false;
   bool _androidEnabled = true;
@@ -177,7 +125,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
 
-    _registerReplyPort();
     await _drainReplyOutbox();
     _schedulePostFrameLaunchCheck();
 
@@ -187,41 +134,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
     // new messages, not for all persisted unread counts on cold start.
     for (final conv in _messageService.conversations) {
       _lastUnread[conv.peerCallsign] = conv.unreadCount;
-    }
-  }
-
-  void _registerReplyPort() {
-    _replyPort = ReceivePort();
-    IsolateNameServer.removePortNameMapping(_kReplyPortName);
-    IsolateNameServer.registerPortWithName(
-      _replyPort!.sendPort,
-      _kReplyPortName,
-    );
-    _replyPort!.listen(_handleIsolateMessage);
-  }
-
-  void _handleIsolateMessage(dynamic message) {
-    if (message is! Map) return;
-    final action = message['action'] as String?;
-    final callsign = (message['callsign'] as String?) ?? '';
-    if (callsign.isEmpty) return;
-
-    if (action == 'reply') {
-      final text = (message['text'] as String?) ?? '';
-      if (text.isNotEmpty) {
-        _messageService.sendMessage(
-          callsign,
-          text,
-        ); // ignore: unawaited_futures
-        _postReplyUpdate(callsign); // ignore: unawaited_futures
-      }
-    } else if (action == 'mark_read') {
-      _messageService.markRead(callsign);
-      if (_initialized) {
-        final notifId = callsign.hashCode.abs() % 100000 + 1;
-        _plugin.cancel(notifId); // ignore: unawaited_futures
-        _plugin.cancel(_kGroupSummaryId); // ignore: unawaited_futures
-      }
     }
   }
 
@@ -332,7 +244,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       final notifId = callsign.hashCode.abs() % 100000 + 1;
       _plugin.cancel(notifId); // ignore: unawaited_futures
     }
-    _notifStartIndex.remove(callsign?.toUpperCase());
     _activeThreadCallsign = callsign?.toUpperCase();
   }
 
@@ -368,15 +279,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       final peer = conv.peerCallsign;
       final prevUnread = _lastUnread[peer] ?? 0;
       if (conv.unreadCount > prevUnread) {
-        // Record the thread anchor on the 0→1+ unread transition so the
-        // notification shows only messages from this notification event onward.
-        if (prevUnread == 0) {
-          final startIdx = (conv.messages.length - conv.unreadCount).clamp(
-            0,
-            conv.messages.length,
-          );
-          _notifStartIndex[peer.toUpperCase()] = startIdx;
-        }
         final lastMsg = conv.lastMessage;
         if (lastMsg != null && !lastMsg.isOutgoing) {
           _dispatchMessage(peer, lastMsg.text);
@@ -457,7 +359,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       playSound: withSound,
       enableVibration: withVibration,
       groupKey: _kGroupKey,
-      styleInformation: _buildMessagingStyle(callsign),
+      styleInformation: BigTextStyleInformation(preview),
       actions: [
         const AndroidNotificationAction(
           _kMarkReadActionId,
@@ -470,7 +372,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
           'Reply',
           inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
           showsUserInterface: false,
-          cancelNotification: false,
+          cancelNotification: true,
         ),
       ],
     );
@@ -492,75 +394,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         iOS: darwinDetails,
         macOS: darwinDetails,
       ),
-      payload: callsign,
-    );
-  }
-
-  /// Builds a [MessagingStyleInformation] anchored at the message that first
-  /// triggered the notification for this callsign.
-  ///
-  /// Reads directly from [MessageService] so the thread stays in sync without
-  /// a parallel state map. The [Person] for the peer uses only a key (no name
-  /// or icon) so Android does not render an avatar bubble.
-  MessagingStyleInformation _buildMessagingStyle(String callsign) {
-    final conv = _messageService.conversationWith(callsign);
-    final all = conv?.messages ?? [];
-    final startIdx =
-        _notifStartIndex[callsign.toUpperCase()] ??
-        (all.length > 10 ? all.length - 10 : 0);
-    final slice = startIdx < all.length ? all.sublist(startIdx) : all;
-
-    final peer = Person(name: callsign);
-    const me = Person(name: 'You');
-
-    return MessagingStyleInformation(
-      me,
-      groupConversation: false,
-      conversationTitle: callsign,
-      messages: slice
-          .map((m) => Message(m.text, m.timestamp, m.isOutgoing ? null : peer))
-          .toList(),
-    );
-  }
-
-  /// Re-posts the per-callsign notification after an outgoing reply so the
-  /// Android thread stays visible without playing sound or vibrating again.
-  Future<void> _postReplyUpdate(String callsign) async {
-    if (!_initialized || kIsWeb) return;
-    if (!Platform.isAndroid) return;
-
-    final notifId = callsign.hashCode.abs() % 100000 + 1;
-    final androidDetails = AndroidNotificationDetails(
-      NotificationChannels.messages,
-      'Messages',
-      channelDescription: 'Incoming APRS messages addressed to you.',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
-      playSound: false,
-      enableVibration: false,
-      groupKey: _kGroupKey,
-      styleInformation: _buildMessagingStyle(callsign),
-      actions: [
-        const AndroidNotificationAction(
-          _kMarkReadActionId,
-          'Mark as read',
-          showsUserInterface: false,
-          cancelNotification: true,
-        ),
-        AndroidNotificationAction(
-          _kReplyActionId,
-          'Reply',
-          inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
-          showsUserInterface: false,
-          cancelNotification: false,
-        ),
-      ],
-    );
-    await _plugin.show(
-      notifId,
-      callsign,
-      'Message sent',
-      NotificationDetails(android: androidDetails),
       payload: callsign,
     );
   }
@@ -633,10 +466,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   Future<void> drainReplyOutboxForTest() => _drainReplyOutbox();
 
-  @visibleForTesting
-  MessagingStyleInformation buildMessagingStyleForTest(String callsign) =>
-      _buildMessagingStyle(callsign);
-
   void _onNotificationResponse(NotificationResponse response) {
     final callsign = response.payload ?? '';
 
@@ -659,7 +488,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
             callsign,
             input,
           ); // ignore: unawaited_futures
-          _postReplyUpdate(callsign); // ignore: unawaited_futures
         }
         return;
       }
@@ -697,6 +525,9 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
 
   Future<void> _drainReplyOutbox() async {
+    // Reload is required: the background handler (separate isolate/engine)
+    // writes to disk, but _prefs holds a stale in-memory cache until reloaded.
+    await _prefs.reload();
     final outbox = _prefs.getStringList(_kReplyOutboxKey);
     if (outbox == null || outbox.isEmpty) return;
     await _prefs.remove(_kReplyOutboxKey);
@@ -707,7 +538,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         final text = map['text'] as String? ?? '';
         if (callsign.isNotEmpty && text.isNotEmpty) {
           await _messageService.sendMessage(callsign, text);
-          await _postReplyUpdate(callsign);
         }
       } catch (e) {
         debugPrint('NotificationService: failed to drain reply: $e');
@@ -728,9 +558,6 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _messageService.removeListener(_onMessageServiceChange);
-    IsolateNameServer.removePortNameMapping(_kReplyPortName);
-    _replyPort?.close();
-    _replyPort = null;
     super.dispose();
   }
 }

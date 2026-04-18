@@ -171,38 +171,6 @@ void main() {
     });
   });
 
-  group('NotificationService — MessagingStyle builder', () {
-    late _Fixture f;
-
-    setUp(() async {
-      f = await _Fixture.create();
-    });
-
-    tearDown(() => f.dispose());
-
-    test('messages appear in order with correct sender mapping', () async {
-      f.injectInbound('WB5XYZ', 'Hello', msgId: '001');
-      await Future.delayed(const Duration(milliseconds: 50));
-      await f.messageService.sendMessage('WB5XYZ', 'Hi back');
-
-      final style = f.notificationService.buildMessagingStyleForTest('WB5XYZ');
-      expect(style.messages, hasLength(2));
-      // Inbound: person key = peer callsign (no name = no avatar bubble)
-      expect(style.messages!.first.text, 'Hello');
-      expect(style.messages!.first.person?.name, 'WB5XYZ');
-      // Outgoing: person = null (sent by "You")
-      expect(style.messages!.last.text, 'Hi back');
-      expect(style.messages!.last.person, isNull);
-    });
-
-    test('builder returns empty messages for unknown callsign', () {
-      final style = f.notificationService.buildMessagingStyleForTest(
-        'K0UNKNOWN',
-      );
-      expect(style.messages ?? [], isEmpty);
-    });
-  });
-
   group('NotificationService — inline reply routing', () {
     late _Fixture f;
 
