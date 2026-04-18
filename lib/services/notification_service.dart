@@ -304,6 +304,25 @@ class NotificationService extends ChangeNotifier {
     }
   }
 
+  MessagingStyleInformation _buildMessagingStyle(String callsign) {
+    const mePerson = Person(name: 'You', bot: true);
+    final peerPerson = Person(name: callsign, bot: true);
+
+    final conv = _messageService.conversationWith(callsign);
+    final all = conv?.messages ?? [];
+    final recent = all.length > 6 ? all.sublist(all.length - 6) : all;
+
+    return MessagingStyleInformation(
+      mePerson,
+      messages: recent.map((m) {
+        final body = m.text.length > 80
+            ? '${m.text.substring(0, 80)}…'
+            : m.text;
+        return Message(body, m.timestamp, m.isOutgoing ? null : peerPerson);
+      }).toList(),
+    );
+  }
+
   Future<void> _dispatchSingleNotification(
     int id,
     String callsign,
@@ -311,8 +330,6 @@ class NotificationService extends ChangeNotifier {
     bool withSound,
     bool withVibration,
   ) async {
-    final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
-
     final androidDetails = AndroidNotificationDetails(
       NotificationChannels.messages,
       'Messages',
@@ -322,7 +339,7 @@ class NotificationService extends ChangeNotifier {
       playSound: withSound,
       enableVibration: withVibration,
       groupKey: _kGroupKey,
-      styleInformation: BigTextStyleInformation(preview),
+      styleInformation: _buildMessagingStyle(callsign),
       actions: [
         const AndroidNotificationAction(
           _kMarkReadActionId,
@@ -348,6 +365,7 @@ class NotificationService extends ChangeNotifier {
       presentBadge: true,
     );
 
+    final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
     await _plugin.show(
       id,
       callsign,
