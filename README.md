@@ -11,6 +11,14 @@ Meridian is an open-source, cross-platform APRS client built with Flutter. It br
 
 ---
 
+## Brand
+
+<img src="assets/icons/reference-master-1024.png" alt="Meridian icon" width="128">
+
+Primary brand color: `#4D1D8C` — a saturated, warm-leaning purple. Icon assets live in `assets/icons/`; platform launcher icons are generated from there via `dart run flutter_launcher_icons`.
+
+---
+
 ## Screenshots
 
 > 📸 *Screenshots coming soon.*

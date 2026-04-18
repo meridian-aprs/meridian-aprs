@@ -15,6 +15,9 @@ class MeridianColors {
   static const Color primary = Color(0xFF2563EB); // Meridian Blue
   static const Color primaryDark = Color(0xFF1D4ED8);
 
+  // Brand mark — for in-app icon rendering (splash, about). Not used as M3 seed.
+  static const Color brandPurple = Color(0xFF4D1D8C);
+
   // Semantic — fixed by design, never replaced by dynamic color equivalents.
   static const Color signal = Color(
     0xFF10B981,

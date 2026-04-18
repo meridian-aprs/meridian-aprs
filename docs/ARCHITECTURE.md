@@ -220,6 +220,19 @@ if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
 
 The map tile URL is theme-aware: light mode uses OSM standard tiles; dark mode uses CartoDB dark tiles (subdomain rotation via `{s}`).
 
+### Brand Assets
+
+- **Source of truth**: `assets/icons/meridian-icon-master.svg` — single compound path, `evenodd` fill-rule, 512×512 viewBox.
+- **Brand color token**: `MeridianColors.brandPurple` = `#4D1D8C`. For in-app mark rendering (splash, about screen) only — not used as the M3 theme seed.
+- **Regenerating launcher icons**: `dart run flutter_launcher_icons` — reads PNG masters from `assets/icons/generated/`.
+- **Regenerating PNG masters** (if SVG source changes):
+  ```bash
+  magick -density 300 -background white assets/icons/meridian-icon-master.svg -flatten -resize 1024x1024 assets/icons/generated/icon-1024.png
+  magick -density 300 -background transparent assets/icons/meridian-icon-adaptive-fg.svg -resize 432x432 assets/icons/generated/icon-adaptive-fg-432.png
+  magick -density 300 -background none assets/icons/meridian-icon-adaptive-bg.svg -resize 432x432 assets/icons/generated/icon-adaptive-bg-432.png
+  ```
+- **Linux**: icon bundled as `linux/meridian.png`; `.desktop` system integration deferred to v1.0 packaging.
+
 ---
 
 ## TNC Transport (v0.3+, extended in v0.4)
