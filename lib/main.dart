@@ -324,7 +324,7 @@ class MeridianApp extends StatelessWidget {
 
     if (!kIsWeb &&
         (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
-      final themes = buildDesktopTheme(seedColor: MeridianColors.primary);
+      final themes = buildDesktopTheme(seedColor: MeridianColors.brandSeed);
       return MaterialApp(
         title: 'Meridian APRS',
         navigatorKey: navigatorKey,

@@ -159,11 +159,11 @@ All three tiers fully implemented. iOS pending simulator validation.
 
 | File | Class | Description |
 |---|---|---|
-| `meridian_colors.dart` | `MeridianColors` | Brand color constants: `primary`, `primaryDark`, `signal`, `warning`, `danger` |
+| `meridian_colors.dart` | `MeridianColors` | Brand color tokens: `brandSeed`, tonal palettes (`brand`, `neutral`, `neutralVariant`), semantic colors (`signal`, `warning`, `danger`, `info`) |
 | `theme_controller.dart` | `ThemeController` | ChangeNotifier for `themeMode` + `seedColor`; persists both to SharedPreferences |
-| `android_theme.dart` | `buildAndroidTheme()` | Builds Android ThemeData pair; uses `DynamicColorBuilder` schemes or seed fallback; applies M3 Expressive via `m3e_design` |
-| `ios_theme.dart` | `buildIosTheme()` | Returns `CupertinoThemeData` for given brightness; `primaryColor` = Meridian Blue; structurally complete, pending iOS simulator validation |
-| `desktop_theme.dart` | `buildDesktopTheme()` | Returns M3 static brand ThemeData pair; fixed `MeridianColors.primary` seed; no dynamic color; Windows/macOS/Linux |
+| `android_theme.dart` | `buildAndroidTheme()` | Builds Android ThemeData pair; uses `DynamicColorBuilder` schemes or `brandSeed` fallback; applies M3 Expressive via `m3e_design` |
+| `ios_theme.dart` | `buildIosTheme()` | Returns `CupertinoThemeData` for given brightness; `primaryColor` = Meridian Purple (`brandSeed`); structurally complete, pending iOS simulator validation |
+| `desktop_theme.dart` | `buildDesktopTheme()` | Returns M3 static brand ThemeData pair; fixed `MeridianColors.brandSeed` seed; no dynamic color; Windows/macOS/Linux |
 
 ### Layout System (`lib/ui/layout/`)
 
@@ -180,7 +180,7 @@ All three tiers fully implemented. iOS pending simulator validation.
 | File | Class | Description |
 |---|---|---|
 | `aprs_symbol_widget.dart` | `AprsSymbolWidget` | APRS symbol rendering; Material icons now, sprite sheet at v1.0 |
-| `beacon_fab.dart` | `BeaconFAB` | Large FAB; idle=primary blue, beaconing=danger red + pulse animation; spinner while sending |
+| `beacon_fab.dart` | `BeaconFAB` | Large FAB; idle=primary (theme-resolved), beaconing=danger red + pulse animation; spinner while sending |
 | `callsign_field.dart` | `CallsignField` | Validated callsign TextFormField; regex + inline error |
 | `meridian_bottom_sheet.dart` | `MeridianBottomSheet` | Draggable bottom sheet with drag handle; theming wrapper |
 | `meridian_status_pill.dart` | `MeridianStatusPill` | Connection status pill; green/amber/red dot + label; pulsing on connecting |

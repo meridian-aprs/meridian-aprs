@@ -5,7 +5,7 @@ import 'meridian_colors.dart';
 /// Builds the desktop theme pair (light + dark) for Windows, macOS, and Linux.
 ///
 /// Material 3 with a fixed [seedColor] — no dynamic color, no M3 Expressive
-/// ThemeExtension (Android-only). Callers always pass [MeridianColors.primary].
+/// ThemeExtension (Android-only). Callers always pass [MeridianColors.brandSeed].
 ({ThemeData light, ThemeData dark}) buildDesktopTheme({
   required Color seedColor,
 }) {

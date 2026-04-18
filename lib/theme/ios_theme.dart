@@ -5,7 +5,7 @@ import 'meridian_colors.dart';
 /// Builds the iOS [CupertinoThemeData] for the given [brightness].
 ///
 /// [primaryColor] sets the app tint color (buttons, links, active controls).
-/// Defaults to [MeridianColors.primary]. Pass [ThemeController.seedColor] to
+/// Defaults to [MeridianColors.brandSeed]. Pass [ThemeController.seedColor] to
 /// honour the user's color preference from the App Color picker.
 ///
 /// San Francisco font is applied automatically by Flutter on iOS; no
@@ -17,7 +17,7 @@ import 'meridian_colors.dart';
 /// automatically for the given brightness.
 CupertinoThemeData buildIosTheme({
   required Brightness brightness,
-  Color primaryColor = MeridianColors.primary,
+  Color primaryColor = MeridianColors.brandSeed,
 }) {
   return CupertinoThemeData(brightness: brightness, primaryColor: primaryColor);
 }

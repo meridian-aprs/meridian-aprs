@@ -10,7 +10,7 @@ import 'meridian_colors.dart';
 ///
 /// Defaults on first launch:
 /// - [themeMode]: [ThemeMode.system] (follows OS setting)
-/// - [seedColor]: [MeridianColors.primary] (Meridian Blue)
+/// - [seedColor]: [MeridianColors.brandSeed] (Meridian Purple)
 /// - [useDynamicColor]: true (use wallpaper-derived color when available)
 ///
 /// Usage:
@@ -73,7 +73,7 @@ class ThemeController extends ChangeNotifier {
     final seedInt = prefs.getInt(_seedColorKey);
     final useDynamic = prefs.getBool(_useDynamicColorKey) ?? true;
     final mode = _modeFromInt(modeInt);
-    final seed = seedInt != null ? Color(seedInt) : MeridianColors.primary;
+    final seed = seedInt != null ? Color(seedInt) : MeridianColors.brandSeed;
     return ThemeController._(mode, seed, useDynamic);
   }
 

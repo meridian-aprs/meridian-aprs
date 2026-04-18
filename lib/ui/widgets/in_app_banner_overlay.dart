@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../../screens/message_thread_screen.dart';
-import '../../theme/meridian_colors.dart';
 import '../utils/platform_route.dart';
 
 /// Payload carried by a single in-app notification banner.
@@ -206,7 +205,7 @@ class _InAppBannerOverlayState extends State<InAppBannerOverlay>
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Left accent bar.
-                    Container(width: 4, color: MeridianColors.primary),
+                    Container(width: 4, color: theme.colorScheme.primary),
                     Expanded(
                       child: Padding(
                         padding: const EdgeInsets.symmetric(

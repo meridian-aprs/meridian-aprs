@@ -31,7 +31,7 @@ Meridian uses a **three-tier platform theme architecture**. Each platform tier h
 ### Behavior
 
 - On **Android 12+**: Uses `DynamicColorBuilder` to read the system-generated `ColorScheme` derived from the user's wallpaper (Material You). The app color palette adapts fully to the user's device personality.
-- On **Android < 12**: Falls back to a `ColorScheme.fromSeed()` built from the user's chosen seed color (see Seed Color Setting below). Defaults to Meridian Blue (`#2563EB`) on first launch.
+- On **Android < 12**: Falls back to a `ColorScheme.fromSeed()` built from the user's chosen seed color (see Seed Color Setting below). Defaults to Meridian Purple (`#4D1D8C`) on first launch.
 - Both light and dark dynamic schemes are provided; the active one is selected by the current `ThemeMode`.
 
 ### M3 Expressive Layer
@@ -67,7 +67,7 @@ Meridian uses a **three-tier platform theme architecture**. Each platform tier h
 - Navigation uses `CupertinoNavigationBar` and `CupertinoPageRoute` transitions.
 - System chrome (tab bars, navigation bars, action sheets, alerts) uses standard Cupertino widgets throughout.
 - Typography uses San Francisco (system font) automatically via Cupertino defaults.
-- Color accents use Meridian Blue mapped to `CupertinoThemeData.primaryColor`.
+- Color accents use Meridian Purple mapped to `CupertinoThemeData.primaryColor`.
 
 ### Liquid Glass Upgrade Path
 
@@ -89,7 +89,7 @@ This is a **contained swap, not a rearchitecture**.
 
 ### No Dynamic Color on iOS
 
-iOS does not expose a system-level dynamic color API comparable to Android's Material You. The Cupertino theme uses fixed Meridian brand colors (Meridian Blue as primary). This is consistent with how native iOS apps behave.
+iOS does not expose a system-level dynamic color API comparable to Android's Material You. The Cupertino theme uses fixed Meridian brand colors (Meridian Purple as primary). This is consistent with how native iOS apps behave.
 
 ---
 
@@ -102,7 +102,7 @@ Windows, macOS, Linux.
 ### Behavior
 
 - Uses `MaterialApp` with `ThemeData` (`useMaterial3: true`).
-- `ColorScheme.fromSeed(seedColor: MeridianColors.primary)` — fixed Meridian Blue seed, no dynamic color.
+- `ColorScheme.fromSeed(seedColor: MeridianColors.brandSeed)` — fixed Meridian Purple seed, no dynamic color.
 - No per-OS customization (no macOS-native chrome, no Windows Fluent). A consistent, modern Meridian-branded Material 3 experience across all desktop platforms.
 - Full M3 component set (NavigationRail, Cards, Dialogs, etc.) but without M3 Expressive shape/motion extensions (those are Android-only for now).
 
@@ -122,7 +122,7 @@ A single `ThemeController` (Riverpod provider or equivalent) manages:
 | Property | Description |
 |---|---|
 | `themeMode` | `ThemeMode.light`, `.dark`, or `.system` (default: `.system`) |
-| `seedColor` | `Color` — Meridian Blue default, user-configurable on Android |
+| `seedColor` | `Color` — Meridian Purple default, user-configurable on Android |
 | `resolvedColorScheme` | The active `ColorScheme` after dynamic color / seed resolution |
 
 `ThemeController` is the single source of truth. Widgets never read platform or brightness directly — they always go through the controller or `Theme.of(context)`.
@@ -134,21 +134,28 @@ A single `ThemeController` (Riverpod provider or equivalent) manages:
 These are constants that exist regardless of platform tier. They represent the Meridian brand identity and are used as inputs to each tier's theme generation, not as hardcoded colors in widgets.
 
 ```dart
-// lib/theme/meridian_colors.dart
+// lib/theme/meridian_colors.dart  (GENERATED — do not edit by hand)
 
 class MeridianColors {
-  // Brand seed — used as dynamic color fallback and iOS/desktop primary
-  static const primary      = Color(0xFF2563EB); // Meridian Blue
-  static const primaryDark  = Color(0xFF1D4ED8);
+  // Brand anchor — app icon, wordmark, M3 seed on desktop + Android fallback
+  static const Color brandSeed = Color(0xFF4D1D8C); // Meridian Purple
 
-  // Semantic — used directly in custom widgets regardless of platform tier
-  static const signal       = Color(0xFF10B981); // Connected / received / active
-  static const warning      = Color(0xFFF59E0B); // Degraded / stale
-  static const danger       = Color(0xFFEF4444); // Error / TX active
+  // Brand tonal palette (13 tones, 0..100)
+  static const Color brand000 = Color(0xFF000000);
+  // … brand010 – brand100 (see file for full list)
+
+  // Neutral palettes (warm-tinted grays, 13 tones each)
+  // neutral000..neutral100, neutralVariant000..neutralVariant100
+
+  // Semantic — APRS protocol meaning, fixed across all themes
+  static const Color signal  = Color(0xFF10B981); // Connected / received / active
+  static const Color warning = Color(0xFFF59E0B); // Degraded / stale
+  static const Color danger  = Color(0xFFEF4444); // Error / TX active
+  static const Color info    = Color(0xFF3B82F6); // Informational guidance
 }
 ```
 
-Semantic colors (signal, warning, danger) are used in custom Meridian widgets like `MeridianStatusPill` and beacon state indicators. They are fixed by design — they carry meaning tied to APRS protocol state and must not shift with dynamic color.
+Semantic colors (`signal`, `warning`, `danger`, `info`) are used in custom Meridian widgets like `MeridianStatusPill` and beacon state indicators. They are fixed by design — they carry meaning tied to APRS protocol state and must not shift with dynamic color.
 
 ---
 

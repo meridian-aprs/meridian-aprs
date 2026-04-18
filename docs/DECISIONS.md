@@ -618,3 +618,38 @@ The handoff spec described a "background isolate" dispatch path — this was bas
 **Rationale:** `local_notifier` (the desktop toast library) does not expose a text input action API. macOS `UNUserNotificationCenter` does support text input replies, but wiring it through `local_notifier` → Dart would require a custom platform channel, which is out of scope for v0.11. The `flutter_local_notifications` package also does not support Windows or Linux notifications. Desktop APRS operators typically have the app visible on screen — the click-to-navigate flow is adequate.
 
 **Future path:** If macOS inline reply becomes a priority, it can be implemented via a custom Swift platform channel that registers a `UNTextInputNotificationAction`, fires the reply into a named `ReceivePort` on the main isolate, and calls `MessageService.sendMessage`. This is a discrete addition that does not require changing the `NotificationService` dispatch path.
+
+---
+
+## ADR-039: Brand Color Change to Meridian Purple
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** Change the Meridian brand seed color from `#2563EB` (Meridian Blue) to `#4D1D8C` (Boosted Purple). Expand the brand color file into a full tonal palette plus harmonized neutrals, replacing the two-constant `primary`/`primaryDark` API.
+
+**Rationale:**
+- The app icon locked in as a purple pin; brand seed must match the icon to be coherent.
+- Purple is distinctive in the APRS/ham-radio tooling space — no major competitor owns it.
+- A full tonal palette provides stable tokens for UI work that don't depend on dynamic-color output (splash, about, onboarding brand-tinted surfaces).
+- Warm-tinted neutrals (vs. pure gray) tie the UI back to the brand hue subtly.
+
+**Scope of change:**
+- `MeridianColors.brandSeed` replaces `MeridianColors.primary` as the brand anchor.
+- `MeridianColors.primaryDark` removed (was unused); `brandPurple` removed (superseded by `brandSeed`).
+- Full tonal palettes added as static tokens (`brand`, `neutral`, `neutralVariant`).
+- Semantic colors (`signal`, `warning`, `danger`) retained with original hex values.
+- New `info` semantic color added (`#3B82F6`).
+- Default App Color swatch updated to Meridian Purple; Violet swatch replaced with Indigo (`#4F46E5`) to avoid near-duplication with the new brand.
+
+**Unchanged:**
+- Material You dynamic color behavior on Android 12+.
+- User-selectable App Color picker on Android.
+- Theme mode toggle (System / Light / Dark) on all platforms.
+- iOS Cupertino theme tier.
+- Desktop static M3 tier (seed value changes, structure does not).
+- Semantic color values and the rule against dynamic-color shifting.
+
+**Alternatives considered:**
+- Keep Meridian Blue — rejected; mismatch with purple icon would be incoherent.
+- Pin theme primary to the literal seed — rejected in favor of M3 convention (`ColorScheme.fromSeed` selects its own primary tone, which is standard M3 behavior).
