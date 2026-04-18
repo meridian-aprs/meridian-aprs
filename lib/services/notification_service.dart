@@ -229,16 +229,13 @@ class NotificationService extends ChangeNotifier {
         final text = call.arguments['text'] as String;
         final notifId = call.arguments['notificationId'] as int;
         await _messageService.sendMessage(callsign, text);
-        // Re-post with alertOnce:true so the spinner dismisses without heads-up.
-        if (!kIsWeb && Platform.isAndroid) {
-          await _dispatchAndroidNotification(
-            notifId,
-            callsign,
-            _notifPrefs.isSoundEnabled(NotificationChannels.messages),
-            _notifPrefs.isVibrationEnabled(NotificationChannels.messages),
-            alertOnce: true,
-          );
-        }
+        // Re-post with alertOnce:true so the spinner clears without heads-up.
+        await _dispatchAndroidNotification(
+          notifId,
+          callsign,
+          _notifPrefs.isSoundEnabled(NotificationChannels.messages),
+          alertOnce: true,
+        );
 
       case 'handleMarkRead':
         final callsign = call.arguments['callsign'] as String;
@@ -368,12 +365,7 @@ class NotificationService extends ChangeNotifier {
 
     if (!kIsWeb && Platform.isAndroid) {
       // Android: post natively so inline reply works without opening the app.
-      await _dispatchAndroidNotification(
-        notifId,
-        callsign,
-        withSound,
-        withVibration,
-      );
+      await _dispatchAndroidNotification(notifId, callsign, withSound);
 
       // Group summary for 2+ unread conversations.
       final unreadConvs = _messageService.conversations
@@ -400,8 +392,7 @@ class NotificationService extends ChangeNotifier {
   Future<void> _dispatchAndroidNotification(
     int id,
     String callsign,
-    bool withSound,
-    bool withVibration, {
+    bool withSound, {
     bool alertOnce = false,
   }) async {
     final conv = _messageService.conversationWith(callsign);
@@ -437,7 +428,6 @@ class NotificationService extends ChangeNotifier {
         'notificationId': id,
         'messages': messages,
         'withSound': withSound,
-        'withVibration': withVibration,
         'alertOnce': alertOnce,
       });
     } catch (_) {}
@@ -581,9 +571,9 @@ class NotificationService extends ChangeNotifier {
 
   void _schedulePostFrameLaunchCheck() {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (kIsWeb) return;
-      if (!Platform.isAndroid && !Platform.isIOS) return;
-      if (Platform.isAndroid) return; // Android uses _schedulePendingNavCheck.
+      // Android uses _schedulePendingNavCheck (pull model via MainActivity).
+      // All other platforms and web don't need this check.
+      if (kIsWeb || !Platform.isIOS) return;
       try {
         final details = await _plugin.getNotificationAppLaunchDetails();
         if (details == null || !details.didNotificationLaunchApp) return;
