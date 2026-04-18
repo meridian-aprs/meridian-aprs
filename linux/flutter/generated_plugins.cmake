@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   flutter_libserialport
+  local_notifier
   url_launcher_linux
 )
 

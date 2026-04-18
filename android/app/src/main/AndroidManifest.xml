@@ -45,6 +45,16 @@
             android:foregroundServiceType="dataSync|location"
             android:stopWithTask="false"
             android:exported="false" />
+        <!-- Handles inline reply and mark-as-read from message notifications. -->
+        <receiver
+            android:name=".MeridianNotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.meridianaprs.meridian_aprs.NOTIFICATION_REPLY" />
+                <action android:name="com.meridianaprs.meridian_aprs.NOTIFICATION_MARK_READ" />
+                <action android:name="com.meridianaprs.meridian_aprs.NOTIFICATION_DISMISSED" />
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

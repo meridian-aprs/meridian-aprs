@@ -11,6 +11,9 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'services/notification_service.dart';
+import 'ui/widgets/in_app_banner_overlay.dart';
+
 import 'config/app_config.dart';
 import 'core/connection/aprs_is_connection.dart';
 import 'core/connection/ble_connection.dart';
@@ -35,6 +38,10 @@ import 'theme/meridian_colors.dart';
 import 'theme/theme_controller.dart';
 
 const String _kVersion = '0.1.0';
+
+/// Global navigator key so [NotificationService] can push routes from outside
+/// the widget tree (notification taps, inline reply navigation).
+final navigatorKey = GlobalKey<NavigatorState>();
 
 /// Maps a [ConnectionType] to the [PacketSource] tag used in [StationService].
 PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
@@ -130,10 +137,13 @@ Future<void> main() async {
     );
   }
 
-  // Start APRS-IS connection on launch.
-  aprsIsConn.connect().catchError((Object e) {
-    debugPrint('APRS-IS connection failed: $e');
-  });
+  // Reconnect APRS-IS only if the user chose to connect last session.
+  // Defaults to off on first launch so the connection is always opt-in.
+  if (aprsIsConn.autoConnect) {
+    aprsIsConn.connect().catchError((Object e) {
+      debugPrint('APRS-IS connection failed: $e');
+    });
+  }
 
   final stationSettings = StationSettingsService(prefs);
   final txService = TxService(registry);
@@ -149,6 +159,15 @@ Future<void> main() async {
 
   final messageService = MessageService(stationSettings, txService, service);
   await messageService.loadHistory();
+
+  final bannerController = InAppBannerController();
+  final notificationService = NotificationService(
+    messageService: messageService,
+    prefs: prefs,
+    navigatorKey: navigatorKey,
+    bannerController: bannerController,
+  );
+  await notificationService.initialize();
 
   // Tile cache: persist tiles to disk for 30 days so repeated sessions don't
   // re-fetch the same tiles and burn through Stadia Maps API credits.
@@ -211,6 +230,12 @@ Future<void> main() async {
         ChangeNotifierProvider<BackgroundServiceManager>.value(
           value: bgServiceManager,
         ),
+        ChangeNotifierProvider<NotificationService>.value(
+          value: notificationService,
+        ),
+        ChangeNotifierProvider<InAppBannerController>.value(
+          value: bannerController,
+        ),
         if (iosBackgroundService != null)
           ChangeNotifierProvider<IosBackgroundService>.value(
             value: iosBackgroundService,
@@ -225,6 +250,7 @@ Future<void> main() async {
         mapZoom: mapZoom,
         service: service,
         tileProvider: tileProvider,
+        bannerController: bannerController,
       ),
     ),
   );
@@ -241,6 +267,7 @@ class MeridianApp extends StatelessWidget {
     this.mapZoom = 9.0,
     required this.service,
     required this.tileProvider,
+    required this.bannerController,
   });
 
   final bool onboardingComplete;
@@ -251,15 +278,32 @@ class MeridianApp extends StatelessWidget {
   final double mapZoom;
   final StationService service;
   final StadiaTileProvider tileProvider;
+  final InAppBannerController bannerController;
 
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<ThemeController>();
 
+    Widget homeWidget() => InAppBannerOverlay(
+      controller: bannerController,
+      child: onboardingComplete
+          ? MapScreen(
+              service: service,
+              tileProvider: tileProvider,
+              callsign: userCallsign,
+              ssid: userSsid,
+              initialLat: mapLat,
+              initialLon: mapLon,
+              initialZoom: mapZoom,
+            )
+          : const OnboardingScreen(),
+    );
+
     if (!kIsWeb && Platform.isIOS) {
       final brightness = _resolveIosBrightness(controller.themeMode);
       return CupertinoApp(
         title: 'Meridian APRS',
+        navigatorKey: navigatorKey,
         theme: buildIosTheme(
           brightness: brightness,
           primaryColor: controller.seedColor,
@@ -274,17 +318,7 @@ class MeridianApp extends StatelessWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         supportedLocales: const [Locale('en', 'US')],
-        home: onboardingComplete
-            ? MapScreen(
-                service: service,
-                tileProvider: tileProvider,
-                callsign: userCallsign,
-                ssid: userSsid,
-                initialLat: mapLat,
-                initialLon: mapLon,
-                initialZoom: mapZoom,
-              )
-            : const OnboardingScreen(),
+        home: homeWidget(),
       );
     }
 
@@ -293,6 +327,7 @@ class MeridianApp extends StatelessWidget {
       final themes = buildDesktopTheme(seedColor: MeridianColors.primary);
       return MaterialApp(
         title: 'Meridian APRS',
+        navigatorKey: navigatorKey,
         themeMode: controller.themeMode,
         theme: themes.light,
         darkTheme: themes.dark,
@@ -303,17 +338,7 @@ class MeridianApp extends StatelessWidget {
           GlobalCupertinoLocalizations.delegate,
         ],
         supportedLocales: const [Locale('en', 'US')],
-        home: onboardingComplete
-            ? MapScreen(
-                service: service,
-                tileProvider: tileProvider,
-                callsign: userCallsign,
-                ssid: userSsid,
-                initialLat: mapLat,
-                initialLon: mapLon,
-                initialZoom: mapZoom,
-              )
-            : const OnboardingScreen(),
+        home: homeWidget(),
       );
     }
 
@@ -329,20 +354,11 @@ class MeridianApp extends StatelessWidget {
 
         return MaterialApp(
           title: 'Meridian APRS',
+          navigatorKey: navigatorKey,
           themeMode: controller.themeMode,
           theme: themes.light,
           darkTheme: themes.dark,
-          home: onboardingComplete
-              ? MapScreen(
-                  service: service,
-                  tileProvider: tileProvider,
-                  callsign: userCallsign,
-                  ssid: userSsid,
-                  initialLat: mapLat,
-                  initialLon: mapLon,
-                  initialZoom: mapZoom,
-                )
-              : const OnboardingScreen(),
+          home: homeWidget(),
         );
       },
     );

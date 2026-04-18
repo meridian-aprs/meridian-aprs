@@ -161,25 +161,25 @@ class MeridianMap extends StatelessWidget {
             right: 0,
             child: Center(child: _ConnectingBanner()),
           ),
-        if (onNotConnectedTap != null)
-          Positioned(
-            top: 12,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: _NotConnectedNudge(
-                visible: !isAnyConnected,
-                onTap: onNotConnectedTap!,
-              ),
-            ),
-          ),
-        if (activeFilterLabel != null)
+        if (onNotConnectedTap != null || activeFilterLabel != null)
           Positioned(
             top: 12,
             left: 12,
-            child: _ActiveFilterChip(
-              label: activeFilterLabel!,
-              onTap: onActiveFilterTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (onNotConnectedTap != null)
+                  _NotConnectedNudge(
+                    visible: !isAnyConnected,
+                    onTap: onNotConnectedTap!,
+                  ),
+                if (activeFilterLabel != null)
+                  _ActiveFilterChip(
+                    label: activeFilterLabel!,
+                    onTap: onActiveFilterTap,
+                  ),
+              ],
             ),
           ),
         if (showCountChip &&
@@ -216,18 +216,32 @@ class _NotConnectedNudge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedOpacity(
-      opacity: visible ? 1.0 : 0.0,
-      duration: const Duration(milliseconds: 400),
-      child: IgnorePointer(
-        ignoring: !visible,
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedCrossFade(
+      duration: const Duration(milliseconds: 300),
+      sizeCurve: Curves.easeInOut,
+      crossFadeState: visible
+          ? CrossFadeState.showFirst
+          : CrossFadeState.showSecond,
+      firstChild: Padding(
+        padding: const EdgeInsets.only(bottom: 8),
         child: ActionChip(
-          avatar: const Icon(Symbols.signal_disconnected, size: 16),
-          label: const Text('Not connected — tap to connect'),
+          avatar: Icon(
+            Symbols.signal_disconnected,
+            size: 16,
+            color: colors.onErrorContainer,
+          ),
+          label: Text(
+            'Not connected',
+            style: TextStyle(color: colors.onErrorContainer),
+          ),
+          backgroundColor: colors.errorContainer,
+          side: BorderSide.none,
           onPressed: onTap,
           visualDensity: VisualDensity.compact,
         ),
       ),
+      secondChild: const SizedBox.shrink(),
     );
   }
 }

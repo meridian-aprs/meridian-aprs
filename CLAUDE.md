@@ -56,13 +56,15 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.7~~ | ~~Android Background Beaconing (foreground service + persistent notification)~~ ✓ |
 | ~~v0.8~~ | ~~Cross-platform parity pass (iOS Cupertino audit, Stadia Maps tile swap)~~ ✓ |
 | ~~v0.9~~ | ~~iOS Background Beaconing (background location + Live Activity)~~ ✓ |
-| **v0.10** | Map filters + station profiles + track history + cluster markers + object/item display + altitude in position packets |
-| **v0.11** | Background notifications + in-app banner system |
-| **v0.12** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
-| **v0.13** | Battery & performance optimization pass |
+| ~~v0.10~~ | ~~Map experience — viewport-adaptive APRS-IS filter, time filter, track history, cluster markers, station type filters, object/item display~~ ✓ |
+| ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
+| **v0.12** | Onboarding improvements |
+| **v0.13** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
+| **v0.14** | Battery & performance optimization pass |
+| **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.10 complete. Map experience milestone: viewport-adaptive APRS-IS area filter (`a/N/W/S/E` — use `a/`, never `b/` which is the callsign/budget filter; 25% padding, 50 km minimum floor, 500ms debounce); configurable station time filter (default 60 min, stored as `station_max_age_minutes`, immediate prune on change + 60s periodic timer started in `loadPersistedHistory`); per-station position history (`TimestampedPosition` list, capped at 500 entries, oldest-first); track polylines rendered via `PolylineLayer` in `MeridianMap`; `MapFilterPanel` widget accessible from filter FAB (mobile) or toolbar button (tablet/desktop); active filter chip on map surface when non-default window; Map section in Settings screen. ADRs 001–034 in `docs/DECISIONS.md`. Next: v0.11 — Background notifications + in-app banner system.**
+**Current status: v0.11 complete (notifications milestone). v0.12 next — Onboarding improvements. v0.11 added: `NotificationService` (main-isolate dispatch, `flutter_local_notifications` on mobile/macOS, `local_notifier` on Windows/Linux); four notification channels (`messages`, `alerts`, `nearby`, `system`); Android `MessagingStyle` + `RemoteInput` inline reply via native `BroadcastReceiver` + `FlutterEngineCache`; iOS `UNTextInputAction` inline reply + foreground delivery; `InAppBannerOverlay` at app root; `NotificationPreferences` model + settings UI; cold-start navigation via global `navigatorKey`; APRS-IS connection opt-in (no auto-connect on launch). ADRs 001–038 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
@@ -186,6 +188,7 @@ All three tiers fully implemented. iOS pending simulator validation.
 | `station_info_sheet.dart` | `StationInfoSheet` | Station summary bottom sheet (callsign, symbol, comment, last heard) |
 | `station_list_tile.dart` | `StationListTile` | ListTile for station list; symbol + callsign + relative timestamp |
 | `station_search_delegate.dart` | `StationSearchDelegate` | `SearchDelegate<Station?>` for callsign search; Nominatim-powered map pan |
+| `in_app_banner_overlay.dart` | `InAppBannerOverlay`, `InAppBannerController` | Slide-in notification banner at app root; `InAppBannerController` triggers from `NotificationService`; full-width mobile, 320 px top-right desktop |
 
 ### Screens (`lib/screens/`)
 
@@ -219,6 +222,14 @@ All three tiers fully implemented. iOS pending simulator validation.
 | `lib/core/transport/ble_constants.dart` | `kMobilinkdServiceUuid` etc. | Mobilinkd UART-over-BLE GATT service/characteristic UUIDs |
 | `lib/services/tnc_service.dart` | `TncService` | ChangeNotifier; owns `TransportManager`; parses AX.25 frames via `AprsParser`; bridges to `StationService.ingestLine` |
 | `lib/ui/widgets/ble_scanner_sheet.dart` | `BleScannerSheet` | BLE scan + connect UI; filters to Mobilinkd devices; device list with RSSI icons |
+
+### Notification files (v0.11)
+
+| File | Class / Symbol | Description |
+|---|---|---|
+| `lib/services/notification_service.dart` | `NotificationService` | ChangeNotifier; subscribes to `MessageService`; dispatches via `flutter_local_notifications` (mobile/macOS) or `local_notifier` (desktop); triggers `InAppBannerController`; handles inline reply + cold-start navigation |
+| `lib/models/notification_preferences.dart` | `NotificationPreferences`, `NotificationChannels` | Immutable prefs model; per-channel enabled/sound/vibration; `load`/`save` via SharedPreferences; `copyWith*` helpers |
+| `lib/ui/widgets/in_app_banner_overlay.dart` | `InAppBannerOverlay`, `InAppBannerController` | Slide-in banner at app root; auto-dismiss 4s; swipe-up dismiss; tap → `MessageThreadScreen`; desktop anchors top-right 320 px |
 
 ---
 

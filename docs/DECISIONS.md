@@ -556,3 +556,65 @@ The 500-entry history cap prevents unbounded memory growth for high-speed mobile
 **Consequences:**
 - First-run users see at most 60 minutes of history; users who previously ran without a filter will see their station map trimmed on the first prune pass.
 - Position history is not persisted across app restarts (only `lat`/`lon`/`lastHeard` are serialised). This is acceptable — history rebuilds organically as new packets arrive.
+
+---
+
+## ADR-035: Main-isolate notification dispatch — no cross-isolate path needed
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** `NotificationService` subscribes to `MessageService` on the main Dart isolate and dispatches system notifications from there. No cross-isolate communication path is implemented for notification delivery.
+
+**Rationale:** The `flutter_foreground_task` `TaskHandler` (`MeridianConnectionTask`) is a beaconing heartbeat only — it does not process incoming APRS packets. All packet ingestion, `StationService` updates, and `MessageService` listener callbacks run on the main Dart isolate. On Android, the foreground service (declared via `flutter_foreground_task`) keeps the main isolate alive when backgrounded. On iOS, the `voip` UIBackgroundMode keeps the process alive. In both cases, a simple `messageService.addListener` fires reliably while backgrounded, so no background-isolate notification path is needed.
+
+The handoff spec described a "background isolate" dispatch path — this was based on a misread of the architecture. Correcting it here so future implementers don't build a cross-isolate path that's unnecessary and more fragile.
+
+**Consequences:** `NotificationService.initialize()` must be called before `runApp()` so the listener is wired before the first background event. The `@pragma('vm:entry-point')` `onNotificationBackgroundResponse` top-level function handles the one true background-isolate case: Android inline reply when the app process is **terminated** (not just backgrounded). In that case, the app is cold-launched in a background context; the handler writes the reply to a SharedPreferences outbox that `_drainReplyOutbox()` processes on the next main-isolate startup.
+
+---
+
+## ADR-036: InAppBannerOverlay at the app root rather than per-screen
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** `InAppBannerOverlay` wraps the `home` widget in `MeridianApp.build()` — a single insertion point that covers every screen.
+
+**Rationale:** Placing the banner per-screen (e.g. only in `MapScreen`) would require every screen that could receive a message while active to replicate the overlay code. APRS messages can arrive while the user is on the Packet Log, Station List, Settings, or Connection screen. A single root-level overlay costs nothing extra (it's a `Stack` with a conditionally-visible child) and requires zero per-screen wiring.
+
+**Alternatives considered:**
+- Overlay entry via `Navigator.of(context).overlay.insert(...)`: more powerful, but harder to dismiss cleanly and requires a reference to the navigator at insertion time.
+- `ScaffoldMessenger.of(context).showSnackBar(...)`: zero custom code, but SnackBar appears at the bottom, lacks callsign+preview layout, and cannot carry tap-to-navigate behavior without a custom SnackBar widget.
+
+**Consequences:** `InAppBannerController` must be provided above the `MeridianApp` builder (i.e., in the `MultiProvider` in `main.dart`) so `InAppBannerOverlay` can access it.
+
+---
+
+## ADR-037: System notification fires even while app is foregrounded
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** System notifications (via `flutter_local_notifications`) are dispatched regardless of whether the app is in the foreground. On iOS, `DarwinInitializationSettings` sets `presentAlert: true` and `presentSound: true` for foreground delivery.
+
+**Rationale:** Meridian is a radio communications tool. Missed messages have real operational consequences — the user may be looking at the map or a different screen and would not notice an incoming message without an audible/visual alert. Both the in-app banner and the system notification fire independently; they serve different user attention states (foreground awareness vs. OS-level intrusion).
+
+**Alternatives considered:**
+- Suppress system notification when app is foregrounded (common in chat apps): rejected because foreground ≠ "user is looking at the message thread". The user could be watching the map while a message comes in.
+- Fire only the in-app banner in foreground: rejected for the same reason — the banner is visual-only and could be missed.
+
+**Consequences:** Users may see both the banner and the notification center entry simultaneously when foregrounded. This is intentional and matches the behavior of push-to-talk and emergency communications apps.
+
+---
+
+## ADR-038: Desktop inline reply not implemented
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** Desktop platforms (macOS, Windows, Linux) do not support inline reply from the notification. Tapping a desktop toast navigates to `MessageThreadScreen` for the reply.
+
+**Rationale:** `local_notifier` (the desktop toast library) does not expose a text input action API. macOS `UNUserNotificationCenter` does support text input replies, but wiring it through `local_notifier` → Dart would require a custom platform channel, which is out of scope for v0.11. The `flutter_local_notifications` package also does not support Windows or Linux notifications. Desktop APRS operators typically have the app visible on screen — the click-to-navigate flow is adequate.
+
+**Future path:** If macOS inline reply becomes a priority, it can be implemented via a custom Swift platform channel that registers a `UNTextInputNotificationAction`, fires the reply into a named `ReceivePort` on the main isolate, and calls `MessageService.sendMessage`. This is a discrete addition that does not require changing the `NotificationService` dispatch path.

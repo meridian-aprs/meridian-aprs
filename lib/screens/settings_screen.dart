@@ -23,6 +23,8 @@ import '../ui/utils/distance_formatter.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
+import '../models/notification_preferences.dart';
+import '../services/notification_service.dart';
 import '../theme/meridian_colors.dart';
 import '../theme/theme_controller.dart';
 
@@ -1696,18 +1698,102 @@ class _NotificationsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final notif = context.watch<NotificationService>();
+    final prefs = notif.preferences;
+    final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader('Notifications'),
-        SwitchListTile.adaptive(
-          title: const Text('Message alerts'),
-          subtitle: const Text(
-            'Notify when a message addressed to you arrives.',
-          ),
-          value: false,
-          onChanged: null, // Stub — not yet functional.
+        _NotificationChannelTile(
+          channelId: NotificationChannels.messages,
+          label: 'Messages',
+          description: 'Notify when a message addressed to you arrives.',
+          prefs: prefs,
+          notif: notif,
+          isMobile: isMobile,
         ),
+        _NotificationChannelTile(
+          channelId: NotificationChannels.alerts,
+          label: 'Alerts',
+          description: 'WX and NWS alerts (reserved for a future feature).',
+          prefs: prefs,
+          notif: notif,
+          isMobile: isMobile,
+        ),
+        _NotificationChannelTile(
+          channelId: NotificationChannels.nearby,
+          label: 'Nearby',
+          description:
+              'Activity from stations in your area (reserved for a future feature).',
+          prefs: prefs,
+          notif: notif,
+          isMobile: isMobile,
+        ),
+        _NotificationChannelTile(
+          channelId: NotificationChannels.system,
+          label: 'System',
+          description: 'Connection and TNC status updates.',
+          prefs: prefs,
+          notif: notif,
+          isMobile: isMobile,
+        ),
+      ],
+    );
+  }
+}
+
+class _NotificationChannelTile extends StatelessWidget {
+  const _NotificationChannelTile({
+    required this.channelId,
+    required this.label,
+    required this.description,
+    required this.prefs,
+    required this.notif,
+    required this.isMobile,
+  });
+
+  final String channelId;
+  final String label;
+  final String description;
+  final NotificationPreferences prefs;
+  final NotificationService notif;
+  final bool isMobile;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = prefs.isChannelEnabled(channelId);
+    return Column(
+      children: [
+        SwitchListTile.adaptive(
+          title: Text(label),
+          subtitle: Text(description),
+          value: enabled,
+          onChanged: (v) => notif.setChannelEnabled(channelId, v),
+        ),
+        if (isMobile) ...[
+          Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: SwitchListTile.adaptive(
+              title: const Text('Sound'),
+              value: prefs.isSoundEnabled(channelId),
+              onChanged: enabled
+                  ? (v) => notif.setSoundEnabled(channelId, v)
+                  : null,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: SwitchListTile.adaptive(
+              title: const Text('Vibration'),
+              value: prefs.isVibrationEnabled(channelId),
+              onChanged: enabled
+                  ? (v) => notif.setVibrationEnabled(channelId, v)
+                  : null,
+            ),
+          ),
+        ],
       ],
     );
   }

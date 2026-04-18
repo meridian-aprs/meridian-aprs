@@ -25,8 +25,15 @@ class AprsIsConnection extends MeridianConnection {
   StreamSubscription<ConnectionStatus>? _stateSub;
 
   static const _kBeaconingKey = 'beacon_enabled_aprs_is';
+  static const _kAutoConnectKey = 'aprs_is_auto_connect';
 
   bool _beaconingEnabled = true;
+  bool _autoConnect = false;
+
+  /// Whether the user last chose to have this connection active.
+  /// Seeded from SharedPreferences in [loadPersistedSettings]; defaults false
+  /// so the connection is opt-in on first launch.
+  bool get autoConnect => _autoConnect;
 
   // ---------------------------------------------------------------------------
   // MeridianConnection — identity
@@ -93,12 +100,20 @@ class AprsIsConnection extends MeridianConnection {
   @override
   Future<void> connect() async {
     await _transport.connect();
+    _autoConnect = true;
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool(_kAutoConnectKey, true),
+    );
     notifyListeners();
   }
 
   @override
   Future<void> disconnect() async {
     await _transport.disconnect();
+    _autoConnect = false;
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool(_kAutoConnectKey, false),
+    );
     notifyListeners();
   }
 
@@ -113,6 +128,7 @@ class AprsIsConnection extends MeridianConnection {
   Future<void> loadPersistedSettings() async {
     final prefs = await SharedPreferences.getInstance();
     _beaconingEnabled = prefs.getBool(_kBeaconingKey) ?? true;
+    _autoConnect = prefs.getBool(_kAutoConnectKey) ?? false;
     notifyListeners();
   }
 
