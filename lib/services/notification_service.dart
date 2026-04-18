@@ -237,6 +237,10 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   // ---------------------------------------------------------------------------
 
   void setActiveThread(String? callsign) {
+    if (callsign != null && _initialized) {
+      final notifId = callsign.hashCode.abs() % 100000 + 1;
+      _plugin.cancel(notifId); // ignore: unawaited_futures
+    }
     _activeThreadCallsign = callsign?.toUpperCase();
   }
 
@@ -349,18 +353,14 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
       playSound: withSound,
       enableVibration: withVibration,
       groupKey: _kGroupKey,
-      styleInformation: BigTextStyleInformation(
-        text,
-        contentTitle: callsign,
-        summaryText: 'APRS Message',
-      ),
+      styleInformation: _buildMessagingStyle(callsign),
       actions: [
         AndroidNotificationAction(
           _kReplyActionId,
           'Reply',
           inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
           showsUserInterface: false,
-          cancelNotification: true,
+          cancelNotification: false,
         ),
       ],
     );
@@ -381,6 +381,62 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         iOS: darwinDetails,
         macOS: darwinDetails,
       ),
+      payload: callsign,
+    );
+  }
+
+  /// Builds a [MessagingStyleInformation] from the live conversation history.
+  ///
+  /// Reads the last 10 messages from [MessageService] so the notification
+  /// thread stays in sync without a parallel state map.
+  MessagingStyleInformation _buildMessagingStyle(String callsign) {
+    final conv = _messageService.conversationWith(callsign);
+    final all = conv?.messages ?? [];
+    final recent = all.length > 10 ? all.sublist(all.length - 10) : all;
+    final peer = Person(name: callsign);
+    final me = Person(name: 'You');
+    return MessagingStyleInformation(
+      me,
+      groupConversation: false,
+      conversationTitle: callsign,
+      messages: recent
+          .map((m) => Message(m.text, m.timestamp, m.isOutgoing ? null : peer))
+          .toList(),
+    );
+  }
+
+  /// Re-posts the per-callsign notification after an outgoing reply so the
+  /// Android thread stays visible without playing sound or vibrating again.
+  Future<void> _postReplyUpdate(String callsign) async {
+    if (!_initialized || kIsWeb) return;
+    if (!Platform.isAndroid) return;
+
+    final notifId = callsign.hashCode.abs() % 100000 + 1;
+    final androidDetails = AndroidNotificationDetails(
+      NotificationChannels.messages,
+      'Messages',
+      channelDescription: 'Incoming APRS messages addressed to you.',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      playSound: false,
+      enableVibration: false,
+      groupKey: _kGroupKey,
+      styleInformation: _buildMessagingStyle(callsign),
+      actions: [
+        AndroidNotificationAction(
+          _kReplyActionId,
+          'Reply',
+          inputs: [const AndroidNotificationActionInput(label: 'Your reply')],
+          showsUserInterface: false,
+          cancelNotification: false,
+        ),
+      ],
+    );
+    await _plugin.show(
+      notifId,
+      callsign,
+      'Message sent',
+      NotificationDetails(android: androidDetails),
       payload: callsign,
     );
   }
@@ -454,6 +510,10 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
   @visibleForTesting
   Future<void> drainReplyOutboxForTest() => _drainReplyOutbox();
 
+  @visibleForTesting
+  MessagingStyleInformation buildMessagingStyleForTest(String callsign) =>
+      _buildMessagingStyle(callsign);
+
   void _onNotificationResponse(NotificationResponse response) {
     final callsign = response.payload ?? '';
 
@@ -469,12 +529,9 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
           callsign,
           input,
         ); // ignore: unawaited_futures
-        // Dismiss the notification so Android clears the inline-reply spinner.
-        if (_initialized) {
-          final notifId = callsign.hashCode.abs() % 100000 + 1;
-          _plugin.cancel(notifId); // ignore: unawaited_futures
-          _plugin.cancel(_kGroupSummaryId); // ignore: unawaited_futures
-        }
+        // Re-post the notification with the reply appended so the thread stays
+        // visible; this also clears the Android inline-reply spinner.
+        _postReplyUpdate(callsign); // ignore: unawaited_futures
       }
       return;
     }
@@ -522,6 +579,7 @@ class NotificationService extends ChangeNotifier with WidgetsBindingObserver {
         final text = map['text'] as String? ?? '';
         if (callsign.isNotEmpty && text.isNotEmpty) {
           await _messageService.sendMessage(callsign, text);
+          await _postReplyUpdate(callsign);
         }
       } catch (e) {
         debugPrint('NotificationService: failed to drain reply: $e');
