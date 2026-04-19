@@ -19,7 +19,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.9 — iOS Background | iOS background beaconing — background location + Live Activity | ✅ Complete |
 | v0.10 — Map Experience | Viewport-adaptive APRS-IS filter, configurable time filter, track history polylines, map filters UI | ✅ Complete |
 | v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | ✅ Complete |
-| v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | — |
+| v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | ✅ Complete |
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | — |
 | v0.14 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
 | v0.15 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
@@ -74,13 +74,22 @@ Keep operators informed when Meridian is in the background.
 
 ---
 
-### v0.12 — Onboarding Improvements
-Make the first-launch experience complete and self-sufficient.
+### ~~v0.12 — Onboarding Improvements~~ ✅
 
-- BLE TNC selection in onboarding triggers BLE pairing flow
-- APRS-IS selection initiates connection before landing on map
-- Map centers on current GPS location (or manual coordinates) on first launch
-- Onboarding: add symbol picker, comment field, and location setup steps
+Made the first-launch experience complete and self-sufficient.
+
+- ✅ 7-step onboarding flow: Welcome → License Status → Callsign+SSID → Location → Station Identity → Connection → Beaconing
+- ✅ BLE TNC selection in onboarding triggers BLE pairing flow (`BleScannerSheet` reused)
+- ✅ APRS-IS selection initiates connection before landing on map
+- ✅ GPS permission request in Location step; `LocationPickerScreen` fallback if denied
+- ✅ Symbol picker and comment field (36-char cap) in Station Identity step
+- ✅ `isLicensed` field added to `StationSettingsService`; unlicensed path skips callsign + beaconing steps
+- ✅ `TxService` hard-rejects TX when `isLicensed == false`; `AprsIsConnection` uses N0CALL/-1
+- ✅ Messaging compose/reply disabled when unlicensed
+- ✅ `SymbolPickerDialog` extracted to `lib/ui/widgets/` for reuse across onboarding and settings
+- ✅ Existing-user migration guard: pre-v0.12 users with callsign set skip onboarding
+- ✅ Persistence unification: all fields committed via `StationSettingsService` setters immediately on advance
+- ✅ ADRs 042–045 in `docs/DECISIONS.md`
 
 ---
 
@@ -131,4 +140,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-18*
+*Last updated: 2026-04-19*

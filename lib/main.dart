@@ -74,17 +74,32 @@ Future<void> main() async {
   // Load theme preference and onboarding state before the first frame.
   final themeController = await ThemeController.create();
   final prefs = await SharedPreferences.getInstance();
-  final onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
-  final userCallsign = prefs.getString('user_callsign') ?? '';
-  final userPasscode = prefs.getString('user_passcode') ?? '';
-  final userSsid = prefs.getInt('user_ssid') ?? 0;
+  var onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
+
+  // StationSettingsService is the canonical owner of all station identity
+  // fields. Create it here so passcode and callsign can be read from it
+  // rather than from raw SharedPreferences below.
+  final stationSettings = StationSettingsService(prefs);
+
+  // Migration guard: users who completed setup before v0.12 won't have
+  // onboarding_complete set, but already have a callsign saved. Mark them
+  // as done so they don't see onboarding on upgrade.
+  if (!onboardingComplete && stationSettings.callsign.isNotEmpty) {
+    await prefs.setBool('onboarding_complete', true);
+    onboardingComplete = true;
+  }
+
   final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
   final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
   final mapZoom = prefs.getDouble('map_last_zoom') ?? 9.0;
 
-  final effectiveCallsign = userCallsign.isNotEmpty ? userCallsign : 'NOCALL';
-  final ssidSuffix = userSsid > 0 ? '-$userSsid' : '';
-  final effectivePasscode = userPasscode.isEmpty ? '-1' : userPasscode;
+  final effectiveCallsign = stationSettings.callsign.isNotEmpty
+      ? stationSettings.callsign
+      : 'NOCALL';
+  final ssidSuffix = stationSettings.ssid > 0 ? '-${stationSettings.ssid}' : '';
+  final effectivePasscode = stationSettings.passcode.isEmpty
+      ? '-1'
+      : stationSettings.passcode;
 
   // ---------------------------------------------------------------------------
   // Build connections
@@ -95,7 +110,10 @@ Future<void> main() async {
         'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
     filterLine: AprsIsConnection.defaultFilterLine(mapLat, mapLon),
   );
-  final aprsIsConn = AprsIsConnection(aprsIsTransport);
+  final aprsIsConn = AprsIsConnection(
+    aprsIsTransport,
+    settings: stationSettings,
+  );
 
   // Platform-conditional TNC connections.
   BleConnection? bleConn;
@@ -145,8 +163,7 @@ Future<void> main() async {
     });
   }
 
-  final stationSettings = StationSettingsService(prefs);
-  final txService = TxService(registry);
+  final txService = TxService(registry, stationSettings);
   await txService.loadPersistedPreference();
 
   final beaconingService = BeaconingService(
@@ -249,7 +266,7 @@ Future<void> main() async {
       child: MeridianApp(
         onboardingComplete: onboardingComplete,
         userCallsign: effectiveCallsign,
-        userSsid: userSsid,
+        userSsid: stationSettings.ssid,
         mapLat: mapLat,
         mapLon: mapLon,
         mapZoom: mapZoom,

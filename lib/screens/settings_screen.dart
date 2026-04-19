@@ -23,6 +23,7 @@ import '../ui/utils/distance_formatter.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/widgets/callsign_field.dart';
+import '../ui/widgets/symbol_picker_dialog.dart';
 import '../ui/widgets/meridian_wordmark.dart';
 import '../models/notification_preferences.dart';
 import '../services/notification_service.dart';
@@ -445,13 +446,13 @@ class _MyStationSectionState extends State<_MyStationSection> {
               hintText: 'e.g. Meridian APRS',
               counterText: '',
             ),
-            maxLength: 43,
+            maxLength: 36,
             onEditingComplete: () => FocusScope.of(context).unfocus(),
             onChanged: (v) => setState(() {}),
             buildCounter:
                 (_, {required currentLength, required isFocused, maxLength}) {
                   return Text(
-                    '$currentLength / ${maxLength ?? 43}',
+                    '$currentLength / ${maxLength ?? 36}',
                     style: Theme.of(context).textTheme.bodySmall,
                   );
                 },
@@ -467,59 +468,6 @@ class _MyStationSectionState extends State<_MyStationSection> {
 // ---------------------------------------------------------------------------
 // Symbol picker
 // ---------------------------------------------------------------------------
-
-/// A curated list of common APRS symbols with human-readable names.
-class _AprsSymbolEntry {
-  const _AprsSymbolEntry(this.table, this.code, this.name);
-
-  final String table;
-  final String code;
-  final String name;
-}
-
-const _kAprsSymbols = <_AprsSymbolEntry>[
-  _AprsSymbolEntry('/', '>', 'Car'),
-  _AprsSymbolEntry('/', '-', 'House'),
-  _AprsSymbolEntry('/', '[', 'Person / Runner'),
-  _AprsSymbolEntry('/', '<', 'Motorcycle'),
-  _AprsSymbolEntry('/', 'b', 'Bicycle'),
-  _AprsSymbolEntry('/', 'k', 'Truck'),
-  _AprsSymbolEntry('/', 'u', 'Semi Truck'),
-  _AprsSymbolEntry('/', 'U', 'Bus'),
-  _AprsSymbolEntry('/', 'j', 'Jeep'),
-  _AprsSymbolEntry('/', 'v', 'Van'),
-  _AprsSymbolEntry('/', 'X', 'Helicopter'),
-  _AprsSymbolEntry('/', '^', 'Aircraft'),
-  _AprsSymbolEntry('/', "'", 'Small Aircraft'),
-  _AprsSymbolEntry('/', 'O', 'Balloon'),
-  _AprsSymbolEntry('/', 'Y', 'Sailboat'),
-  _AprsSymbolEntry('/', 's', 'Powerboat'),
-  _AprsSymbolEntry('/', '_', 'Weather Station'),
-  _AprsSymbolEntry('/', '#', 'Digipeater'),
-  _AprsSymbolEntry('/', 'r', 'Repeater Tower'),
-  _AprsSymbolEntry('/', 'a', 'Ambulance'),
-  _AprsSymbolEntry('/', 'h', 'Hospital'),
-  _AprsSymbolEntry('/', 'f', 'Fire Truck'),
-  _AprsSymbolEntry('/', 'd', 'Fire Department'),
-  _AprsSymbolEntry('/', 'P', 'Police'),
-  _AprsSymbolEntry('/', '!', 'Emergency'),
-  _AprsSymbolEntry('/', '+', 'Red Cross'),
-  _AprsSymbolEntry('/', '@', 'Hurricane'),
-  _AprsSymbolEntry('/', 'R', 'Recreational Vehicle'),
-  _AprsSymbolEntry('/', 'n', 'Network Node'),
-  _AprsSymbolEntry('/', '&', 'Gateway'),
-  _AprsSymbolEntry('/', '\$', 'Phone'),
-  _AprsSymbolEntry('\\', '-', 'House (overlay)'),
-  _AprsSymbolEntry('\\', '>', 'Car (overlay)'),
-  _AprsSymbolEntry('\\', '[', 'Person (overlay)'),
-];
-
-String _symbolName(String table, String code) {
-  for (final s in _kAprsSymbols) {
-    if (s.table == table && s.code == code) return s.name;
-  }
-  return 'Custom ($table$code)';
-}
 
 /// ListTile that shows the current symbol and opens a searchable picker dialog.
 class _SymbolPickerTile extends StatelessWidget {
@@ -542,12 +490,12 @@ class _SymbolPickerTile extends StatelessWidget {
         size: 28,
       ),
       title: const Text('Symbol'),
-      subtitle: Text(_symbolName(symbolTable, symbolCode)),
+      subtitle: Text(symbolName(symbolTable, symbolCode)),
       trailing: const Icon(Icons.chevron_right),
       onTap: () async {
-        final result = await showDialog<_AprsSymbolEntry>(
+        final result = await showDialog<AprsSymbolEntry>(
           context: context,
-          builder: (_) => _SymbolPickerDialog(
+          builder: (_) => SymbolPickerDialog(
             currentTable: symbolTable,
             currentCode: symbolCode,
           ),
@@ -556,123 +504,6 @@ class _SymbolPickerTile extends StatelessWidget {
           onChanged(result.table, result.code);
         }
       },
-    );
-  }
-}
-
-class _SymbolPickerDialog extends StatefulWidget {
-  const _SymbolPickerDialog({
-    required this.currentTable,
-    required this.currentCode,
-  });
-
-  final String currentTable;
-  final String currentCode;
-
-  @override
-  State<_SymbolPickerDialog> createState() => _SymbolPickerDialogState();
-}
-
-class _SymbolPickerDialogState extends State<_SymbolPickerDialog> {
-  final _searchCtrl = TextEditingController();
-  List<_AprsSymbolEntry> _filtered = _kAprsSymbols;
-
-  @override
-  void dispose() {
-    _searchCtrl.dispose();
-    super.dispose();
-  }
-
-  void _onSearch(String query) {
-    final q = query.toLowerCase();
-    setState(() {
-      _filtered = q.isEmpty
-          ? _kAprsSymbols
-          : _kAprsSymbols
-                .where((s) => s.name.toLowerCase().contains(q))
-                .toList();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Dialog(
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Choose Symbol', style: theme.textTheme.titleMedium),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              autofocus: true,
-              decoration: const InputDecoration(
-                hintText: 'Search…',
-                prefixIcon: Icon(Icons.search),
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
-              onChanged: _onSearch,
-            ),
-          ),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 380),
-            child: _filtered.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text('No symbols found.'),
-                  )
-                : ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: _filtered.length,
-                    itemBuilder: (context, index) {
-                      final entry = _filtered[index];
-                      final isSelected =
-                          entry.table == widget.currentTable &&
-                          entry.code == widget.currentCode;
-                      return ListTile(
-                        dense: true,
-                        leading: AprsSymbolWidget(
-                          symbolTable: entry.table,
-                          symbolCode: entry.code,
-                          size: 24,
-                        ),
-                        title: Text(entry.name),
-                        subtitle: Text(
-                          '${entry.table}${entry.code}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontFamily: 'monospace',
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedTileColor: theme.colorScheme.primaryContainer
-                            .withValues(alpha: 0.3),
-                        onTap: () => Navigator.of(context).pop(entry),
-                      );
-                    },
-                  ),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1707,39 +1538,31 @@ class _NotificationsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader('Notifications'),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.messages,
-          label: 'Messages',
-          description: 'Notify when a message addressed to you arrives.',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
+        SwitchListTile.adaptive(
+          title: const Text('Notifications enabled'),
+          subtitle: Text(
+            prefs.optedIn
+                ? 'Meridian will notify you when a message arrives.'
+                : 'Notifications are disabled. Enable to get message alerts.',
+          ),
+          value: prefs.optedIn,
+          onChanged: (v) async {
+            if (v) {
+              await notif.requestNotificationPermissions();
+            } else {
+              await notif.setOptedIn(false);
+            }
+          },
         ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.alerts,
-          label: 'Alerts',
-          description: 'WX and NWS alerts (reserved for a future feature).',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.nearby,
-          label: 'Nearby',
-          description:
-              'Activity from stations in your area (reserved for a future feature).',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.system,
-          label: 'System',
-          description: 'Connection and TNC status updates.',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
+        if (prefs.optedIn)
+          _NotificationChannelTile(
+            channelId: NotificationChannels.messages,
+            label: 'Messages',
+            description: 'Notify when a message addressed to you arrives.',
+            prefs: prefs,
+            notif: notif,
+            isMobile: isMobile,
+          ),
       ],
     );
   }

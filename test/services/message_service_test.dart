@@ -42,7 +42,7 @@ class _Fixture {
     final stationService = StationService();
     final registry = ConnectionRegistry();
     final sentLines = <String>[];
-    final txService = _RecordingTxService(registry, sentLines);
+    final txService = _RecordingTxService(registry, settings, sentLines);
     final messageService = MessageService(settings, txService, stationService);
     return _Fixture._(
       service: messageService,
@@ -54,7 +54,7 @@ class _Fixture {
 
 /// TxService that records every outgoing line instead of sending.
 class _RecordingTxService extends TxService {
-  _RecordingTxService(super.registry, this._log);
+  _RecordingTxService(super.registry, super.settings, this._log);
   final List<String> _log;
 
   @override

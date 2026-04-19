@@ -48,7 +48,7 @@ class _Fixture {
     final settings = StationSettingsService(prefs);
     final stationService = StationService();
     final registry = ConnectionRegistry();
-    final txService = _SilentTxService(registry);
+    final txService = _SilentTxService(registry, settings);
     final messageService = MessageService(settings, txService, stationService);
     final bannerController = InAppBannerController();
 
@@ -62,7 +62,9 @@ class _Fixture {
     );
 
     // Manually seed preferences (skips the prefs load that initialize() does).
-    await NotificationPreferences.defaults().save(prefs);
+    // optedIn=true so dispatch tests work without calling requestPermissions().
+    await NotificationPreferences.defaults(optedIn: true).save(prefs);
+    await notificationService.setOptedIn(true);
 
     // Manually wire the MessageService listener (normally done in initialize()).
     messageService.addListener(notificationService.handleMessageServiceChange);
@@ -91,7 +93,7 @@ class _Fixture {
 
 /// TxService that silently drops outgoing traffic (no real transport).
 class _SilentTxService extends TxService {
-  _SilentTxService(super.registry);
+  _SilentTxService(super.registry, super.settings);
 
   @override
   Future<void> sendLine(String line, {ConnectionType? forceVia}) async {}

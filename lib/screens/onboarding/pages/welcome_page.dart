@@ -1,21 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:meridian_aprs/ui/widgets/meridian_wordmark.dart';
 
-/// First onboarding page — welcome and value proposition.
-///
-/// The user can proceed through setup with "Get Started" or skip directly to
-/// the map if they are an experienced APRS operator.
-class OnboardingWelcomePage extends StatelessWidget {
-  const OnboardingWelcomePage({
-    super.key,
-    required this.onGetStarted,
-    required this.onSkip,
-  });
+import '../../../ui/widgets/meridian_wordmark.dart';
 
-  /// Advance to the next onboarding page.
-  final VoidCallback onGetStarted;
+/// Onboarding step 1 — brand splash with "Get Started" and "Skip setup".
+class WelcomePage extends StatelessWidget {
+  const WelcomePage({super.key, required this.onNext, required this.onSkip});
 
-  /// Mark onboarding complete and navigate directly to the map.
+  /// Advance to the next onboarding step.
+  final VoidCallback onNext;
+
+  /// Skip all onboarding and go directly to the map.
   final VoidCallback onSkip;
 
   @override
@@ -53,7 +47,7 @@ class OnboardingWelcomePage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: onGetStarted,
+                onPressed: onNext,
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
@@ -61,10 +55,7 @@ class OnboardingWelcomePage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-            TextButton(
-              onPressed: onSkip,
-              child: const Text('I know APRS, skip setup'),
-            ),
+            TextButton(onPressed: onSkip, child: const Text('Skip setup')),
             const SizedBox(height: 24),
           ],
         ),

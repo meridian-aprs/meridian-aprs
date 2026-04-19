@@ -82,8 +82,8 @@ _buildDeps() async {
     type: ConnectionType.aprsIs,
   );
   registry.register(aprsIs);
-  final tx = TxService(registry);
   final settings = StationSettingsService(prefs);
+  final tx = TxService(registry, settings);
   final beaconing = BeaconingService(settings, tx);
   return (registry: registry, aprsIs: aprsIs, beaconing: beaconing, tx: tx);
 }

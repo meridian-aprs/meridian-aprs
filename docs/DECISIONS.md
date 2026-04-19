@@ -702,4 +702,69 @@ The handoff spec described a "background isolate" dispatch path — this was bas
 **Alternatives considered:**
 - `ColorFilter.mode(Colors.white, BlendMode.srcIn)` applied to primary SVG — rejected; tints entire SVG to solid white, destroying text fill distinction.
 - Single SVG with CSS media query — rejected; `flutter_svg` does not evaluate CSS `prefers-color-scheme`.
-- Runtime SVG recolor via `colorMapper` — rejected; more complexity than separate pre-authored SVGs with no advantage.
+
+---
+
+## ADR-042: Onboarding Uses Canonical Settings Provider
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+### Context
+The original onboarding flow batched all field writes into a single `_markCompleteAndNavigate()` call at the end, writing directly to `SharedPreferences` rather than through `StationSettingsService`. This meant several fields (symbol, comment, location) were never written by onboarding, and passcode was only consumed at app startup from raw prefs rather than through the service.
+
+### Decision
+All onboarding fields are committed immediately on page advance via `StationSettingsService` setters. Onboarding maintains no separate state bag. `passcode` and `isLicensed` are added to `StationSettingsService` so it is the single source of truth for all station identity fields.
+
+### Consequences
+- No divergence between onboarding write paths and Settings read paths
+- Each step's data survives a force-quit (partial completion doesn't lose data)
+- `StationSettingsService` owns passcode as plaintext stopgap; v0.13 migrates to secure storage
+
+---
+
+## ADR-043: Single-Flag Completion Model
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+### Context
+A multi-step onboarding flow could track partial progress (which steps completed) to allow resuming mid-flow.
+
+### Decision
+Use a single `onboarding_complete` boolean in SharedPreferences. Mid-flow app close does not set the flag; relaunch starts from Welcome. No partial-progress resume.
+
+### Consequences
+Simpler implementation. Users who close mid-flow re-enter from the beginning, which is acceptable since each step's data is already committed to StationSettingsService.
+
+---
+
+## ADR-044: isLicensed as Primary Branching Point
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+### Context
+APRS transmitting requires an amateur radio license. The app needs to know whether the user is licensed to enable TX features.
+
+### Decision
+`StationSettingsService.isLicensed` (prefs key `user_is_licensed`, default false) is the single source of truth. TxService hard-rejects all sends when unlicensed. The onboarding License step sets this flag. No separate LicenseService class needed at this stage.
+
+### Consequences
+TX is safely blocked by default for new installs. The "I got my license" transition flow (update isLicensed in Settings, re-enable TX) is a FUTURE_FEATURES item.
+
+---
+
+## ADR-045: Silent N0CALL/-1 for Unlicensed APRS-IS
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+### Context
+Unlicensed users can still receive APRS packets via APRS-IS. They need to connect but should not transmit or authenticate as a licensed station.
+
+### Decision
+When `isLicensed == false`, AprsIsConnection constructs the APRS-IS login line with callsign `N0CALL` and passcode `-1`. This is the standard APRS-IS convention for receive-only / unvalidated connections. No UI indication is shown to the user (silent).
+
+### Consequences
+Unlicensed users can receive traffic. The server-side enforcement of passcode -1 prevents them from injecting packets even if TxService's local reject were bypassed.

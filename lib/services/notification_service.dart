@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:local_notifier/local_notifier.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/notification_preferences.dart';
@@ -81,6 +82,8 @@ class NotificationService extends ChangeNotifier {
       ? _androidEnabled
       : true;
 
+  bool get optedIn => _notifPrefs.optedIn;
+
   // ---------------------------------------------------------------------------
   // Initialization
   // ---------------------------------------------------------------------------
@@ -90,6 +93,19 @@ class NotificationService extends ChangeNotifier {
     _initialized = true;
 
     _notifPrefs = await NotificationPreferences.load(_prefs);
+
+    // Migration: pre-v0.12 users had no opt-in concept — if the key is absent
+    // and the OS permission was already granted, preserve their existing
+    // behaviour by treating them as opted in.
+    if (!_prefs.containsKey('notif_opted_in') &&
+        !kIsWeb &&
+        Platform.isAndroid) {
+      final status = await Permission.notification.status;
+      if (status.isGranted) {
+        _notifPrefs = _notifPrefs.copyWithOptedIn(true);
+        await _notifPrefs.save(_prefs);
+      }
+    }
 
     if (!kIsWeb) {
       if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
@@ -144,9 +160,6 @@ class NotificationService extends ChangeNotifier {
           ],
           options: {DarwinNotificationCategoryOption.hiddenPreviewShowTitle},
         ),
-        const DarwinNotificationCategory(NotificationChannels.alerts),
-        const DarwinNotificationCategory(NotificationChannels.nearby),
-        const DarwinNotificationCategory(NotificationChannels.system),
       ],
     );
 
@@ -187,34 +200,16 @@ class NotificationService extends ChangeNotifier {
         playSound: true,
         enableVibration: true,
       ),
-      AndroidNotificationChannel(
-        NotificationChannels.alerts,
-        'Alerts',
-        description: 'WX and NWS APRS alerts.',
-        importance: Importance.high,
-        playSound: true,
-        enableVibration: true,
-      ),
-      AndroidNotificationChannel(
-        NotificationChannels.nearby,
-        'Nearby',
-        description: 'Activity from stations in your area.',
-        importance: Importance.low,
-        playSound: false,
-        enableVibration: true,
-      ),
-      AndroidNotificationChannel(
-        NotificationChannels.system,
-        'System',
-        description: 'Connection and TNC status updates.',
-        importance: Importance.min,
-        playSound: false,
-        enableVibration: false,
-      ),
     ];
 
     for (final ch in channels) {
       await androidPlugin.createNotificationChannel(ch);
+    }
+
+    // Remove pre-v0.12 channels that were registered but never dispatched.
+    // Safe on fresh installs — deleteNotificationChannel is a no-op if absent.
+    for (final stale in const ['alerts', 'nearby', 'system']) {
+      await androidPlugin.deleteNotificationChannel(stale);
     }
   }
 
@@ -294,8 +289,53 @@ class NotificationService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
+  // Permission request (called from onboarding)
+  // ---------------------------------------------------------------------------
+
+  /// Requests the OS-level notification permission and returns whether it was
+  /// granted. Safe to call on any platform — returns `true` immediately on
+  /// Linux/Windows where no runtime permission is required.
+  Future<bool> requestNotificationPermissions() async {
+    if (kIsWeb) return false;
+    if (Platform.isAndroid) {
+      final status = await Permission.notification.request();
+      _androidEnabled = status.isGranted;
+      if (status.isGranted) await setOptedIn(true);
+      notifyListeners();
+      return status.isGranted;
+    }
+    if (Platform.isIOS) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      if (granted == true) await setOptedIn(true);
+      return granted ?? false;
+    }
+    if (Platform.isMacOS) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      if (granted == true) await setOptedIn(true);
+      return granted ?? false;
+    }
+    // Linux/Windows — no runtime permission required; treat as opted in.
+    await setOptedIn(true);
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // Preferences
   // ---------------------------------------------------------------------------
+
+  Future<void> setOptedIn(bool value) async {
+    _notifPrefs = _notifPrefs.copyWithOptedIn(value);
+    await _notifPrefs.save(_prefs);
+    notifyListeners();
+  }
 
   Future<void> setChannelEnabled(String channelId, bool enabled) async {
     _notifPrefs = _notifPrefs.copyWithChannel(channelId, enabled);
@@ -339,6 +379,7 @@ class NotificationService extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> _dispatchMessage(String callsign, String text) async {
+    if (!_notifPrefs.optedIn) return;
     if (!_notifPrefs.isChannelEnabled(NotificationChannels.messages)) return;
 
     // In-app banner (fires regardless of foreground/background state,

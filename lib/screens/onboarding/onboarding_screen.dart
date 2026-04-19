@@ -1,26 +1,38 @@
-import 'package:animations/animations.dart';
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../core/connection/aprs_is_connection.dart';
-import '../../core/connection/connection_registry.dart';
 import '../../services/station_service.dart';
 import '../../services/station_settings_service.dart';
+import '../../ui/utils/platform_route.dart';
 import '../map_screen.dart';
-import 'onboarding_callsign_page.dart';
-import 'onboarding_connect_page.dart';
-import 'onboarding_welcome_page.dart';
+import 'pages/beaconing_page.dart';
+import 'pages/callsign_page.dart';
+import 'pages/connection_page.dart';
+import 'pages/license_page.dart' as license_page;
+import 'pages/location_page.dart';
+import 'pages/notifications_page.dart';
+import 'pages/station_identity_page.dart';
+import 'pages/welcome_page.dart';
 
-const String _kVersion = '0.1.0';
-
-/// Three-page onboarding flow shown on first launch.
+/// New v0.12 onboarding flow — step-controller variant.
 ///
-/// Shown when SharedPreferences key `'onboarding_complete'` is false or
-/// absent. The flow is skippable from page 1.
+/// Replaces the old 3-page PageView with a 5–7 step adaptive flow:
 ///
-/// On completion or skip, `'onboarding_complete'` is set to `true` and the
-/// user is taken to [MapScreen] via [Navigator.pushReplacement].
+///   Welcome → License → [Callsign (licensed only)] → Location →
+///   StationIdentity → Connection → [Beaconing (connection configured)]
+///
+/// Steps are assembled dynamically based on user choices. Navigation uses
+/// [AnimatedSwitcher] with a directional slide so there is no swipe gesture —
+/// only Next/Back buttons. A [LinearProgressIndicator] in the AppBar tracks
+/// progress through the current step count.
+///
+/// On completion or skip, `onboarding_complete` is persisted and the user is
+/// pushed to [MapScreen].
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -30,118 +42,234 @@ class OnboardingScreen extends StatefulWidget {
   State<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
+/// Logical step identifiers used to build the active step list.
+enum _StepId {
+  welcome,
+  license,
+  callsign,
+  location,
+  stationIdentity,
+  connection,
+  notifications,
+  beaconing,
+}
+
 class _OnboardingScreenState extends State<OnboardingScreen> {
-  final _pageController = PageController();
+  int _currentStep = 0;
 
-  String _callsign = '';
-  int _ssid = 0;
-  String _passcode = '';
-  int _connectionMethod = 0;
+  /// Whether the Connection step resulted in a successfully configured
+  /// connection. Controls inclusion of the Beaconing step.
+  bool _connectionConfigured = false;
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
+  /// Direction of the last navigation; +1 = forward, -1 = backward.
+  int _direction = 1;
+
+  /// Key used to force [AnimatedSwitcher] to treat every step as a new widget.
+  int _pageKey = 0;
+
+  static bool get _notificationsStepApplies =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+
+  List<_StepId> _buildSteps(bool isLicensed) {
+    return [
+      _StepId.welcome,
+      _StepId.license,
+      // Location, station identity, and beaconing only matter when the user
+      // can transmit. Receive-only (unlicensed) users skip straight to the
+      // connection step.
+      if (isLicensed) _StepId.callsign,
+      if (isLicensed) _StepId.location,
+      if (isLicensed) _StepId.stationIdentity,
+      _StepId.connection,
+      if (isLicensed && _notificationsStepApplies) _StepId.notifications,
+      if (isLicensed && _connectionConfigured) _StepId.beaconing,
+    ];
   }
 
-  Future<void> _markCompleteAndNavigate() async {
+  void _advance() {
+    final steps = _buildSteps(_isLicensed);
+    if (_currentStep < steps.length - 1) {
+      setState(() {
+        _direction = 1;
+        _pageKey++;
+        _currentStep++;
+      });
+    } else {
+      _finish();
+    }
+  }
+
+  void _back() {
+    if (_currentStep > 0) {
+      setState(() {
+        _direction = -1;
+        _pageKey++;
+        _currentStep--;
+      });
+    }
+  }
+
+  bool get _isLicensed => context.read<StationSettingsService>().isLicensed;
+
+  Future<void> _finish({bool skipped = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(OnboardingScreen._prefKey, true);
-
-    final effectiveCallsign = _callsign.isNotEmpty ? _callsign : 'NOCALL';
-    final ssidSuffix = _ssid > 0 ? '-$_ssid' : '';
-    final effectivePasscode = _passcode.isEmpty ? '-1' : _passcode;
-    final mapLat = prefs.getDouble('map_last_lat') ?? 39.0;
-    final mapLon = prefs.getDouble('map_last_lon') ?? -77.0;
-
-    if (_callsign.isNotEmpty) {
-      await prefs.setString('user_callsign', _callsign);
+    if (skipped) {
+      await prefs.setBool('onboarding_skipped', true);
     }
-    await prefs.setInt('user_ssid', _ssid);
-    await prefs.setString('user_passcode', _passcode);
-    // connection_method is persisted for future use.
-    // 0 = APRS-IS (only active transport). BLE (v0.4) and USB (v0.3) are not
-    // yet implemented; transport selection will be wired here when they land.
-    await prefs.setInt('connection_method', _connectionMethod);
-
     if (!mounted) return;
+    _navigateToMap();
+  }
 
-    // Update the Provider tree's services with the entered identity so that
-    // Settings, BeaconingService, and MessageService all reflect the correct
-    // callsign without requiring an app restart.
-    final stationSettings = context.read<StationSettingsService>();
-    await stationSettings.setCallsign(effectiveCallsign);
-    await stationSettings.setSsid(_ssid);
+  Future<void> _skip() => _finish(skipped: true);
 
-    // Update the APRS-IS login/filter line so the first connection uses the
-    // entered callsign and passcode rather than the NOCALL default.
-    if (!mounted) return;
-    final aprsIsConn = context.read<ConnectionRegistry>().byId('aprs_is');
-    if (aprsIsConn is AprsIsConnection) {
-      aprsIsConn.updateCredentials(
-        loginLine:
-            'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
-        filterLine:
-            '#filter r/${mapLat.toStringAsFixed(1)}/${mapLon.toStringAsFixed(1)}/100\r\n',
-      );
-    }
-
+  Future<void> _navigateToMap() async {
     if (!mounted) return;
     final service = context.read<StationService>();
+    final settings = context.read<StationSettingsService>();
+    final callsign = settings.callsign.isNotEmpty
+        ? settings.callsign
+        : 'NOCALL';
 
+    double lat;
+    double lon;
+    const zoom = 12.0;
+
+    // Prefer the location the user configured during onboarding.
+    // Fall back to DC only when no location was set at all.
+    if (settings.hasManualPosition) {
+      lat = settings.manualLat!;
+      lon = settings.manualLon!;
+    } else if (settings.locationSource == LocationSource.gps) {
+      // GPS was enabled in onboarding — use the last cached fix for centering.
+      // getLastKnownPosition() is instant; no new permission dialog.
+      try {
+        final pos = await Geolocator.getLastKnownPosition();
+        if (pos != null) {
+          lat = pos.latitude;
+          lon = pos.longitude;
+        } else {
+          lat = 39.0;
+          lon = -77.0;
+        }
+      } catch (_) {
+        lat = 39.0;
+        lon = -77.0;
+      }
+    } else {
+      // No location established — default to central US.
+      lat = 39.0;
+      lon = -77.0;
+    }
+
+    if (!mounted) return;
     Navigator.pushReplacement(
       context,
-      PageRouteBuilder<void>(
-        transitionDuration: const Duration(milliseconds: 300),
-        pageBuilder: (context, animation, secondaryAnimation) =>
-            FadeThroughTransition(
-              animation: animation,
-              secondaryAnimation: secondaryAnimation,
-              child: MapScreen(
-                service: service,
-                callsign: effectiveCallsign,
-                ssid: _ssid,
-                initialLat: mapLat,
-                initialLon: mapLon,
-              ),
-            ),
+      buildPlatformRoute(
+        (_) => MapScreen(
+          service: service,
+          callsign: callsign,
+          ssid: settings.ssid,
+          initialLat: lat,
+          initialLon: lon,
+          initialZoom: zoom,
+        ),
       ),
     );
   }
 
-  void _nextPage() {
-    _pageController.nextPage(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeInOut,
-    );
+  void _onConnectionResult(bool configured) {
+    setState(() => _connectionConfigured = configured);
   }
 
-  void _onCallsignNext(String callsign, int ssid, String passcode) {
-    _callsign = callsign;
-    _ssid = ssid;
-    _passcode = passcode;
-    _nextPage();
-  }
-
-  void _onStartListening(int connectionMethod) {
-    _connectionMethod = connectionMethod;
-    _markCompleteAndNavigate();
+  Widget _buildPage(_StepId stepId) {
+    switch (stepId) {
+      case _StepId.welcome:
+        return WelcomePage(onNext: _advance, onSkip: _skip);
+      case _StepId.license:
+        return license_page.LicensePage(onNext: _advance);
+      case _StepId.callsign:
+        return CallsignPage(onNext: _advance, onBack: _back);
+      case _StepId.location:
+        return LocationPage(onNext: _advance, onBack: _back);
+      case _StepId.stationIdentity:
+        return StationIdentityPage(onNext: _advance, onBack: _back);
+      case _StepId.connection:
+        return ConnectionPage(
+          onNext: _advance,
+          onBack: _back,
+          onConnectionResult: _onConnectionResult,
+        );
+      case _StepId.notifications:
+        return NotificationsPage(onNext: _advance, onBack: _back);
+      case _StepId.beaconing:
+        return BeaconingPage(onFinish: _finish, onBack: _back);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Read isLicensed from settings — rebuilds when setIsLicensed is called.
+    final isLicensed = context.watch<StationSettingsService>().isLicensed;
+    final steps = _buildSteps(isLicensed);
+
+    // Clamp current step in case the step list shrinks (e.g. license toggled).
+    final safeStep = _currentStep.clamp(0, steps.length - 1);
+    if (safeStep != _currentStep) {
+      // Schedule correction for after this build.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _currentStep = safeStep);
+      });
+    }
+
+    final currentStepId = steps[safeStep];
+    final isWelcome = currentStepId == _StepId.welcome;
+    final showBackButton = safeStep > 0;
+
     return Scaffold(
-      body: PageView(
-        controller: _pageController,
-        physics: const NeverScrollableScrollPhysics(),
-        children: [
-          OnboardingWelcomePage(
-            onGetStarted: _nextPage,
-            onSkip: _markCompleteAndNavigate,
-          ),
-          OnboardingCallsignPage(onNext: _onCallsignNext),
-          OnboardingConnectPage(onStartListening: _onStartListening),
-        ],
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        leading: showBackButton
+            ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: _back)
+            : null,
+        title: isWelcome
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Set up Meridian'),
+                  Text(
+                    'Step $safeStep of ${steps.length - 1}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+      body: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 300),
+        transitionBuilder: (child, animation) {
+          // Incoming widget: animation 0→1, slide in from the direction side.
+          // Outgoing widget: animation 1→0, slide out to the opposite side.
+          // We tell them apart by comparing their key to the current page key.
+          final isIncoming = (child.key as ValueKey<int>?)?.value == _pageKey;
+          final sign = isIncoming
+              ? _direction.toDouble()
+              : -_direction.toDouble();
+          return SlideTransition(
+            position: Tween<Offset>(begin: Offset(sign, 0), end: Offset.zero)
+                .animate(
+                  CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+                ),
+            child: child,
+          );
+        },
+        child: KeyedSubtree(
+          key: ValueKey(_pageKey),
+          child: _buildPage(currentStepId),
+        ),
       ),
     );
   }
