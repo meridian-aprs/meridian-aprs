@@ -379,8 +379,7 @@ class _ConnectionStatusChip extends StatelessWidget {
         final Color color;
         switch (status) {
           case ConnectionStatus.connected:
-            final connected = context.read<ConnectionRegistry>().connected;
-            label = connected.map((c) => c.displayName).join(' + ');
+            label = 'Connected';
             color = MeridianColors.signal;
           case ConnectionStatus.reconnecting:
             label = 'Reconnecting\u2026';

@@ -86,6 +86,15 @@ class _TabletScaffoldState extends State<TabletScaffold> {
     setState(() => _selectedIndex = 4);
   }
 
+  static String _aggregateLabel(ConnectionStatus s) => switch (s) {
+    ConnectionStatus.connected => 'Connected',
+    ConnectionStatus.connecting ||
+    ConnectionStatus.reconnecting ||
+    ConnectionStatus.waitingForDevice => 'Connecting\u2026',
+    ConnectionStatus.error => 'Error',
+    ConnectionStatus.disconnected => 'Not Connected',
+  };
+
   Future<void> _centerOnLocation() async {
     if (_locating) return;
     setState(() => _locating = true);
@@ -186,12 +195,10 @@ class _TabletScaffoldState extends State<TabletScaffold> {
         titleSpacing: 4,
         title: const MeridianWordmark.horizontal(height: 28),
         actions: [
-          ...registry.available.map(
-            (conn) => MeridianStatusPill(
-              status: conn.status,
-              label: conn.displayName,
-              onTap: _navigateToConnection,
-            ),
+          MeridianStatusPill(
+            status: registry.aggregateStatus,
+            label: _aggregateLabel(registry.aggregateStatus),
+            onTap: _navigateToConnection,
           ),
           IconButton(
             icon: Icon(

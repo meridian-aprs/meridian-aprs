@@ -86,6 +86,15 @@ class _MobileScaffoldState extends State<MobileScaffold> {
     setState(() => _selectedIndex = 4);
   }
 
+  static String _aggregateLabel(ConnectionStatus s) => switch (s) {
+    ConnectionStatus.connected => 'Connected',
+    ConnectionStatus.connecting ||
+    ConnectionStatus.reconnecting ||
+    ConnectionStatus.waitingForDevice => 'Connecting\u2026',
+    ConnectionStatus.error => 'Error',
+    ConnectionStatus.disconnected => 'Not Connected',
+  };
+
   void _onDestinationSelected(int index) {
     HapticFeedback.selectionClick();
     setState(() => _selectedIndex = index);
@@ -193,12 +202,10 @@ class _MobileScaffoldState extends State<MobileScaffold> {
           ? AppBar(
               title: const MeridianWordmark.horizontal(height: 40),
               actions: [
-                ...registry.available.map(
-                  (conn) => MeridianStatusPill(
-                    status: conn.status,
-                    label: conn.displayName,
-                    onTap: _navigateToConnection,
-                  ),
+                MeridianStatusPill(
+                  status: registry.aggregateStatus,
+                  label: _aggregateLabel(registry.aggregateStatus),
+                  onTap: _navigateToConnection,
                 ),
                 IconButton(
                   icon: const Icon(Symbols.settings),
