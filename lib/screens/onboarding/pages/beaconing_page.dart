@@ -26,7 +26,6 @@ class _BeaconingPageState extends State<BeaconingPage> {
   bool _beaconingEnabled = false;
   BeaconMode _mode = BeaconMode.auto;
   int _intervalSeconds = 600;
-  final _pathController = TextEditingController(text: 'WIDE1-1,WIDE2-1');
 
   static const _intervalOptions = [
     (label: '1 min', seconds: 60),
@@ -35,12 +34,6 @@ class _BeaconingPageState extends State<BeaconingPage> {
     (label: '10 min', seconds: 600),
     (label: '30 min', seconds: 1800),
   ];
-
-  @override
-  void dispose() {
-    _pathController.dispose();
-    super.dispose();
-  }
 
   Future<void> _onFinish() async {
     if (_beaconingEnabled) {
@@ -182,22 +175,8 @@ class _BeaconingPageState extends State<BeaconingPage> {
                           if (v != null) setState(() => _intervalSeconds = v);
                         },
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                     ],
-                    // TODO(v0.13): wire _pathController to BeaconingService once
-                    // a setPath() setter is added there. Currently the field is
-                    // display-only (default WIDE1-1,WIDE2-1 is used at transmit
-                    // time via AprsEncoder) — the value entered here is not
-                    // persisted.
-                    TextFormField(
-                      controller: _pathController,
-                      decoration: const InputDecoration(
-                        labelText: 'APRS path',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                   ],
                 ),
               ],
