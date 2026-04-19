@@ -42,6 +42,13 @@ app.*.symbols
 # Obfuscation related
 app.*.map.json
 
+# Linux CMake build artifacts
+CMakeCache.txt
+CMakeFiles/
+
+# Flutter screenshot tool output
+flutter_*.png
+
 # Android Studio will place build artifacts here
 /android/app/debug
 /android/app/profile
