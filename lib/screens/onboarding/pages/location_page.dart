@@ -284,10 +284,24 @@ class _LocationPageState extends State<LocationPage> {
               ),
             ),
             const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: _openLocationPicker,
-              icon: const Icon(Icons.map_outlined),
-              label: const Text('Pick on map'),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _onEnableGps,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry GPS'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _openLocationPicker,
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Pick on map'),
+                  ),
+                ),
+              ],
             ),
           ],
         );

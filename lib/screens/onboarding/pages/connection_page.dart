@@ -8,7 +8,9 @@ import 'package:provider/provider.dart';
 import '../../../core/connection/aprs_is_connection.dart';
 import '../../../core/connection/ble_connection.dart';
 import '../../../core/connection/connection_registry.dart';
+import '../../../core/connection/serial_connection.dart';
 import '../../../ui/widgets/ble_scanner_sheet.dart';
+import '../../../ui/widgets/serial_connection_form.dart';
 
 /// Onboarding step 6 — pick an APRS connection method.
 class ConnectionPage extends StatefulWidget {
@@ -36,6 +38,7 @@ class ConnectionPage extends StatefulWidget {
 class _ConnectionPageState extends State<ConnectionPage> {
   bool _connecting = false;
   String? _error;
+  bool _serialExpanded = false;
 
   bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
@@ -203,26 +206,37 @@ class _ConnectionPageState extends State<ConnectionPage> {
               ),
             ],
 
-            // USB Serial (desktop only)
+            // USB Serial (desktop only) — expandable inline form.
             if (_isDesktop) ...[
               const SizedBox(height: 12),
               _ConnectionTile(
                 icon: Icons.usb,
                 title: 'USB Serial TNC',
                 subtitle: 'Connect via USB cable.',
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Connect from Settings > Connection after setup.',
-                      ),
-                      duration: Duration(seconds: 3),
-                    ),
-                  );
-                  widget.onConnectionResult(false);
-                  widget.onNext();
-                },
+                selected: _serialExpanded,
+                onTap: () => setState(() => _serialExpanded = !_serialExpanded),
               ),
+              if (_serialExpanded)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: Builder(
+                    builder: (ctx) {
+                      final registry = ctx.read<ConnectionRegistry>();
+                      final serialConn = registry.byId('serial_tnc');
+                      if (serialConn is! SerialConnection) {
+                        return const SizedBox.shrink();
+                      }
+                      return SerialConnectionForm(
+                        connection: serialConn,
+                        showConnectedHint: false,
+                        onConnected: () {
+                          widget.onConnectionResult(true);
+                          widget.onNext();
+                        },
+                      );
+                    },
+                  ),
+                ),
             ],
 
             const SizedBox(height: 12),
@@ -246,6 +260,7 @@ class _ConnectionTile extends StatelessWidget {
     required this.subtitle,
     required this.onTap,
     this.loading = false,
+    this.selected = false,
   });
 
   final IconData icon;
@@ -253,6 +268,7 @@ class _ConnectionTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
   final bool loading;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
@@ -262,7 +278,10 @@ class _ConnectionTile extends StatelessWidget {
     return Card(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: colorScheme.outlineVariant),
+        side: BorderSide(
+          color: selected ? colorScheme.primary : colorScheme.outlineVariant,
+          width: selected ? 2 : 1,
+        ),
       ),
       child: InkWell(
         onTap: onTap,

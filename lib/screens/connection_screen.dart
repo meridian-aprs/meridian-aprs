@@ -12,14 +12,13 @@ import '../core/connection/ble_connection.dart';
 import '../core/connection/connection_registry.dart';
 import '../core/connection/serial_connection.dart';
 import '../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
-import '../core/transport/tnc_config.dart';
-import '../core/transport/tnc_preset.dart';
 import '../services/background_service_manager.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../theme/meridian_colors.dart';
 import '../ui/widgets/ble_scanner_sheet.dart';
 import '../ui/widgets/meridian_status_pill.dart';
+import '../ui/widgets/serial_connection_form.dart';
 
 /// Full-screen destination for managing all transport connections.
 ///
@@ -44,32 +43,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
   StreamSubscription<AprsPacket>? _packetSub;
 
-  // Serial TNC form state (desktop only).
-  late TncPreset _selectedPreset;
-  late List<String> _availablePorts;
-  String? _selectedPort;
-
   @override
   void initState() {
     super.initState();
-    _selectedPreset = TncPreset.mobilinkdTnc4;
-    _availablePorts = [];
 
-    final registry = context.read<ConnectionRegistry>();
     final stationService = context.read<StationService>();
-
-    // Restore serial config from the registry's SerialConnection (if present).
-    final serialConn = registry.all.whereType<SerialConnection>().firstOrNull;
-    if (serialConn != null) {
-      final activeConfig = serialConn.activeConfig;
-      if (activeConfig?.presetId != null) {
-        _selectedPreset = TncPreset.all.firstWhere(
-          (p) => p.id == activeConfig!.presetId,
-          orElse: () => TncPreset.mobilinkdTnc4,
-        );
-      }
-      _refreshSerialPorts(initial: activeConfig?.port);
-    }
 
     // Seed packet counters from the rolling buffer.
     for (final p in stationService.recentPackets) {
@@ -101,22 +79,6 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   void dispose() {
     _packetSub?.cancel();
     super.dispose();
-  }
-
-  void _refreshSerialPorts({String? initial}) {
-    final registry = context.read<ConnectionRegistry>();
-    final serialConn = registry.all.whereType<SerialConnection>().firstOrNull;
-    final ports = serialConn?.availablePorts() ?? <String>[];
-    _availablePorts = List<String>.from(ports);
-    if (_availablePorts.isNotEmpty) {
-      if (initial != null && _availablePorts.contains(initial)) {
-        _selectedPort = initial;
-      } else {
-        _selectedPort = _availablePorts.first;
-      }
-    } else {
-      _selectedPort = null;
-    }
   }
 
   // ---------------------------------------------------------------------------
@@ -371,147 +333,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // ── Serial TNC tab ─────────────────────────────────────────────────────────
 
   Widget _buildSerialTab(SerialConnection conn) {
-    final theme = Theme.of(context);
-    final isConnected = conn.status == ConnectionStatus.connected;
-    final isConnecting = conn.status == ConnectionStatus.connecting;
-    final errorMessage = conn.lastErrorMessage;
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            margin: EdgeInsets.zero,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Preset dropdown.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Preset',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                      DropdownButton<TncPreset>(
-                        value: _selectedPreset,
-                        items: TncPreset.all.map((preset) {
-                          return DropdownMenuItem<TncPreset>(
-                            value: preset,
-                            child: Text(preset.displayName),
-                          );
-                        }).toList(),
-                        onChanged: isConnecting
-                            ? null
-                            : (preset) {
-                                if (preset != null) {
-                                  setState(() => _selectedPreset = preset);
-                                }
-                              },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Port dropdown with refresh.
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text('Port', style: theme.textTheme.bodyMedium),
-                      ),
-                      DropdownButton<String>(
-                        value: _selectedPort,
-                        hint: const Text('No ports found'),
-                        items: _availablePorts.isEmpty
-                            ? [
-                                const DropdownMenuItem<String>(
-                                  enabled: false,
-                                  child: Text('No ports found'),
-                                ),
-                              ]
-                            : _availablePorts.map((port) {
-                                return DropdownMenuItem<String>(
-                                  value: port,
-                                  child: Text(port),
-                                );
-                              }).toList(),
-                        onChanged: isConnecting
-                            ? null
-                            : (port) {
-                                if (port != null) {
-                                  setState(() => _selectedPort = port);
-                                }
-                              },
-                      ),
-                      IconButton(
-                        icon: const Icon(Symbols.refresh),
-                        tooltip: 'Refresh port list',
-                        onPressed: isConnecting
-                            ? null
-                            : () => setState(
-                                () =>
-                                    _refreshSerialPorts(initial: _selectedPort),
-                              ),
-                      ),
-                    ],
-                  ),
-
-                  // Error message (if any).
-                  if (errorMessage != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      errorMessage,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.error,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          if (isConnected)
-            Text(
-              'Connected — disconnect from the card above.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            )
-          else ...[
-            if (_availablePorts.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Text(
-                  'No serial devices found. Connect a TNC via USB.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: (_selectedPort == null || isConnecting)
-                    ? null
-                    : () async {
-                        final config = TncConfig.fromPreset(
-                          _selectedPreset,
-                          port: _selectedPort!,
-                        );
-                        await conn.connectWithConfig(config);
-                      },
-                child: Text(isConnecting ? 'Connecting\u2026' : 'Connect'),
-              ),
-            ),
-          ],
-        ],
-      ),
+      child: SerialConnectionForm(connection: conn),
     );
   }
 }

@@ -79,7 +79,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _StepId.stationIdentity,
       _StepId.connection,
       if (_notificationsStepApplies) _StepId.notifications,
-      if (_connectionConfigured) _StepId.beaconing,
+      if (isLicensed && _connectionConfigured) _StepId.beaconing,
     ];
   }
 

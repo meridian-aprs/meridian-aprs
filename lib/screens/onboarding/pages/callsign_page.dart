@@ -38,6 +38,11 @@ class _CallsignPageState extends State<CallsignPage> {
   @override
   void initState() {
     super.initState();
+    final settings = context.read<StationSettingsService>();
+    _callsignController.text = settings.callsign;
+    _passcodeController.text = settings.passcode;
+    _ssid = settings.ssid;
+    _callsignValid = _callsignRegex.hasMatch(settings.callsign.trim());
     _callsignController.addListener(_onCallsignChanged);
   }
 
