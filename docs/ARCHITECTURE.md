@@ -68,6 +68,38 @@ The web platform cannot open raw TCP sockets. Web users connect via a WebSocket-
 
 ---
 
+## Brand Assets
+
+### Wordmarks (`assets/wordmarks/`)
+
+Seven SVG variants — five light-mode originals plus two dark-mode variants:
+
+| File | Use case |
+|---|---|
+| `wordmark-horizontal-primary.svg` | Default light — about screens, README, documentation |
+| `wordmark-horizontal-primary-dark.svg` | Auto-selected in dark mode by `MeridianWordmark.horizontal()` |
+| `wordmark-stacked-primary.svg` | Square/portrait contexts — onboarding welcome (light) |
+| `wordmark-stacked-primary-dark.svg` | Auto-selected in dark mode by `MeridianWordmark.stacked()` |
+| `wordmark-horizontal-mono-black.svg` | Print-like or light-background monochrome — explicit, no auto-switch |
+| `wordmark-horizontal-mono-white.svg` | Fixed white monochrome — explicit, no auto-switch |
+| `wordmark-stacked-mono-black.svg` | Square monochrome — explicit, no auto-switch |
+
+Use via `MeridianWordmark` widget (`lib/ui/widgets/meridian_wordmark.dart`). The `.horizontal()` and `.stacked()` constructors automatically select the dark-mode SVG when `Theme.of(context).brightness == Brightness.dark`. Mono constructors render their explicit variant regardless of theme — use these when you need a fixed treatment.
+
+**Dark-mode color convention:** Dark wordmarks use brand tone 80 (`#C8B0E8`) for the pin and neutral-95 (`#F2F1F3`) for text. This follows M3 convention: primary brand role shifts from tone 40 (light) to tone 80 (dark) to maintain legibility on dark surfaces (5.7:1 contrast vs neutral-10 — WCAG AA).
+
+### Icon widget (`lib/ui/widgets/meridian_icon.dart`)
+
+`MeridianIcon` renders the standalone Meridian pin for in-app UI contexts (empty states, about screens, onboarding). Auto-adapts to brightness using `meridian-icon-master.svg` (light, brand040 `#4D1D8C`) or `meridian-icon-master-dark.svg` (dark, brand080 `#C8B0E8`). Pass `size` to constrain.
+
+**NOT for launcher icons** — Android adaptive icon and iOS home screen icon are managed by the OS, not this widget.
+
+### Typography (`assets/fonts/`)
+
+Inter (weights 400/500/600/700) is bundled offline and registered in `pubspec.yaml` as family `Inter`. It is used **only for the wordmark** — the app's default text theme uses platform defaults (Material 3 / Roboto on Android, SF Pro on iOS, M3 default on desktop). Do not change the app's `TextTheme` to use Inter without a separate ADR.
+
+---
+
 ## Data Flow (Receive Path)
 
 ```
@@ -222,15 +254,21 @@ The map tile URL is theme-aware: light mode uses OSM standard tiles; dark mode u
 
 ### Brand Assets
 
-- **Source of truth**: `assets/icons/meridian-icon-master.svg` — single compound path, `evenodd` fill-rule, 512×512 viewBox.
-- **Brand color token**: `MeridianColors.brandPurple` = `#4D1D8C`. For in-app mark rendering (splash, about screen) only — not used as the M3 theme seed.
-- **Regenerating launcher icons**: `dart run flutter_launcher_icons` — reads PNG masters from `assets/icons/generated/`.
+- **Source of truth (light)**: `assets/icons/meridian-icon-master.svg` — single compound path, `evenodd` fill-rule, 512×512 viewBox, brand040 fill `#4D1D8C`.
+- **Source of truth (dark)**: `assets/icons/meridian-icon-master-dark.svg` — identical geometry, brand080 fill `#C8B0E8`.
+- **In-app rendering**: use `MeridianIcon` widget — auto-selects light/dark variant from brightness.
+- **Regenerating launcher icons**: `dart run flutter_launcher_icons` — reads PNG masters from `assets/icons/generated/`. **Do not regenerate with the dark icon** — launcher icon theming is managed by the OS.
 - **Regenerating PNG masters** (if SVG source changes):
   ```bash
-  magick -density 300 -background white assets/icons/meridian-icon-master.svg -flatten -resize 1024x1024 assets/icons/generated/icon-1024.png
-  magick -density 300 -background transparent assets/icons/meridian-icon-adaptive-fg.svg -resize 432x432 assets/icons/generated/icon-adaptive-fg-432.png
+  # Light masters
+  magick -density 300 -background none assets/icons/meridian-icon-master.svg -resize 1024x1024 assets/icons/generated/icon-1024.png
+  magick -density 300 -background none assets/icons/meridian-icon-adaptive-fg.svg -resize 432x432 assets/icons/generated/icon-adaptive-fg-432.png
   magick -density 300 -background none assets/icons/meridian-icon-adaptive-bg.svg -resize 432x432 assets/icons/generated/icon-adaptive-bg-432.png
+  # Dark splash masters (used by flutter_native_splash only)
+  magick -density 300 -background none assets/icons/meridian-icon-master-dark.svg -resize 1024x1024 assets/icons/generated/icon-1024-dark.png
+  magick -density 300 -background none assets/icons/meridian-icon-adaptive-fg-dark.svg -resize 432x432 assets/icons/generated/icon-adaptive-fg-432-dark.png
   ```
+- **Regenerating splash screens**: `dart run flutter_native_splash:create` — reads config from `pubspec.yaml`. Outputs light and dark variants for Android pre-12, Android 12+, and iOS.
 - **Linux**: icon bundled as `linux/meridian.png`; `.desktop` system integration deferred to v1.0 packaging.
 
 ---

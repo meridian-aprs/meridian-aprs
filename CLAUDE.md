@@ -189,6 +189,8 @@ All three tiers fully implemented. iOS pending simulator validation.
 | `station_list_tile.dart` | `StationListTile` | ListTile for station list; symbol + callsign + relative timestamp |
 | `station_search_delegate.dart` | `StationSearchDelegate` | `SearchDelegate<Station?>` for callsign search; Nominatim-powered map pan |
 | `in_app_banner_overlay.dart` | `InAppBannerOverlay`, `InAppBannerController` | Slide-in notification banner at app root; `InAppBannerController` triggers from `NotificationService`; full-width mobile, 320 px top-right desktop |
+| `meridian_icon.dart` | `MeridianIcon` | Meridian pin icon for in-app UI; auto-switches light/dark SVG variant based on brightness; NOT for launcher icons |
+| `meridian_wordmark.dart` | `MeridianWordmark` | Wordmark lockup (icon + text); `.horizontal()` and `.stacked()` auto-switch dark SVG variant; mono constructors are explicit/fixed |
 
 ### Screens (`lib/screens/`)
 

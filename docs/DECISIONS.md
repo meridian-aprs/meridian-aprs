@@ -653,3 +653,53 @@ The handoff spec described a "background isolate" dispatch path — this was bas
 **Alternatives considered:**
 - Keep Meridian Blue — rejected; mismatch with purple icon would be incoherent.
 - Pin theme primary to the literal seed — rejected in favor of M3 convention (`ColorScheme.fromSeed` selects its own primary tone, which is standard M3 behavior).
+
+---
+
+## ADR-040: Wordmark & Inter Font Integration
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** Bundle Inter TTFs offline in `assets/fonts/`. Bundle 5 wordmark SVG variants in `assets/wordmarks/`. Expose via `MeridianWordmark` widget with five named constructors. Use wordmark only in canonical brand moments: splash background, onboarding welcome, about screen, README.
+
+**Rationale:**
+- Offline bundling ensures consistent rendering in low-connectivity environments (core APRS use case).
+- Inter is reserved for the wordmark specifically — full app typography stays on platform defaults (M3/Roboto on Android, SF Pro on iOS, M3 default on desktop).
+- Wordmark does not appear in app bars; those show screen titles for navigation clarity.
+- iOS launch screen is icon-only per Apple HIG; wordmark appears on first in-app screen (onboarding welcome).
+- Android 12+ native splash is icon-only per Google guidance; pre-12 fallback via `flutter_native_splash`.
+- Five named constructors (horizontal, stacked, horizontalMono, horizontalMonoWhite, stackedMono) provide clear intent at call sites.
+
+**Alternatives considered:**
+- `google_fonts` runtime loading — rejected; offline-first requirement.
+- Inter as app default typography — rejected; scope creep, separate concern.
+- Wordmark in app bars — rejected; app bars belong to screen navigation.
+- `lib/widgets/` top-level directory — rejected; project convention is `lib/ui/widgets/`.
+
+---
+
+## ADR-041: Dark-Mode Brand Asset Switching
+
+**Status:** Accepted
+**Date:** 2026-04-18
+
+**Decision:** Add dark-mode SVG variants of the pin icon and primary wordmarks. `MeridianWordmark.horizontal()` and `MeridianWordmark.stacked()` auto-select the dark variant when `Theme.of(context).brightness == Brightness.dark`. A new `MeridianIcon` widget does the same swap for standalone pin renders. Native splash screens are updated with dark-mode PNG variants via `flutter_native_splash`.
+
+**Rationale:**
+- brand040 (`#4D1D8C`) has insufficient contrast against dark surfaces (≈1.7:1 vs neutral010 — fails WCAG).
+- brand080 (`#C8B0E8`) provides ≈5.7:1 contrast against neutral010 dark backgrounds — passes WCAG AA for UI components.
+- Preserves brand identity: the pin and wordmark remain unmistakably purple-family in both modes.
+- Material 3 already shifts the primary role from tone 40 (light) to tone 80 (dark) for `ColorScheme.fromSeed()` output — aligning brand SVGs with this convention keeps the theme coherent end-to-end.
+- SVG-swap approach (vs. `ColorFilter`) preserves the baked-in text colors in the wordmark SVGs (`#F2F1F3` near-white in dark mode) — a single color filter cannot handle a multi-color SVG correctly.
+
+**Scope:**
+- In-app widgets only: `MeridianWordmark` (`.horizontal`, `.stacked` constructors) and new `MeridianIcon`.
+- Native splash: `flutter_native_splash` dark PNG variants added for Android pre-12 and Android 12+, and iOS.
+- Launcher icons NOT affected — Android Material You and iOS home screen theming are managed by the OS.
+- Mono wordmark constructors (`.horizontalMono`, `.horizontalMonoWhite`, `.stackedMono`) unchanged — explicit, non-adaptive by design.
+
+**Alternatives considered:**
+- `ColorFilter.mode(Colors.white, BlendMode.srcIn)` applied to primary SVG — rejected; tints entire SVG to solid white, destroying text fill distinction.
+- Single SVG with CSS media query — rejected; `flutter_svg` does not evaluate CSS `prefers-color-scheme`.
+- Runtime SVG recolor via `colorMapper` — rejected; more complexity than separate pre-authored SVGs with no advantage.

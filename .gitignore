@@ -47,8 +47,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-# Claude Code agent memory (local only)
+# Claude Code agent memory and worktrees (local only)
 .claude/agent-memory/
+.claude/worktrees/
 
 # Ignore env files
 .env

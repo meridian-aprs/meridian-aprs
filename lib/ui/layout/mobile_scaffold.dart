@@ -21,6 +21,7 @@ import '../../services/station_settings_service.dart';
 import '../widgets/beacon_fab.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
+import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
@@ -190,7 +191,7 @@ class _MobileScaffoldState extends State<MobileScaffold> {
     return Scaffold(
       appBar: _selectedIndex == 0
           ? AppBar(
-              title: const Text('Meridian'),
+              title: const MeridianWordmark.horizontal(height: 40),
               actions: [
                 ...registry.available.map(
                   (conn) => MeridianStatusPill(
