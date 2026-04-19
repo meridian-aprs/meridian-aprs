@@ -1542,8 +1542,8 @@ class _NotificationsSection extends StatelessWidget {
           title: const Text('Notifications enabled'),
           subtitle: Text(
             prefs.optedIn
-                ? 'Meridian will send notifications for new messages and alerts.'
-                : 'Notifications are disabled. Enable to receive alerts.',
+                ? 'Meridian will notify you when a message arrives.'
+                : 'Notifications are disabled. Enable to get message alerts.',
           ),
           value: prefs.optedIn,
           onChanged: (v) async {
@@ -1554,7 +1554,7 @@ class _NotificationsSection extends StatelessWidget {
             }
           },
         ),
-        if (prefs.optedIn) ...[
+        if (prefs.optedIn)
           _NotificationChannelTile(
             channelId: NotificationChannels.messages,
             label: 'Messages',
@@ -1563,32 +1563,6 @@ class _NotificationsSection extends StatelessWidget {
             notif: notif,
             isMobile: isMobile,
           ),
-          _NotificationChannelTile(
-            channelId: NotificationChannels.alerts,
-            label: 'Alerts',
-            description: 'WX and NWS alerts (reserved for a future feature).',
-            prefs: prefs,
-            notif: notif,
-            isMobile: isMobile,
-          ),
-          _NotificationChannelTile(
-            channelId: NotificationChannels.nearby,
-            label: 'Nearby',
-            description:
-                'Activity from stations in your area (reserved for a future feature).',
-            prefs: prefs,
-            notif: notif,
-            isMobile: isMobile,
-          ),
-          _NotificationChannelTile(
-            channelId: NotificationChannels.system,
-            label: 'System',
-            description: 'Connection and TNC status updates.',
-            prefs: prefs,
-            notif: notif,
-            isMobile: isMobile,
-          ),
-        ], // end if (prefs.optedIn)
       ],
     );
   }

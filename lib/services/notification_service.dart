@@ -160,9 +160,6 @@ class NotificationService extends ChangeNotifier {
           ],
           options: {DarwinNotificationCategoryOption.hiddenPreviewShowTitle},
         ),
-        const DarwinNotificationCategory(NotificationChannels.alerts),
-        const DarwinNotificationCategory(NotificationChannels.nearby),
-        const DarwinNotificationCategory(NotificationChannels.system),
       ],
     );
 
@@ -203,34 +200,16 @@ class NotificationService extends ChangeNotifier {
         playSound: true,
         enableVibration: true,
       ),
-      AndroidNotificationChannel(
-        NotificationChannels.alerts,
-        'Alerts',
-        description: 'WX and NWS APRS alerts.',
-        importance: Importance.high,
-        playSound: true,
-        enableVibration: true,
-      ),
-      AndroidNotificationChannel(
-        NotificationChannels.nearby,
-        'Nearby',
-        description: 'Activity from stations in your area.',
-        importance: Importance.low,
-        playSound: false,
-        enableVibration: true,
-      ),
-      AndroidNotificationChannel(
-        NotificationChannels.system,
-        'System',
-        description: 'Connection and TNC status updates.',
-        importance: Importance.min,
-        playSound: false,
-        enableVibration: false,
-      ),
     ];
 
     for (final ch in channels) {
       await androidPlugin.createNotificationChannel(ch);
+    }
+
+    // Remove pre-v0.12 channels that were registered but never dispatched.
+    // Safe on fresh installs — deleteNotificationChannel is a no-op if absent.
+    for (final stale in const ['alerts', 'nearby', 'system']) {
+      await androidPlugin.deleteNotificationChannel(stale);
     }
   }
 

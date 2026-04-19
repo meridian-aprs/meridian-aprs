@@ -84,7 +84,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Meridian can notify you about activity on the APRS network '
+              'Meridian can notify you when someone sends you a message, '
               'even when the app is in the background.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
@@ -149,56 +149,33 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Widget _buildChannelList(ThemeData theme, ColorScheme colorScheme) {
-    const channels = [
-      (
-        Icons.message_outlined,
-        'Messages',
-        'Direct messages from other operators',
-      ),
-      (Icons.warning_amber_outlined, 'Alerts', 'APRS bulletins and NWS alerts'),
-      (
-        Icons.radio_outlined,
-        'Nearby stations',
-        'Activity from stations around you',
-      ),
-      (
-        Icons.settings_outlined,
-        'Connection status',
-        'Connection changes and errors',
-      ),
-    ];
-
-    return Column(
-      children: channels
-          .map(
-            (c) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Row(
-                children: [
-                  Icon(c.$1, size: 20, color: colorScheme.primary),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        c.$2,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        c.$3,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(Icons.message_outlined, size: 20, color: colorScheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Messages',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
-              ),
+                ),
+                Text(
+                  'Direct messages from other operators',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
             ),
-          )
-          .toList(),
+          ),
+        ],
+      ),
     );
   }
 

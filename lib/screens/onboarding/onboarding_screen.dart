@@ -74,11 +74,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     return [
       _StepId.welcome,
       _StepId.license,
+      // Location, station identity, and beaconing only matter when the user
+      // can transmit. Receive-only (unlicensed) users skip straight to the
+      // connection step.
       if (isLicensed) _StepId.callsign,
-      _StepId.location,
-      _StepId.stationIdentity,
+      if (isLicensed) _StepId.location,
+      if (isLicensed) _StepId.stationIdentity,
       _StepId.connection,
-      if (_notificationsStepApplies) _StepId.notifications,
+      if (isLicensed && _notificationsStepApplies) _StepId.notifications,
       if (isLicensed && _connectionConfigured) _StepId.beaconing,
     ];
   }
@@ -237,7 +240,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 children: [
                   const Text('Set up Meridian'),
                   Text(
-                    'Step ${safeStep + 1} of ${steps.length}',
+                    'Step $safeStep of ${steps.length - 1}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
