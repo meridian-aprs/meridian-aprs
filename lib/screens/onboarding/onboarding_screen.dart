@@ -200,9 +200,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
 
     final currentStepId = steps[safeStep];
-    final progress = steps.length > 1
-        ? safeStep / (steps.length - 1).toDouble()
-        : 1.0;
+    final isWelcome = currentStepId == _StepId.welcome;
     final showBackButton = safeStep > 0;
 
     return Scaffold(
@@ -211,15 +209,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         leading: showBackButton
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: _back)
             : null,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(4),
-          child: LinearProgressIndicator(
-            value: progress,
-            backgroundColor: Theme.of(
-              context,
-            ).colorScheme.surfaceContainerHighest,
-          ),
-        ),
+        title: isWelcome ? null : const Text('Set up Meridian'),
       ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
