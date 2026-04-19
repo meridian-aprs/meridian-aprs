@@ -1,9 +1,10 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'dart:io' show Platform;
 
 import '../../services/station_service.dart';
 import '../../services/station_settings_service.dart';
@@ -133,6 +134,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (settings.hasManualPosition) {
       lat = settings.manualLat!;
       lon = settings.manualLon!;
+    } else if (settings.locationSource == LocationSource.gps) {
+      // GPS was enabled in onboarding — use the last cached fix for centering.
+      // getLastKnownPosition() is instant; no new permission dialog.
+      try {
+        final pos = await Geolocator.getLastKnownPosition();
+        if (pos != null) {
+          lat = pos.latitude;
+          lon = pos.longitude;
+        } else {
+          lat = 39.0;
+          lon = -77.0;
+        }
+      } catch (_) {
+        lat = 39.0;
+        lon = -77.0;
+      }
     } else {
       // No location established — default to central US.
       lat = 39.0;
