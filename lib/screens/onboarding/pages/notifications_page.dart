@@ -1,4 +1,8 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../../../services/notification_service.dart';
@@ -26,6 +30,28 @@ enum _NotifState { initial, requesting, granted, denied }
 
 class _NotificationsPageState extends State<NotificationsPage> {
   _NotifState _state = _NotifState.initial;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkExistingStatus();
+  }
+
+  /// On Android, pre-populate the state if the permission was already decided
+  /// (e.g. granted by BackgroundServiceManager during BLE connection). This
+  /// avoids showing "Enable" when it was already granted and avoids redundantly
+  /// triggering the OS dialog again.
+  Future<void> _checkExistingStatus() async {
+    if (kIsWeb) return;
+    if (!Platform.isAndroid) return;
+    final status = await Permission.notification.status;
+    if (!mounted) return;
+    if (status.isGranted) {
+      setState(() => _state = _NotifState.granted);
+    } else if (status.isPermanentlyDenied) {
+      setState(() => _state = _NotifState.denied);
+    }
+  }
 
   Future<void> _onEnable() async {
     setState(() => _state = _NotifState.requesting);

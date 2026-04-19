@@ -26,16 +26,13 @@ class _BeaconingPageState extends State<BeaconingPage> {
   bool _beaconingEnabled = false;
   BeaconMode _mode = BeaconMode.auto;
   int _intervalSeconds = 600;
+  bool _finishing = false;
 
-  static const _intervalOptions = [
-    (label: '1 min', seconds: 60),
-    (label: '2 min', seconds: 120),
-    (label: '5 min', seconds: 300),
-    (label: '10 min', seconds: 600),
-    (label: '30 min', seconds: 1800),
-  ];
+  static String _intervalLabel(int minutes) =>
+      minutes == 1 ? '1 minute' : '$minutes minutes';
 
   Future<void> _onFinish() async {
+    setState(() => _finishing = true);
     if (_beaconingEnabled) {
       final beaconingService = context.read<BeaconingService>();
       await beaconingService.setMode(_mode);
@@ -51,6 +48,7 @@ class _BeaconingPageState extends State<BeaconingPage> {
     final colorScheme = theme.colorScheme;
     final stationSettings = context.read<StationSettingsService>();
     final isLicensed = stationSettings.isLicensed;
+    final minutes = (_intervalSeconds / 60).round().clamp(1, 60);
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -141,44 +139,37 @@ class _BeaconingPageState extends State<BeaconingPage> {
                   selected: {_mode},
                   onSelectionChanged: (s) => setState(() => _mode = s.first),
                 ),
-                const SizedBox(height: 16),
 
-                // Advanced settings
-                ExpansionTile(
-                  title: const Text('Advanced'),
-                  tilePadding: EdgeInsets.zero,
-                  children: [
-                    const SizedBox(height: 8),
-                    if (_mode == BeaconMode.auto) ...[
+                // Interval slider — Auto mode only
+                if (_mode == BeaconMode.auto) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
                       Text(
                         'Interval',
-                        style: theme.textTheme.labelMedium?.copyWith(
+                        style: theme.textTheme.labelLarge?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<int>(
-                        initialValue: _intervalSeconds,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          isDense: true,
+                      Text(
+                        _intervalLabel(minutes),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colorScheme.onSurface,
                         ),
-                        items: _intervalOptions
-                            .map(
-                              (o) => DropdownMenuItem(
-                                value: o.seconds,
-                                child: Text(o.label),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) {
-                          if (v != null) setState(() => _intervalSeconds = v);
-                        },
                       ),
-                      const SizedBox(height: 8),
                     ],
-                  ],
-                ),
+                  ),
+                  Slider(
+                    min: 1,
+                    max: 60,
+                    divisions: 59,
+                    value: minutes.toDouble(),
+                    label: _intervalLabel(minutes),
+                    onChanged: (v) =>
+                        setState(() => _intervalSeconds = v.round() * 60),
+                  ),
+                ],
               ],
             ],
 
@@ -186,13 +177,19 @@ class _BeaconingPageState extends State<BeaconingPage> {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: _onFinish,
+                onPressed: _finishing ? null : _onFinish,
                 style: FilledButton.styleFrom(
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),
-                child: Text(
-                  _beaconingEnabled ? 'Start Listening' : 'Go to Map',
-                ),
+                child: _finishing
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator.adaptive(
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : Text(_beaconingEnabled ? 'Start Listening' : 'Go to Map'),
               ),
             ),
           ],

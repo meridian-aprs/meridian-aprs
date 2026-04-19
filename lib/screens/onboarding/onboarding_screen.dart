@@ -120,19 +120,24 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     final service = context.read<StationService>();
     final settings = context.read<StationSettingsService>();
-    final callsign = settings.callsign.isNotEmpty
-        ? settings.callsign
-        : 'NOCALL';
+    final callsign = settings.callsign.isNotEmpty ? settings.callsign : 'NOCALL';
 
-    // Restore the last map viewport so the user lands where they left off.
-    // If no saved position exists (first-ever launch), the defaults in
-    // MapScreen are used (39° N, 77° W, zoom 9 — continental US).
-    final prefs = await SharedPreferences.getInstance();
+    double lat;
+    double lon;
+    const zoom = 12.0;
+
+    // Prefer the location the user configured during onboarding.
+    // Fall back to DC only when no location was set at all.
+    if (settings.hasManualPosition) {
+      lat = settings.manualLat!;
+      lon = settings.manualLon!;
+    } else {
+      // No location established — default to central US.
+      lat = 39.0;
+      lon = -77.0;
+    }
+
     if (!mounted) return;
-    final lat = prefs.getDouble('map_last_lat') ?? 39.0;
-    final lon = prefs.getDouble('map_last_lon') ?? -77.0;
-    final zoom = prefs.getDouble('map_last_zoom') ?? 9.0;
-
     Navigator.pushReplacement(
       context,
       buildPlatformRoute(
@@ -217,14 +222,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
         transitionBuilder: (child, animation) {
-          final offsetTween = Tween<Offset>(
-            begin: Offset(_direction.toDouble(), 0),
-            end: Offset.zero,
+          // Incoming widget: animation 0→1, slide in from the direction side.
+          // Outgoing widget: animation 1→0, slide out to the opposite side.
+          // We tell them apart by comparing their key to the current page key.
+          final isIncoming =
+              (child.key as ValueKey<int>?)?.value == _pageKey;
+          final sign = isIncoming ? _direction.toDouble() : -_direction.toDouble();
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: Offset(sign, 0),
+              end: Offset.zero,
+            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
+            child: child,
           );
-          final slideAnimation = offsetTween.animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeInOut),
-          );
-          return SlideTransition(position: slideAnimation, child: child);
         },
         child: KeyedSubtree(
           key: ValueKey(_pageKey),
