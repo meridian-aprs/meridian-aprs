@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:local_notifier/local_notifier.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/notification_preferences.dart';
@@ -291,6 +292,40 @@ class NotificationService extends ChangeNotifier {
       _notifAnchor.remove(callsign);
     }
     _activeThreadCallsign = callsign?.toUpperCase();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Permission request (called from onboarding)
+  // ---------------------------------------------------------------------------
+
+  /// Requests the OS-level notification permission and returns whether it was
+  /// granted. Safe to call on any platform — returns `true` immediately on
+  /// Linux/Windows where no runtime permission is required.
+  Future<bool> requestNotificationPermissions() async {
+    if (kIsWeb) return false;
+    if (Platform.isAndroid) {
+      final status = await Permission.notification.request();
+      _androidEnabled = status.isGranted;
+      notifyListeners();
+      return status.isGranted;
+    }
+    if (Platform.isIOS) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+            IOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      return granted ?? false;
+    }
+    if (Platform.isMacOS) {
+      final granted = await _plugin
+          .resolvePlatformSpecificImplementation<
+            MacOSFlutterLocalNotificationsPlugin
+          >()
+          ?.requestPermissions(alert: true, badge: true, sound: true);
+      return granted ?? false;
+    }
+    return true;
   }
 
   // ---------------------------------------------------------------------------

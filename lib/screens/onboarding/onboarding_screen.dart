@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'dart:io' show Platform;
 
 import '../../services/station_service.dart';
 import '../../services/station_settings_service.dart';
@@ -11,6 +14,7 @@ import 'pages/callsign_page.dart';
 import 'pages/connection_page.dart';
 import 'pages/license_page.dart' as license_page;
 import 'pages/location_page.dart';
+import 'pages/notifications_page.dart';
 import 'pages/station_identity_page.dart';
 import 'pages/welcome_page.dart';
 
@@ -45,6 +49,7 @@ enum _StepId {
   location,
   stationIdentity,
   connection,
+  notifications,
   beaconing,
 }
 
@@ -61,6 +66,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Key used to force [AnimatedSwitcher] to treat every step as a new widget.
   int _pageKey = 0;
 
+  static bool get _notificationsStepApplies =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS || Platform.isMacOS);
+
   List<_StepId> _buildSteps(bool isLicensed) {
     return [
       _StepId.welcome,
@@ -69,6 +77,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _StepId.location,
       _StepId.stationIdentity,
       _StepId.connection,
+      if (_notificationsStepApplies) _StepId.notifications,
       if (_connectionConfigured) _StepId.beaconing,
     ];
   }
@@ -161,6 +170,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           onBack: _back,
           onConnectionResult: _onConnectionResult,
         );
+      case _StepId.notifications:
+        return NotificationsPage(onNext: _advance, onBack: _back);
       case _StepId.beaconing:
         return BeaconingPage(onFinish: _finish, onBack: _back);
     }
