@@ -191,7 +191,7 @@ class _MobileScaffoldState extends State<MobileScaffold> {
     return Scaffold(
       appBar: _selectedIndex == 0
           ? AppBar(
-              title: const MeridianWordmark.horizontal(height: 28),
+              title: const MeridianWordmark.horizontal(height: 40),
               actions: [
                 ...registry.available.map(
                   (conn) => MeridianStatusPill(
