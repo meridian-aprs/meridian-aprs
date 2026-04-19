@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:http_cache_core/http_cache_core.dart';
 import 'package:http_cache_file_store/http_cache_file_store.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/cupertino.dart';
@@ -63,12 +64,12 @@ Brightness _resolveIosBrightness(ThemeMode mode) {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialise foreground task communication port before any isolates start.
-  // Safe to call on all platforms (no-op on non-Android).
-  FlutterForegroundTask.initCommunicationPort();
-
-  // Initialise Android notification channel options for the background service.
-  BackgroundServiceManager.initOptions();
+  if (!kIsWeb) {
+    // Initialise foreground task communication port before any isolates start.
+    FlutterForegroundTask.initCommunicationPort();
+    // Initialise Android notification channel options for the background service.
+    BackgroundServiceManager.initOptions();
+  }
 
   // Load theme preference and onboarding state before the first frame.
   final themeController = await ThemeController.create();
@@ -168,12 +169,17 @@ Future<void> main() async {
   );
   await notificationService.initialize();
 
-  // Tile cache: persist tiles to disk for 30 days so repeated sessions don't
-  // re-fetch the same tiles and burn through Stadia Maps API credits.
-  final cacheDir = await getTemporaryDirectory();
+  // Tile cache: disk-backed on native platforms, memory-only on web (no FS).
+  final CacheStore tileCache;
+  if (kIsWeb) {
+    tileCache = MemCacheStore();
+  } else {
+    final cacheDir = await getTemporaryDirectory();
+    tileCache = FileCacheStore('${cacheDir.path}/meridian_tiles');
+  }
   final tileProvider = StadiaTileProvider(
     apiKey: AppConfig.stadiaMapsApiKey,
-    cacheStore: FileCacheStore('${cacheDir.path}/meridian_tiles'),
+    cacheStore: tileCache,
   );
 
   final bgServiceManager = BackgroundServiceManager(
