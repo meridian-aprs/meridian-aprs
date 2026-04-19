@@ -12,6 +12,7 @@ import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../services/message_service.dart';
+import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/compose_message_sheet.dart';
 import 'message_thread_screen.dart';
@@ -33,13 +34,16 @@ class MessagesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MessageService>();
+    final isLicensed = context.select<StationSettingsService, bool>(
+      (s) => s.isLicensed,
+    );
     final conversations = service.conversations;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Messages'),
         actions: [
-          if (_isDesktop)
+          if (_isDesktop && isLicensed)
             IconButton(
               icon: const Icon(Symbols.edit_square),
               tooltip: 'New message',
@@ -48,7 +52,9 @@ class MessagesScreen extends StatelessWidget {
         ],
       ),
       body: conversations.isEmpty
-          ? _EmptyState(onCompose: () => _openCompose(context))
+          ? _EmptyState(
+              onCompose: isLicensed ? () => _openCompose(context) : null,
+            )
           : ListView.separated(
               itemCount: conversations.length,
               separatorBuilder: (context, index) =>
@@ -71,7 +77,7 @@ class MessagesScreen extends StatelessWidget {
                 );
               },
             ),
-      floatingActionButton: _isDesktop
+      floatingActionButton: (_isDesktop || !isLicensed)
           ? null
           : FloatingActionButton(
               heroTag: 'compose_fab',
@@ -149,11 +155,13 @@ class _ConversationTile extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.onCompose});
 
-  final VoidCallback onCompose;
+  /// Null when the user is unlicensed — hides the compose button.
+  final VoidCallback? onCompose;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final licensed = onCompose != null;
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -167,15 +175,20 @@ class _EmptyState extends StatelessWidget {
           Text('No messages yet', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           Text(
-            'Tap compose to start a conversation.',
+            licensed
+                ? 'Tap compose to start a conversation.'
+                : 'An amateur radio license is required to send messages.',
             style: theme.textTheme.bodySmall,
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 24),
-          FilledButton.icon(
-            icon: const Icon(Symbols.edit_square),
-            label: const Text('Compose'),
-            onPressed: onCompose,
-          ),
+          if (licensed) ...[
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              icon: const Icon(Symbols.edit_square),
+              label: const Text('Compose'),
+              onPressed: onCompose,
+            ),
+          ],
         ],
       ),
     );

@@ -17,6 +17,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/connection/connection_registry.dart';
+import 'station_settings_service.dart';
 
 // ---------------------------------------------------------------------------
 // Backward-compat: per-message transport override enum
@@ -46,11 +47,12 @@ class TxEventTncReconnected extends TxEvent {}
 // ---------------------------------------------------------------------------
 
 class TxService extends ChangeNotifier {
-  TxService(this._registry) {
+  TxService(this._registry, this._settings) {
     _registry.addListener(_onRegistryChanged);
   }
 
   final ConnectionRegistry _registry;
+  final StationSettingsService _settings;
   final _eventController = StreamController<TxEvent>.broadcast();
 
   // Compat: stored preference for Phase 6 UI to read (no longer drives routing)
@@ -82,7 +84,13 @@ class TxService extends ChangeNotifier {
   ///
   /// When [forceVia] is provided, the first connected connection of that type
   /// is used; otherwise the hierarchy (Serial > BLE > APRS-IS) is applied.
+  ///
+  /// No-op when the user is unlicensed — TX is unconditionally blocked.
   Future<void> sendLine(String aprsLine, {ConnectionType? forceVia}) async {
+    if (!_settings.isLicensed) {
+      debugPrint('[TxService] TX rejected: unlicensed mode');
+      return;
+    }
     final conn = _effectiveConnection(forceVia: forceVia);
     if (conn == null) return;
     await conn.sendLine(aprsLine);
@@ -93,7 +101,13 @@ class TxService extends ChangeNotifier {
   ///
   /// Each connection is attempted independently — a failure on one does not
   /// block the others.
+  ///
+  /// No-op when the user is unlicensed — TX is unconditionally blocked.
   Future<void> sendBeacon(String aprsLine) async {
+    if (!_settings.isLicensed) {
+      debugPrint('[TxService] TX rejected: unlicensed mode');
+      return;
+    }
     for (final conn in _registry.all) {
       if (conn.beaconingEnabled && conn.isConnected) {
         try {

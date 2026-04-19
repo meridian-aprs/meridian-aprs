@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 
 import '../services/message_service.dart';
 import '../services/notification_service.dart';
+import '../services/station_settings_service.dart';
 import '../services/tx_service.dart';
 
 class MessageThreadScreen extends StatefulWidget {
@@ -68,6 +69,9 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
   Widget build(BuildContext context) {
     final messageService = context.watch<MessageService>();
     final txService = context.watch<TxService>();
+    final isLicensed = context.select<StationSettingsService, bool>(
+      (s) => s.isLicensed,
+    );
     final conv = messageService.conversationWith(widget.peerCallsign);
     final messages = conv?.messages ?? [];
 
@@ -75,40 +79,43 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
       appBar: AppBar(
         title: Text(widget.peerCallsign),
         actions: [
-          // RF / APRS-IS transport toggle
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: Tooltip(
-              message: !txService.tncAvailable ? 'TNC not connected' : '',
-              child: SegmentedButton<TxTransportPref>(
-                style: const ButtonStyle(visualDensity: VisualDensity.compact),
-                segments: [
-                  ButtonSegment(
-                    value: TxTransportPref.aprsIs,
-                    icon: const Icon(Symbols.wifi),
-                    label: const Text('IS'),
-                    enabled: txService.aprsIsAvailable,
+          // RF / APRS-IS transport toggle — only meaningful when licensed.
+          if (isLicensed)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Tooltip(
+                message: !txService.tncAvailable ? 'TNC not connected' : '',
+                child: SegmentedButton<TxTransportPref>(
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
                   ),
-                  ButtonSegment(
-                    value: TxTransportPref.tnc,
-                    icon: const Icon(Symbols.settings_input_antenna),
-                    label: const Text('RF'),
-                    enabled: txService.tncAvailable,
-                  ),
-                ],
-                selected: {
-                  txService.preference == TxTransportPref.auto
-                      ? txService.effective
-                      : txService.preference,
-                },
-                onSelectionChanged: (modes) {
-                  if (modes.isNotEmpty) {
-                    context.read<TxService>().setPreference(modes.first);
-                  }
-                },
+                  segments: [
+                    ButtonSegment(
+                      value: TxTransportPref.aprsIs,
+                      icon: const Icon(Symbols.wifi),
+                      label: const Text('IS'),
+                      enabled: txService.aprsIsAvailable,
+                    ),
+                    ButtonSegment(
+                      value: TxTransportPref.tnc,
+                      icon: const Icon(Symbols.settings_input_antenna),
+                      label: const Text('RF'),
+                      enabled: txService.tncAvailable,
+                    ),
+                  ],
+                  selected: {
+                    txService.preference == TxTransportPref.auto
+                        ? txService.effective
+                        : txService.preference,
+                  },
+                  onSelectionChanged: (modes) {
+                    if (modes.isNotEmpty) {
+                      context.read<TxService>().setPreference(modes.first);
+                    }
+                  },
+                ),
               ),
             ),
-          ),
         ],
       ),
       body: Column(
@@ -129,7 +136,10 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
                     ),
                   ),
           ),
-          _ComposeBar(controller: _inputCtrl, onSend: _send),
+          if (isLicensed)
+            _ComposeBar(controller: _inputCtrl, onSend: _send)
+          else
+            const _UnlicensedComposeBar(),
         ],
       ),
     );
@@ -417,6 +427,33 @@ class _EmptyThread extends StatelessWidget {
         'No messages yet.\nSay hello!',
         textAlign: TextAlign.center,
         style: Theme.of(context).textTheme.bodyMedium,
+      ),
+    );
+  }
+}
+
+/// Shown in place of [_ComposeBar] when the user is unlicensed.
+class _UnlicensedComposeBar extends StatelessWidget {
+  const _UnlicensedComposeBar();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: theme.dividerColor, width: 0.5),
+          ),
+        ),
+        child: Text(
+          'An amateur radio license is required to send messages.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }

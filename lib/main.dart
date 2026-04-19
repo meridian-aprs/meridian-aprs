@@ -110,7 +110,10 @@ Future<void> main() async {
         'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
     filterLine: AprsIsConnection.defaultFilterLine(mapLat, mapLon),
   );
-  final aprsIsConn = AprsIsConnection(aprsIsTransport);
+  final aprsIsConn = AprsIsConnection(
+    aprsIsTransport,
+    settings: stationSettings,
+  );
 
   // Platform-conditional TNC connections.
   BleConnection? bleConn;
@@ -160,7 +163,7 @@ Future<void> main() async {
     });
   }
 
-  final txService = TxService(registry);
+  final txService = TxService(registry, stationSettings);
   await txService.loadPersistedPreference();
 
   final beaconingService = BeaconingService(

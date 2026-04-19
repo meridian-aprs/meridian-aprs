@@ -113,6 +113,7 @@ class StationSettingsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // TODO(license-transition): "I got my license" flow in Settings (FUTURE_FEATURES.md)
   Future<void> setIsLicensed(bool value) async {
     if (value == _isLicensed) return;
     _isLicensed = value;

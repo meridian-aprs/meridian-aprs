@@ -32,8 +32,8 @@ void main() {
     registry.register(aprsIsConn);
 
     final service = StationService();
-    final txService = TxService(registry);
     final stationSettings = StationSettingsService(prefs);
+    final txService = TxService(registry, stationSettings);
     final beaconingService = BeaconingService(stationSettings, txService);
     final messageService = MessageService(stationSettings, txService, service);
     final bgServiceManager = BackgroundServiceManager(

@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../services/station_settings_service.dart';
 import '../transport/aprs_is_transport.dart';
 import 'meridian_connection.dart';
 
@@ -13,8 +14,13 @@ import 'meridian_connection.dart';
 /// Wraps [AprsIsTransport] and exposes it through the [MeridianConnection]
 /// interface. Beaconing is enabled by default and persisted to
 /// SharedPreferences under the key `beacon_enabled_aprs_is`.
+///
+/// When [StationSettingsService.isLicensed] is false, the APRS-IS login line
+/// is substituted with `N0CALL` / passcode `-1` on every [connect] call — see
+/// ADR-045.
 class AprsIsConnection extends MeridianConnection {
-  AprsIsConnection(this._transport) {
+  AprsIsConnection(this._transport, {StationSettingsService? settings})
+    : _settings = settings {
     // Mirror every transport state change into a ChangeNotifier notification so
     // that ConnectionRegistry (and all UI widgets watching it) rebuild whenever
     // the socket connects, disconnects, or drops unexpectedly.
@@ -22,6 +28,7 @@ class AprsIsConnection extends MeridianConnection {
   }
 
   final AprsIsTransport _transport;
+  final StationSettingsService? _settings;
   StreamSubscription<ConnectionStatus>? _stateSub;
 
   static const _kBeaconingKey = 'beacon_enabled_aprs_is';
@@ -99,6 +106,7 @@ class AprsIsConnection extends MeridianConnection {
 
   @override
   Future<void> connect() async {
+    _applyLicenseOverride();
     await _transport.connect();
     _autoConnect = true;
     SharedPreferences.getInstance().then(
@@ -140,8 +148,33 @@ class AprsIsConnection extends MeridianConnection {
   ///
   /// Safe to call while disconnected. Has no effect on an active connection —
   /// reconnect to apply the new credentials.
+  ///
+  /// When [StationSettingsService.isLicensed] is false, the supplied
+  /// [loginLine] is overridden with the N0CALL/-1 receive-only form — see
+  /// ADR-045.
   void updateCredentials({required String loginLine, String? filterLine}) {
     _transport.updateCredentials(loginLine: loginLine, filterLine: filterLine);
+    // Re-apply the override so the stored line reflects the licensed state.
+    _applyLicenseOverride(filterLine: filterLine);
+  }
+
+  // ---------------------------------------------------------------------------
+  // License-mode override
+  // ---------------------------------------------------------------------------
+
+  /// When the user is unlicensed, replaces the login line in the underlying
+  /// transport with the APRS-IS receive-only form (`N0CALL` / passcode `-1`).
+  ///
+  /// Called on every [connect] and [updateCredentials] so that a change in
+  /// licensed status always takes effect before the next connection attempt.
+  /// The [filterLine] is preserved unchanged.
+  void _applyLicenseOverride({String? filterLine}) {
+    final settings = _settings;
+    if (settings == null || settings.isLicensed) return;
+    _transport.updateCredentials(
+      loginLine: 'user N0CALL pass -1 vers meridian-aprs\r\n',
+      filterLine: filterLine,
+    );
   }
 
   /// Send a `#filter b/` bounding-box command derived from the current map
