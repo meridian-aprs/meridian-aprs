@@ -1,7 +1,8 @@
 /// Persistent My Station settings.
 ///
-/// Owns the four user-configurable identity fields (callsign, SSID, symbol,
-/// comment) that are consumed by [BeaconingService] and [MessageService].
+/// Owns all user-configurable identity fields (callsign, SSID, symbol,
+/// comment, passcode, licensed status) that are consumed by
+/// [BeaconingService] and [MessageService].
 /// Persists changes immediately to [SharedPreferences] on every setter call —
 /// there is no Save button.
 library;
@@ -25,7 +26,9 @@ class StationSettingsService extends ChangeNotifier {
           LocationSource.values.elementAtOrNull(
             _prefs.getInt(_keyLocationSource) ?? 0,
           ) ??
-          LocationSource.gps;
+          LocationSource.gps,
+      _isLicensed = _prefs.getBool(_keyIsLicensed) ?? false,
+      _passcode = _prefs.getString(_keyPasscode) ?? '';
 
   final SharedPreferences _prefs;
 
@@ -39,6 +42,8 @@ class StationSettingsService extends ChangeNotifier {
   static const _keyManualLat = 'user_manual_lat';
   static const _keyManualLon = 'user_manual_lon';
   static const _keyLocationSource = 'user_location_source';
+  static const _keyIsLicensed = 'user_is_licensed';
+  static const _keyPasscode = 'user_passcode';
 
   String _callsign;
   int _ssid;
@@ -48,12 +53,18 @@ class StationSettingsService extends ChangeNotifier {
   double? _manualLat;
   double? _manualLon;
   LocationSource _locationSource;
+  bool _isLicensed;
+  String _passcode;
 
   String get callsign => _callsign;
   int get ssid => _ssid;
   String get symbolTable => _symbolTable;
   String get symbolCode => _symbolCode;
   String get comment => _comment;
+  bool get isLicensed => _isLicensed;
+
+  // plaintext stopgap; v0.13 migrates to secure storage
+  String get passcode => _passcode;
 
   /// Whether to obtain position from live GPS or from [manualLat]/[manualLon].
   LocationSource get locationSource => _locationSource;
@@ -94,11 +105,25 @@ class StationSettingsService extends ChangeNotifier {
   }
 
   Future<void> setComment(String value) async {
-    // Enforce APRS spec 43-character limit.
-    final v = value.length > 43 ? value.substring(0, 43) : value;
+    // Enforce 36-character limit (safe margin within APRS spec).
+    final v = value.length > 36 ? value.substring(0, 36) : value;
     if (v == _comment) return;
     _comment = v;
     await _prefs.setString(_keyComment, v);
+    notifyListeners();
+  }
+
+  Future<void> setIsLicensed(bool value) async {
+    if (value == _isLicensed) return;
+    _isLicensed = value;
+    await _prefs.setBool(_keyIsLicensed, value);
+    notifyListeners();
+  }
+
+  Future<void> setPasscode(String value) async {
+    if (value == _passcode) return;
+    _passcode = value;
+    await _prefs.setString(_keyPasscode, value);
     notifyListeners();
   }
 
