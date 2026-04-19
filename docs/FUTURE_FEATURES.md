@@ -4,6 +4,16 @@ Features tracked here are planned but not yet committed to a milestone. They gra
 
 ---
 
+## Onboarding / Licensing
+
+### "I Got My License" Transition Flow
+Allow a user who completed onboarding as unlicensed to upgrade to licensed mode from Settings — sets `StationSettingsService.isLicensed = true`, re-enables TX, re-configures APRS-IS credentials with real callsign/passcode. Currently requires re-running onboarding or manual `isLicensed` toggle in a debug menu. See ADR-044.
+
+### Address / Geocoder Search in Location Step
+Add address search to the onboarding Location step (and Settings location picker) using a geocoding API (e.g., Nominatim, which is already used for station search in `StationSearchDelegate`). Deferred from v0.12 because no geocoder is integrated for position entry yet — only station callsign search.
+
+---
+
 ## High Priority (v1.1 candidates)
 
 ### TCP KISS TNC
@@ -80,4 +90,4 @@ Show nearby Winlink RMS gateways on the map as a convenience layer for hybrid op
 
 ---
 
-*Last updated: 2026-04-11*
+*Last updated: 2026-04-19*

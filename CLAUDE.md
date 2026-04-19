@@ -58,13 +58,13 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.9~~ | ~~iOS Background Beaconing (background location + Live Activity)~~ ✓ |
 | ~~v0.10~~ | ~~Map experience — viewport-adaptive APRS-IS filter, time filter, track history, cluster markers, station type filters, object/item display~~ ✓ |
 | ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
-| **v0.12** | Onboarding improvements |
+| ~~v0.12~~ | ~~Onboarding improvements~~ ✓ |
 | **v0.13** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
 | **v0.14** | Battery & performance optimization pass |
 | **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.11 complete (notifications milestone). v0.12 next — Onboarding improvements. v0.11 added: `NotificationService` (main-isolate dispatch, `flutter_local_notifications` on mobile/macOS, `local_notifier` on Windows/Linux); four notification channels (`messages`, `alerts`, `nearby`, `system`); Android `MessagingStyle` + `RemoteInput` inline reply via native `BroadcastReceiver` + `FlutterEngineCache`; iOS `UNTextInputAction` inline reply + foreground delivery; `InAppBannerOverlay` at app root; `NotificationPreferences` model + settings UI; cold-start navigation via global `navigatorKey`; APRS-IS connection opt-in (no auto-connect on launch). ADRs 001–038 in `docs/DECISIONS.md`.**
+**Current status: v0.12 complete (onboarding improvements milestone). v0.13 next — Security & connectivity. v0.12 added: 7-step onboarding flow (Welcome, License, Callsign, Location, Station Identity, Connection, Beaconing); `isLicensed` + `passcode` added to `StationSettingsService`; `SymbolPickerDialog` extracted to `lib/ui/widgets/`; unlicensed mode enforcement in `TxService` (hard-reject) and `AprsIsConnection` (N0CALL/-1); messaging compose/reply disabled when unlicensed; existing-user migration guard; comment cap updated to 36 chars. ADRs 001–045 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
