@@ -191,7 +191,8 @@ class _CallsignPageState extends State<CallsignPage> {
               ),
               const SizedBox(height: 4),
               Text(
-                'Leave blank if you don\'t use APRS-IS, or if receive-only.',
+                "Required for transmitting via APRS-IS. Leave blank if you "
+                "don't plan to use APRS-IS.",
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),

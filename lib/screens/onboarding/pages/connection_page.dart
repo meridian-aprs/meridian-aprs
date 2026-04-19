@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -61,12 +62,27 @@ class _ConnectionPageState extends State<ConnectionPage> {
 
     try {
       await aprsIsConn.connect();
-      // Fire-and-forget: connection result is optimistic. The status pill on
-      // the map will reflect the actual state. This keeps the onboarding flow
-      // non-blocking.
-      if (mounted) {
+
+      // connect() returns once the TCP socket is up. The APRS-IS login is then
+      // validated by the server — if the passcode is wrong or the server is
+      // otherwise unhappy, it closes the socket within ~1s. Watch the status
+      // stream briefly to catch that case.
+      final stabilized = await _waitForStableStatus(
+        aprsIsConn,
+        const Duration(seconds: 2),
+      );
+
+      if (!mounted) return;
+      if (stabilized) {
         widget.onConnectionResult(true);
         widget.onNext();
+      } else {
+        setState(() {
+          _connecting = false;
+          _error =
+              'Connection was closed by APRS-IS. Check your callsign + '
+              'passcode and try again, or continue and connect later.';
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -77,6 +93,32 @@ class _ConnectionPageState extends State<ConnectionPage> {
               'again, or continue to the map and connect later.';
         });
       }
+    }
+  }
+
+  /// Waits up to [window] for [conn]'s status to remain [ConnectionStatus.connected].
+  /// Returns false if it drops to disconnected (server-side login rejection).
+  Future<bool> _waitForStableStatus(
+    MeridianConnection conn,
+    Duration window,
+  ) async {
+    if (conn.status != ConnectionStatus.connected) return false;
+    final completer = Completer<bool>();
+    late StreamSubscription<ConnectionStatus> sub;
+    sub = conn.connectionState.listen((status) {
+      if (status == ConnectionStatus.disconnected && !completer.isCompleted) {
+        completer.complete(false);
+      }
+    });
+    Timer(window, () {
+      if (!completer.isCompleted) {
+        completer.complete(conn.status == ConnectionStatus.connected);
+      }
+    });
+    try {
+      return await completer.future;
+    } finally {
+      await sub.cancel();
     }
   }
 
@@ -102,9 +144,17 @@ class _ConnectionPageState extends State<ConnectionPage> {
           showBackButton: true,
         ),
       ),
-    ).then((_) {
-      // Advance only once, after the sheet has fully closed.
-      if (mounted && bleConn.isConnected) {
+    ).then((_) async {
+      if (!mounted) return;
+      // BLE status can flicker briefly as the session stabilises — give it a
+      // short window before reading final state so a transient "connecting"
+      // doesn't mislead us into advancing as "not configured".
+      final stable = await _waitForStableStatus(
+        bleConn,
+        const Duration(milliseconds: 600),
+      );
+      if (!mounted) return;
+      if (stable) {
         widget.onConnectionResult(true);
         widget.onNext();
       }
@@ -173,13 +223,27 @@ class _ConnectionPageState extends State<ConnectionPage> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: _skipToLater,
-                      style: TextButton.styleFrom(
-                        padding: EdgeInsets.zero,
-                        foregroundColor: colorScheme.onErrorContainer,
-                      ),
-                      child: const Text('Continue anyway'),
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          onPressed: _connectAprsIs,
+                          icon: const Icon(Icons.refresh, size: 18),
+                          label: const Text('Retry'),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            foregroundColor: colorScheme.onErrorContainer,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        TextButton(
+                          onPressed: _skipToLater,
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            foregroundColor: colorScheme.onErrorContainer,
+                          ),
+                          child: const Text('Continue anyway'),
+                        ),
+                      ],
                     ),
                   ],
                 ),

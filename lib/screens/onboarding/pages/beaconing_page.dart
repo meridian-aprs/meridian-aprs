@@ -189,7 +189,7 @@ class _BeaconingPageState extends State<BeaconingPage> {
                           strokeWidth: 2,
                         ),
                       )
-                    : Text(_beaconingEnabled ? 'Start Listening' : 'Go to Map'),
+                    : Text(_beaconingEnabled ? 'Start Beaconing' : 'Go to Map'),
               ),
             ),
           ],

@@ -226,7 +226,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         leading: showBackButton
             ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: _back)
             : null,
-        title: isWelcome ? null : const Text('Set up Meridian'),
+        title: isWelcome
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Set up Meridian'),
+                  Text(
+                    'Step ${safeStep + 1} of ${steps.length}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
       ),
       body: AnimatedSwitcher(
         duration: const Duration(milliseconds: 300),
