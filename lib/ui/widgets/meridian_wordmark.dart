@@ -4,7 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 /// Meridian APRS wordmark lockup (icon + text, locked proportions).
 ///
 /// Primary variants ([horizontal], [stacked]) adapt automatically to the
-/// ambient theme brightness — primary colors on light, white-mono on dark.
+/// ambient theme brightness — primary colors on light, plain white on dark.
+/// A white ColorFilter is applied in dark mode rather than swapping to the
+/// mono-white SVG asset, which carries a background rectangle.
 /// Explicit mono variants are fixed regardless of brightness.
 ///
 /// Supply [height] or [width]; the SVG scales proportionally.
@@ -35,7 +37,7 @@ class MeridianWordmark extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return SvgPicture.asset(
-      _style.asset(isDark),
+      _style.asset,
       height: height,
       width: width,
       semanticsLabel: 'Meridian APRS',
@@ -51,12 +53,9 @@ enum _WordmarkStyle {
   horizontalMonoWhite,
   stackedMono;
 
-  String asset(bool isDark) => switch (this) {
+  String get asset => switch (this) {
     _WordmarkStyle.horizontal =>
-      isDark
-          ? 'assets/wordmarks/wordmark-horizontal-mono-white.svg'
-          : 'assets/wordmarks/wordmark-horizontal-primary.svg',
-    // No white-stacked SVG asset — use primary + white ColorFilter in dark mode.
+      'assets/wordmarks/wordmark-horizontal-primary.svg',
     _WordmarkStyle.stacked => 'assets/wordmarks/wordmark-stacked-primary.svg',
     _WordmarkStyle.horizontalMono =>
       'assets/wordmarks/wordmark-horizontal-mono-black.svg',
@@ -67,7 +66,7 @@ enum _WordmarkStyle {
   };
 
   ColorFilter? colorFilter(bool isDark) => switch (this) {
-    _WordmarkStyle.stacked =>
+    _WordmarkStyle.horizontal || _WordmarkStyle.stacked =>
       isDark ? const ColorFilter.mode(Colors.white, BlendMode.srcIn) : null,
     _ => null,
   };
