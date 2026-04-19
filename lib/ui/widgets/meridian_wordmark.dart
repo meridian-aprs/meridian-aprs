@@ -37,10 +37,29 @@ class MeridianWordmark extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final asset = _style.assetFor(isDark);
+
+    // flutter_svg uses the SVG's natural pixel dimensions as the canvas when
+    // only one dimension is supplied. For a 788×258 SVG that means an 788 px
+    // wide canvas even at height 28 — causing overflow in toolbars and rails.
+    // Derive the missing dimension from the known aspect ratio so the canvas
+    // matches the intended rendered size.
+    final double? resolvedWidth;
+    final double? resolvedHeight;
+    if (height != null && width == null) {
+      resolvedHeight = height;
+      resolvedWidth = height! * _style.aspectRatio;
+    } else if (width != null && height == null) {
+      resolvedWidth = width;
+      resolvedHeight = width! / _style.aspectRatio;
+    } else {
+      resolvedWidth = width;
+      resolvedHeight = height;
+    }
+
     return SvgPicture.asset(
       asset,
-      height: height,
-      width: width,
+      height: resolvedHeight,
+      width: resolvedWidth,
       semanticsLabel: 'Meridian APRS',
     );
   }
@@ -58,6 +77,14 @@ enum _WordmarkStyle {
     if (isDark && dark != null) return dark;
     return _lightAsset;
   }
+
+  // width / height from each SVG's viewBox.
+  double get aspectRatio => switch (this) {
+    _WordmarkStyle.horizontal ||
+    _WordmarkStyle.horizontalMono ||
+    _WordmarkStyle.horizontalMonoWhite => 870 / 258,
+    _WordmarkStyle.stacked || _WordmarkStyle.stackedMono => 700 / 524,
+  };
 
   String get _lightAsset => switch (this) {
     _WordmarkStyle.horizontal =>

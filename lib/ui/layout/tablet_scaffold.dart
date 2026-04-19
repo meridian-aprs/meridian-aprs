@@ -19,6 +19,7 @@ import '../../services/station_service.dart';
 import '../../services/station_settings_service.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
+import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
@@ -84,6 +85,15 @@ class _TabletScaffoldState extends State<TabletScaffold> {
   void _navigateToConnection() {
     setState(() => _selectedIndex = 4);
   }
+
+  static String _aggregateLabel(ConnectionStatus s) => switch (s) {
+    ConnectionStatus.connected => 'Connected',
+    ConnectionStatus.connecting ||
+    ConnectionStatus.reconnecting ||
+    ConnectionStatus.waitingForDevice => 'Connecting\u2026',
+    ConnectionStatus.error => 'Error',
+    ConnectionStatus.disconnected => 'Not Connected',
+  };
 
   Future<void> _centerOnLocation() async {
     if (_locating) return;
@@ -182,14 +192,13 @@ class _TabletScaffoldState extends State<TabletScaffold> {
     final registry = context.watch<ConnectionRegistry>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Meridian'),
+        titleSpacing: 4,
+        title: const MeridianWordmark.horizontal(height: 28),
         actions: [
-          ...registry.available.map(
-            (conn) => MeridianStatusPill(
-              status: conn.status,
-              label: conn.displayName,
-              onTap: _navigateToConnection,
-            ),
+          MeridianStatusPill(
+            status: registry.aggregateStatus,
+            label: _aggregateLabel(registry.aggregateStatus),
+            onTap: _navigateToConnection,
           ),
           IconButton(
             icon: Icon(

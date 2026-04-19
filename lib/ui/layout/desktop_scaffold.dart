@@ -22,6 +22,7 @@ import '../../services/station_settings_service.dart';
 import '../../theme/meridian_colors.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../utils/platform_route.dart';
+import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
@@ -185,7 +186,8 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
           tooltip: _navRailExpanded ? 'Collapse sidebar' : 'Expand sidebar',
           onPressed: () => setState(() => _navRailExpanded = !_navRailExpanded),
         ),
-        title: const Text('Meridian'),
+        titleSpacing: 4,
+        title: const MeridianWordmark.horizontal(height: 28),
         actions: [
           _ConnectionStatusChip(onTap: _navigateToConnection),
           IconButton(
@@ -377,8 +379,7 @@ class _ConnectionStatusChip extends StatelessWidget {
         final Color color;
         switch (status) {
           case ConnectionStatus.connected:
-            final connected = context.read<ConnectionRegistry>().connected;
-            label = connected.map((c) => c.displayName).join(' + ');
+            label = 'Connected';
             color = MeridianColors.signal;
           case ConnectionStatus.reconnecting:
             label = 'Reconnecting\u2026';

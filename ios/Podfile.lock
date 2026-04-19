@@ -7,6 +7,10 @@ PODS:
     - FlutterMacOS
   - flutter_foreground_task (0.0.1):
     - Flutter
+  - flutter_local_notifications (0.0.1):
+    - Flutter
+  - flutter_native_splash (2.4.3):
+    - Flutter
   - geolocator_apple (1.2.0):
     - Flutter
     - FlutterMacOS
@@ -25,6 +29,8 @@ DEPENDENCIES:
   - flutter_app_group_directory (from `.symlinks/plugins/flutter_app_group_directory/ios`)
   - flutter_blue_plus_darwin (from `.symlinks/plugins/flutter_blue_plus_darwin/darwin`)
   - flutter_foreground_task (from `.symlinks/plugins/flutter_foreground_task/ios`)
+  - flutter_local_notifications (from `.symlinks/plugins/flutter_local_notifications/ios`)
+  - flutter_native_splash (from `.symlinks/plugins/flutter_native_splash/ios`)
   - geolocator_apple (from `.symlinks/plugins/geolocator_apple/darwin`)
   - live_activities (from `.symlinks/plugins/live_activities/ios`)
   - permission_handler_apple (from `.symlinks/plugins/permission_handler_apple/ios`)
@@ -40,6 +46,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/flutter_blue_plus_darwin/darwin"
   flutter_foreground_task:
     :path: ".symlinks/plugins/flutter_foreground_task/ios"
+  flutter_local_notifications:
+    :path: ".symlinks/plugins/flutter_local_notifications/ios"
+  flutter_native_splash:
+    :path: ".symlinks/plugins/flutter_native_splash/ios"
   geolocator_apple:
     :path: ".symlinks/plugins/geolocator_apple/darwin"
   live_activities:
@@ -56,6 +66,8 @@ SPEC CHECKSUMS:
   flutter_app_group_directory: 55b5362007d1c0cb45dc1dd1e94f67d615f45a6b
   flutter_blue_plus_darwin: 20a08bfeaa0f7804d524858d3d8744bcc1b6dbc3
   flutter_foreground_task: a159d2c2173b33699ddb3e6c2a067045d7cebb89
+  flutter_local_notifications: 395056b3175ba4f08480a7c5de30cd36d69827e4
+  flutter_native_splash: c32d145d68aeda5502d5f543ee38c192065986cf
   geolocator_apple: ab36aa0e8b7d7a2d7639b3b4e48308394e8cef5e
   live_activities: 4dfa736d0736e1c77866a2f9c056a76513cc9e7b
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
