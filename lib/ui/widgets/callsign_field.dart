@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 
+/// Shared validation regex for an amateur callsign with an optional SSID.
+///
+/// Matches 1–2 prefix letters, one digit, 1–3 suffix letters, and an optional
+/// `-0` to `-15` SSID suffix. Exposed here so other screens (e.g. the
+/// onboarding callsign page) can validate without duplicating the pattern.
+final RegExp kAmateurCallsignRegex = RegExp(
+  r'^[A-Za-z]{1,2}[0-9][A-Za-z]{1,3}(-[0-9]{1,2})?$',
+);
+
 /// A validated text form field for amateur radio callsign entry.
 ///
-/// Validates against the standard amateur callsign regex:
-/// 1–2 prefix letters, one digit, 1–3 suffix letters, optional SSID (-0 to -15).
+/// Validates against [kAmateurCallsignRegex].
 ///
 /// Validation fires on user interaction via
 /// [AutovalidateMode.onUserInteraction] — no submit required to see errors.
@@ -21,16 +29,11 @@ class CallsignField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final String label;
 
-  // SSID is optional (-0 to -15).
-  static final _callsignRegex = RegExp(
-    r'^[A-Za-z]{1,2}[0-9][A-Za-z]{1,3}(-[0-9]{1,2})?$',
-  );
-
   String? _validate(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'Callsign is required';
     }
-    if (!_callsignRegex.hasMatch(value.trim())) {
+    if (!kAmateurCallsignRegex.hasMatch(value.trim())) {
       return 'Invalid callsign format';
     }
     return null;

@@ -118,6 +118,32 @@ class _MapScreenState extends State<MapScreen> {
         _rebuildMarkers,
       );
     });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowSkipNudge());
+  }
+
+  Future<void> _maybeShowSkipNudge() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!(prefs.getBool('onboarding_skipped') ?? false)) return;
+    await prefs.remove('onboarding_skipped');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          'Setup skipped. Finish configuring Meridian in Settings.',
+        ),
+        action: SnackBarAction(
+          label: 'Settings',
+          onPressed: () {
+            Navigator.push(
+              context,
+              buildPlatformRoute((_) => const SettingsScreen()),
+            );
+          },
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   @override

@@ -30,11 +30,6 @@ class _CallsignPageState extends State<CallsignPage> {
   int _ssid = 0;
   bool _callsignValid = false;
 
-  // Regex mirrors CallsignField validation.
-  static final _callsignRegex = RegExp(
-    r'^[A-Za-z]{1,2}[0-9][A-Za-z]{1,3}(-[0-9]{1,2})?$',
-  );
-
   @override
   void initState() {
     super.initState();
@@ -42,12 +37,14 @@ class _CallsignPageState extends State<CallsignPage> {
     _callsignController.text = settings.callsign;
     _passcodeController.text = settings.passcode;
     _ssid = settings.ssid;
-    _callsignValid = _callsignRegex.hasMatch(settings.callsign.trim());
+    _callsignValid = kAmateurCallsignRegex.hasMatch(settings.callsign.trim());
     _callsignController.addListener(_onCallsignChanged);
   }
 
   void _onCallsignChanged() {
-    final valid = _callsignRegex.hasMatch(_callsignController.text.trim());
+    final valid = kAmateurCallsignRegex.hasMatch(
+      _callsignController.text.trim(),
+    );
     if (valid != _callsignValid) {
       setState(() => _callsignValid = valid);
     } else {
@@ -65,17 +62,42 @@ class _CallsignPageState extends State<CallsignPage> {
   }
 
   String _ssidLabel(int ssid) {
+    // Common APRS SSID conventions (N5UWY / WB4APR usage guidelines).
     switch (ssid) {
       case 0:
-        return '0 — Primary station';
+        return '0 — Primary / home';
+      case 1:
+        return '1 — Additional home station';
+      case 2:
+        return '2 — Additional home station';
+      case 3:
+        return '3 — Additional home station';
+      case 4:
+        return '4 — Additional home station';
+      case 5:
+        return '5 — Other networks (D-STAR, etc.)';
+      case 6:
+        return '6 — Special / events';
       case 7:
         return '7 — Handheld';
+      case 8:
+        return '8 — Boat / maritime mobile';
       case 9:
-        return '9 — Mobile';
+        return '9 — Mobile (vehicle)';
+      case 10:
+        return '10 — Internet / IGate';
+      case 11:
+        return '11 — Balloons / aircraft';
       case 12:
-        return '12 — Portable';
+        return '12 — Portable / tracker';
+      case 13:
+        return '13 — Weather station';
+      case 14:
+        return '14 — Trucker';
+      case 15:
+        return '15 — Digipeater';
       default:
-        return '$ssid — (generic)';
+        return '$ssid';
     }
   }
 

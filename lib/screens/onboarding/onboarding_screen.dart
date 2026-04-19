@@ -108,14 +108,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   bool get _isLicensed => context.read<StationSettingsService>().isLicensed;
 
-  Future<void> _finish() async {
+  Future<void> _finish({bool skipped = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(OnboardingScreen._prefKey, true);
+    if (skipped) {
+      await prefs.setBool('onboarding_skipped', true);
+    }
     if (!mounted) return;
     _navigateToMap();
   }
 
-  Future<void> _skip() => _finish();
+  Future<void> _skip() => _finish(skipped: true);
 
   Future<void> _navigateToMap() async {
     if (!mounted) return;
