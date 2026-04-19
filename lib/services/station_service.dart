@@ -84,7 +84,7 @@ class StationService extends ChangeNotifier {
   Set<StationType> _hiddenTypes = {};
 
   // Whether to render movement trail polylines on the map.
-  bool _showTracks = false;
+  bool _showTracks = true;
 
   // Whether to display distances in imperial units (miles/feet) instead of
   // metric (km/m).
@@ -288,7 +288,7 @@ class StationService extends ChangeNotifier {
         .map((n) => StationType.values.where((t) => t.name == n).firstOrNull)
         .whereType<StationType>()
         .toSet();
-    _showTracks = prefs.getBool(_keyShowTracks) ?? false;
+    _showTracks = prefs.getBool(_keyShowTracks) ?? true;
     _useImperialUnits = prefs.getBool(_keyUseImperialUnits) ?? false;
     _showWeatherOverlay = prefs.getBool(_keyShowWeatherOverlay) ?? false;
     _weatherOverlayRadiusKm = prefs.getInt(_keyWeatherRadiusKm) ?? 50;
