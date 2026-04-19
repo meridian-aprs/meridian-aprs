@@ -4,9 +4,9 @@ import 'package:flutter_svg/flutter_svg.dart';
 /// Meridian APRS wordmark lockup (icon + text, locked proportions).
 ///
 /// Primary variants ([horizontal], [stacked]) adapt automatically to the
-/// ambient theme brightness — primary colors on light, plain white on dark.
-/// A white ColorFilter is applied in dark mode rather than swapping to the
-/// mono-white SVG asset, which carries a background rectangle.
+/// ambient theme brightness — dark-mode SVG variants swap in when
+/// `Theme.of(context).brightness == Brightness.dark`. The dark SVGs use
+/// brand tone 80 (#C8B0E8) on transparent backgrounds, following M3 convention.
 /// Explicit mono variants are fixed regardless of brightness.
 ///
 /// Supply [height] or [width]; the SVG scales proportionally.
@@ -36,12 +36,12 @@ class MeridianWordmark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final asset = _style.assetFor(isDark);
     return SvgPicture.asset(
-      _style.asset,
+      asset,
       height: height,
       width: width,
       semanticsLabel: 'Meridian APRS',
-      colorFilter: _style.colorFilter(isDark),
     );
   }
 }
@@ -53,7 +53,13 @@ enum _WordmarkStyle {
   horizontalMonoWhite,
   stackedMono;
 
-  String get asset => switch (this) {
+  String assetFor(bool isDark) {
+    final dark = _darkAsset;
+    if (isDark && dark != null) return dark;
+    return _lightAsset;
+  }
+
+  String get _lightAsset => switch (this) {
     _WordmarkStyle.horizontal =>
       'assets/wordmarks/wordmark-horizontal-primary.svg',
     _WordmarkStyle.stacked => 'assets/wordmarks/wordmark-stacked-primary.svg',
@@ -65,9 +71,11 @@ enum _WordmarkStyle {
       'assets/wordmarks/wordmark-stacked-mono-black.svg',
   };
 
-  ColorFilter? colorFilter(bool isDark) => switch (this) {
-    _WordmarkStyle.horizontal || _WordmarkStyle.stacked =>
-      isDark ? const ColorFilter.mode(Colors.white, BlendMode.srcIn) : null,
+  String? get _darkAsset => switch (this) {
+    _WordmarkStyle.horizontal =>
+      'assets/wordmarks/wordmark-horizontal-primary-dark.svg',
+    _WordmarkStyle.stacked =>
+      'assets/wordmarks/wordmark-stacked-primary-dark.svg',
     _ => null,
   };
 }

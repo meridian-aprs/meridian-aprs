@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!--
+    Meridian APRS - Dark-mode app icon mark
+    Concept: Same pin silhouette with negative-space M. In dark mode the fill
+    uses brand tone 80 (#C8B0E8) — a lighter, airier purple that maintains
+    brand identity while providing strong contrast against dark surfaces.
+    M cutout is transparent so the background shows through.
+
+    Color: brand080 #C8B0E8  (contrast vs neutral010 dark bg ≈ 5.7, passes WCAG AA)
+    Usage: app bars on dark themes, dark splash screens, dark-mode UI
+    Pair with: meridian-icon-master.svg (light mode, #4D1D8C on light backgrounds)
+
+    Follows Material 3 convention: Primary role shifts from tone 40 (light) to
+    tone 80 (dark) to maintain legibility without losing the brand hue.
+  -->
+  <title>Meridian APRS (dark mode)</title>
+  <path fill="#C8B0E8" fill-rule="evenodd" d="
+    M 256 420
+    C 226 288.9 148 235.9 150 220
+    A 106 106 0 0 1 362 220
+    C 364 235.9 286 288.9 256 420
+    Z
+
+    M 204 158
+    L 228 158
+    L 256 216
+    L 284 158
+    L 308 158
+    Q 314 158 314 164
+    L 314 280
+    Q 314 286 308 286
+    L 288 286
+    Q 282 286 282 280
+    L 282 210
+    L 256 262
+    L 230 210
+    L 230 280
+    Q 230 286 224 286
+    L 204 286
+    Q 198 286 198 280
+    L 198 164
+    Q 198 158 204 158
+    Z
+  "/>
+</svg>
