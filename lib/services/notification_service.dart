@@ -82,6 +82,8 @@ class NotificationService extends ChangeNotifier {
       ? _androidEnabled
       : true;
 
+  bool get optedIn => _notifPrefs.optedIn;
+
   // ---------------------------------------------------------------------------
   // Initialization
   // ---------------------------------------------------------------------------
@@ -91,6 +93,19 @@ class NotificationService extends ChangeNotifier {
     _initialized = true;
 
     _notifPrefs = await NotificationPreferences.load(_prefs);
+
+    // Migration: pre-v0.12 users had no opt-in concept — if the key is absent
+    // and the OS permission was already granted, preserve their existing
+    // behaviour by treating them as opted in.
+    if (!_prefs.containsKey('notif_opted_in') &&
+        !kIsWeb &&
+        Platform.isAndroid) {
+      final status = await Permission.notification.status;
+      if (status.isGranted) {
+        _notifPrefs = _notifPrefs.copyWithOptedIn(true);
+        await _notifPrefs.save(_prefs);
+      }
+    }
 
     if (!kIsWeb) {
       if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
@@ -306,6 +321,7 @@ class NotificationService extends ChangeNotifier {
     if (Platform.isAndroid) {
       final status = await Permission.notification.request();
       _androidEnabled = status.isGranted;
+      if (status.isGranted) await setOptedIn(true);
       notifyListeners();
       return status.isGranted;
     }
@@ -315,6 +331,7 @@ class NotificationService extends ChangeNotifier {
             IOSFlutterLocalNotificationsPlugin
           >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+      if (granted == true) await setOptedIn(true);
       return granted ?? false;
     }
     if (Platform.isMacOS) {
@@ -323,14 +340,23 @@ class NotificationService extends ChangeNotifier {
             MacOSFlutterLocalNotificationsPlugin
           >()
           ?.requestPermissions(alert: true, badge: true, sound: true);
+      if (granted == true) await setOptedIn(true);
       return granted ?? false;
     }
+    // Linux/Windows — no runtime permission required; treat as opted in.
+    await setOptedIn(true);
     return true;
   }
 
   // ---------------------------------------------------------------------------
   // Preferences
   // ---------------------------------------------------------------------------
+
+  Future<void> setOptedIn(bool value) async {
+    _notifPrefs = _notifPrefs.copyWithOptedIn(value);
+    await _notifPrefs.save(_prefs);
+    notifyListeners();
+  }
 
   Future<void> setChannelEnabled(String channelId, bool enabled) async {
     _notifPrefs = _notifPrefs.copyWithChannel(channelId, enabled);
@@ -374,6 +400,7 @@ class NotificationService extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> _dispatchMessage(String callsign, String text) async {
+    if (!_notifPrefs.optedIn) return;
     if (!_notifPrefs.isChannelEnabled(NotificationChannels.messages)) return;
 
     // In-app banner (fires regardless of foreground/background state,

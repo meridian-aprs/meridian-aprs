@@ -1538,39 +1538,57 @@ class _NotificationsSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _SectionHeader('Notifications'),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.messages,
-          label: 'Messages',
-          description: 'Notify when a message addressed to you arrives.',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
+        SwitchListTile.adaptive(
+          title: const Text('Notifications enabled'),
+          subtitle: Text(
+            prefs.optedIn
+                ? 'Meridian will send notifications for new messages and alerts.'
+                : 'Notifications are disabled. Enable to receive alerts.',
+          ),
+          value: prefs.optedIn,
+          onChanged: (v) async {
+            if (v) {
+              await notif.requestNotificationPermissions();
+            } else {
+              await notif.setOptedIn(false);
+            }
+          },
         ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.alerts,
-          label: 'Alerts',
-          description: 'WX and NWS alerts (reserved for a future feature).',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.nearby,
-          label: 'Nearby',
-          description:
-              'Activity from stations in your area (reserved for a future feature).',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
-        _NotificationChannelTile(
-          channelId: NotificationChannels.system,
-          label: 'System',
-          description: 'Connection and TNC status updates.',
-          prefs: prefs,
-          notif: notif,
-          isMobile: isMobile,
-        ),
+        if (prefs.optedIn) ...[
+          _NotificationChannelTile(
+            channelId: NotificationChannels.messages,
+            label: 'Messages',
+            description: 'Notify when a message addressed to you arrives.',
+            prefs: prefs,
+            notif: notif,
+            isMobile: isMobile,
+          ),
+          _NotificationChannelTile(
+            channelId: NotificationChannels.alerts,
+            label: 'Alerts',
+            description: 'WX and NWS alerts (reserved for a future feature).',
+            prefs: prefs,
+            notif: notif,
+            isMobile: isMobile,
+          ),
+          _NotificationChannelTile(
+            channelId: NotificationChannels.nearby,
+            label: 'Nearby',
+            description:
+                'Activity from stations in your area (reserved for a future feature).',
+            prefs: prefs,
+            notif: notif,
+            isMobile: isMobile,
+          ),
+          _NotificationChannelTile(
+            channelId: NotificationChannels.system,
+            label: 'System',
+            description: 'Connection and TNC status updates.',
+            prefs: prefs,
+            notif: notif,
+            isMobile: isMobile,
+          ),
+        ], // end if (prefs.optedIn)
       ],
     );
   }

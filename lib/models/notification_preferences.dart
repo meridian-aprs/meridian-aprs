@@ -13,10 +13,17 @@ abstract final class NotificationChannels {
 /// Per-channel notification preferences persisted to SharedPreferences.
 class NotificationPreferences {
   const NotificationPreferences({
+    required this.optedIn,
     required this.channelEnabled,
     required this.soundEnabled,
     required this.vibrationEnabled,
   });
+
+  /// Global opt-in flag — false means no notifications are dispatched even if
+  /// OS permission is granted. Set to true by onboarding "Enable" or Settings
+  /// toggle. Defaults to true for pre-v0.12 installs (migration in
+  /// NotificationService.initialize).
+  final bool optedIn;
 
   final Map<String, bool> channelEnabled;
   final Map<String, bool> soundEnabled;
@@ -37,11 +44,13 @@ class NotificationPreferences {
     NotificationChannels.system: false,
   };
 
-  static NotificationPreferences defaults() => NotificationPreferences(
-    channelEnabled: {for (final c in NotificationChannels.all) c: true},
-    soundEnabled: Map.of(_defaultSound),
-    vibrationEnabled: Map.of(_defaultVibration),
-  );
+  static NotificationPreferences defaults({bool optedIn = false}) =>
+      NotificationPreferences(
+        optedIn: optedIn,
+        channelEnabled: {for (final c in NotificationChannels.all) c: true},
+        soundEnabled: Map.of(_defaultSound),
+        vibrationEnabled: Map.of(_defaultVibration),
+      );
 
   bool isChannelEnabled(String id) => channelEnabled[id] ?? true;
 
@@ -52,6 +61,9 @@ class NotificationPreferences {
       vibrationEnabled[id] ?? (_defaultVibration[id] ?? false);
 
   static Future<NotificationPreferences> load(SharedPreferences prefs) async {
+    // null means key absent (first run or pre-v0.12 upgrade); migration in
+    // NotificationService.initialize() sets true for existing opted-in users.
+    final optedIn = prefs.getBool('notif_opted_in') ?? false;
     final channelEnabled = <String, bool>{};
     final soundEnabled = <String, bool>{};
     final vibrationEnabled = <String, bool>{};
@@ -64,6 +76,7 @@ class NotificationPreferences {
           (_defaultVibration[ch] ?? false);
     }
     return NotificationPreferences(
+      optedIn: optedIn,
       channelEnabled: channelEnabled,
       soundEnabled: soundEnabled,
       vibrationEnabled: vibrationEnabled,
@@ -71,6 +84,7 @@ class NotificationPreferences {
   }
 
   Future<void> save(SharedPreferences prefs) async {
+    await prefs.setBool('notif_opted_in', optedIn);
     for (final e in channelEnabled.entries) {
       await prefs.setBool('notif_channel_${e.key}', e.value);
     }
@@ -82,8 +96,17 @@ class NotificationPreferences {
     }
   }
 
+  NotificationPreferences copyWithOptedIn(bool value) =>
+      NotificationPreferences(
+        optedIn: value,
+        channelEnabled: Map.of(channelEnabled),
+        soundEnabled: Map.of(soundEnabled),
+        vibrationEnabled: Map.of(vibrationEnabled),
+      );
+
   NotificationPreferences copyWithChannel(String id, bool enabled) =>
       NotificationPreferences(
+        optedIn: optedIn,
         channelEnabled: Map.of(channelEnabled)..[id] = enabled,
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
@@ -91,6 +114,7 @@ class NotificationPreferences {
 
   NotificationPreferences copyWithSound(String id, bool enabled) =>
       NotificationPreferences(
+        optedIn: optedIn,
         channelEnabled: Map.of(channelEnabled),
         soundEnabled: Map.of(soundEnabled)..[id] = enabled,
         vibrationEnabled: Map.of(vibrationEnabled),
@@ -98,6 +122,7 @@ class NotificationPreferences {
 
   NotificationPreferences copyWithVibration(String id, bool enabled) =>
       NotificationPreferences(
+        optedIn: optedIn,
         channelEnabled: Map.of(channelEnabled),
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled)..[id] = enabled,

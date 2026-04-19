@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show MissingPluginException;
+import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import '../../../screens/location_picker_screen.dart';
@@ -141,6 +143,55 @@ class _LocationPageState extends State<LocationPage> {
     );
   }
 
+  Widget _buildMapPreview(ThemeData theme, ColorScheme colorScheme) {
+    final isDark = theme.brightness == Brightness.dark;
+    final tileUrl = isDark
+        ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+        : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    final pin = LatLng(_resolvedLat!, _resolvedLon!);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        height: 200,
+        child: FlutterMap(
+          options: MapOptions(
+            initialCenter: pin,
+            initialZoom: 13,
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.none,
+            ),
+          ),
+          children: [
+            TileLayer(
+              urlTemplate: tileUrl,
+              userAgentPackageName: 'com.meridianaprs.app',
+              subdomains: isDark ? const ['a', 'b', 'c', 'd'] : const [],
+            ),
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: pin,
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.topCenter,
+                  child: Icon(
+                    Symbols.location_on,
+                    size: 40,
+                    color: colorScheme.error,
+                    shadows: const [
+                      Shadow(blurRadius: 4, color: Colors.black38),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody(ThemeData theme, ColorScheme colorScheme) {
     switch (_state) {
       case _LocationState.initial:
@@ -182,29 +233,28 @@ class _LocationPageState extends State<LocationPage> {
         return const Center(child: CircularProgressIndicator.adaptive());
 
       case _LocationState.resolved:
-        final lat = _resolvedLat?.toStringAsFixed(5) ?? '';
-        final lon = _resolvedLon?.toStringAsFixed(5) ?? '';
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            _buildMapPreview(theme, colorScheme),
+            const SizedBox(height: 12),
             Row(
               children: [
-                Icon(Icons.my_location, color: colorScheme.primary),
-                const SizedBox(width: 12),
-                Text(
-                  '$lat, $lon',
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    fontFamily: 'monospace',
-                    color: colorScheme.onSurface,
+                Icon(
+                  Icons.check_circle_outline,
+                  color: colorScheme.primary,
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Location set. You can change this later in Settings.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Location set. You can change this later in Settings.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
             ),
           ],
         );

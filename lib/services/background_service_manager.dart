@@ -429,7 +429,10 @@ class BackgroundServiceManager extends ChangeNotifier
       }
     }
 
-    await Permission.notification.request();
+    // Foreground service requires notification permission on Android 13+.
+    // Onboarding / Settings handles requesting it — don't auto-request here.
+    final notifStatus = await Permission.notification.status;
+    if (!notifStatus.isGranted) return;
 
     final result = await _taskApi.startService(
       serviceId: 1701,

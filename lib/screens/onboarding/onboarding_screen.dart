@@ -120,7 +120,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     if (!mounted) return;
     final service = context.read<StationService>();
     final settings = context.read<StationSettingsService>();
-    final callsign = settings.callsign.isNotEmpty ? settings.callsign : 'NOCALL';
+    final callsign = settings.callsign.isNotEmpty
+        ? settings.callsign
+        : 'NOCALL';
 
     double lat;
     double lon;
@@ -225,14 +227,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           // Incoming widget: animation 0→1, slide in from the direction side.
           // Outgoing widget: animation 1→0, slide out to the opposite side.
           // We tell them apart by comparing their key to the current page key.
-          final isIncoming =
-              (child.key as ValueKey<int>?)?.value == _pageKey;
-          final sign = isIncoming ? _direction.toDouble() : -_direction.toDouble();
+          final isIncoming = (child.key as ValueKey<int>?)?.value == _pageKey;
+          final sign = isIncoming
+              ? _direction.toDouble()
+              : -_direction.toDouble();
           return SlideTransition(
-            position: Tween<Offset>(
-              begin: Offset(sign, 0),
-              end: Offset.zero,
-            ).animate(CurvedAnimation(parent: animation, curve: Curves.easeInOut)),
+            position: Tween<Offset>(begin: Offset(sign, 0), end: Offset.zero)
+                .animate(
+                  CurvedAnimation(parent: animation, curve: Curves.easeInOut),
+                ),
             child: child,
           );
         },

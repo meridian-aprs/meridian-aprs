@@ -59,7 +59,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
         .read<NotificationService>()
         .requestNotificationPermissions();
     if (mounted) {
-      setState(() => _state = granted ? _NotifState.granted : _NotifState.denied);
+      setState(
+        () => _state = granted ? _NotifState.granted : _NotifState.denied,
+      );
     }
   }
 
@@ -101,8 +103,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed:
-                      _state == _NotifState.requesting ? null : _onEnable,
+                  onPressed: _state == _NotifState.requesting
+                      ? null
+                      : _onEnable,
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
@@ -121,7 +124,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
               SizedBox(
                 width: double.infinity,
                 child: TextButton(
-                  onPressed: widget.onNext,
+                  onPressed: () {
+                    context.read<NotificationService>().setOptedIn(false);
+                    widget.onNext();
+                  },
                   child: const Text('Not now'),
                 ),
               ),
@@ -144,10 +150,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   Widget _buildChannelList(ThemeData theme, ColorScheme colorScheme) {
     const channels = [
-      (Icons.message_outlined, 'Messages', 'Direct messages from other operators'),
+      (
+        Icons.message_outlined,
+        'Messages',
+        'Direct messages from other operators',
+      ),
       (Icons.warning_amber_outlined, 'Alerts', 'APRS bulletins and NWS alerts'),
-      (Icons.radio_outlined, 'Nearby stations', 'Activity from stations around you'),
-      (Icons.settings_outlined, 'Connection status', 'Connection changes and errors'),
+      (
+        Icons.radio_outlined,
+        'Nearby stations',
+        'Activity from stations around you',
+      ),
+      (
+        Icons.settings_outlined,
+        'Connection status',
+        'Connection changes and errors',
+      ),
     ];
 
     return Column(
