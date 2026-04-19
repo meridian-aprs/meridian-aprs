@@ -69,11 +69,14 @@ flutter:
 
 flutter_native_splash:
   color: "#F4F6F8"
-  image: assets/wordmarks/wordmark-stacked-primary.png
+  color_dark: "#19181B"
+  image: assets/icons/generated/icon-1024.png
   android_12:
     image: assets/icons/generated/icon-adaptive-fg-432.png
     color: "#F4F6F8"
     icon_background_color: "#F4F6F8"
+    color_dark: "#19181B"
+    icon_background_color_dark: "#19181B"
   ios: true
   android: true
   web: false
