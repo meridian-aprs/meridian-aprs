@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="assets/wordmarks/wordmark-horizontal-primary.svg" alt="Meridian APRS" height="120">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmarks/wordmark-horizontal-primary-dark.png">
+    <img src="assets/wordmarks/wordmark-horizontal-primary.png" alt="Meridian APRS" height="120">
+  </picture>
 </p>
 
 > **APRS for the Modern Ham.**
