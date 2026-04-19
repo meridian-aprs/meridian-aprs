@@ -34,7 +34,6 @@ import 'services/tx_service.dart';
 import 'theme/android_theme.dart';
 import 'theme/desktop_theme.dart';
 import 'theme/ios_theme.dart';
-import 'theme/meridian_colors.dart';
 import 'theme/theme_controller.dart';
 
 const String _kVersion = '0.1.0';
@@ -324,7 +323,7 @@ class MeridianApp extends StatelessWidget {
 
     if (!kIsWeb &&
         (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
-      final themes = buildDesktopTheme(seedColor: MeridianColors.brandSeed);
+      final themes = buildDesktopTheme(seedColor: controller.seedColor);
       return MaterialApp(
         title: 'Meridian APRS',
         navigatorKey: navigatorKey,

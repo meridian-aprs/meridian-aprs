@@ -19,6 +19,7 @@ import '../../services/station_service.dart';
 import '../../services/station_settings_service.dart';
 import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
+import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
 import 'meridian_map.dart';
 
@@ -182,7 +183,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
     final registry = context.watch<ConnectionRegistry>();
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Meridian'),
+        titleSpacing: 4,
+        title: const MeridianWordmark.horizontal(height: 28),
         actions: [
           ...registry.available.map(
             (conn) => MeridianStatusPill(
