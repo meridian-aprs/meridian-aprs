@@ -2,7 +2,12 @@ import 'package:meridian_aprs/core/packet/device_resolver.dart';
 import 'package:test/test.dart';
 
 void main() {
-  group('DeviceResolver.resolve — tocall', () {
+  // ---------------------------------------------------------------------------
+  // Hardcoded fallback — tested before any loadFromJson call so that static
+  // state is the initial empty list (fallback table active).
+  // ---------------------------------------------------------------------------
+
+  group('DeviceResolver.resolve — tocall (hardcoded fallback)', () {
     test('APDR16 → APRSdroid', () {
       expect(DeviceResolver.resolve(tocall: 'APDR16'), equals('APRSdroid'));
     });
@@ -137,6 +142,112 @@ void main() {
 
     test('empty tocall → null', () {
       expect(DeviceResolver.resolve(tocall: ''), isNull);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // JSON-backed lookup — uses synthetic JSON and resets state after each test.
+  // ---------------------------------------------------------------------------
+
+  group('DeviceResolver.loadFromJson — wildcard matching', () {
+    const syntheticJson =
+        '{"tocalls": {"APMDN?": {"model": "Meridian APRS", '
+        '"vendor": "Eric Pasch, KM4TJO"}}}';
+
+    setUp(() {
+      DeviceResolver.loadFromJson(syntheticJson);
+    });
+
+    tearDown(() {
+      DeviceResolver.resetForTesting();
+    });
+
+    test('APMDN0 resolves via ? wildcard', () {
+      expect(DeviceResolver.resolve(tocall: 'APMDN0'), equals('Meridian APRS'));
+    });
+
+    test('APMDN1 resolves via ? wildcard', () {
+      expect(DeviceResolver.resolve(tocall: 'APMDN1'), equals('Meridian APRS'));
+    });
+
+    test('APXXX returns null (unmatched)', () {
+      expect(DeviceResolver.resolve(tocall: 'APXXX'), isNull);
+    });
+
+    test('null tocall returns null', () {
+      expect(DeviceResolver.resolve(tocall: null), isNull);
+    });
+  });
+
+  group('DeviceResolver.loadFromJson — specificity ordering', () {
+    // Longer literal prefix wins over shorter prefix with wildcard.
+    // APDR1 (5 literal chars) beats APDR? (4 literal chars) for input APDR10.
+    const overlapJson =
+        '{"tocalls": {'
+        '"APDR1?": {"model": "APRSdroid Special"},'
+        '"APDR??": {"model": "APRSdroid Generic"}'
+        '}}';
+
+    setUp(() {
+      DeviceResolver.loadFromJson(overlapJson);
+    });
+
+    tearDown(() {
+      DeviceResolver.resetForTesting();
+    });
+
+    test('APDR10 matches more-specific APDR1? over APDR??', () {
+      expect(
+        DeviceResolver.resolve(tocall: 'APDR10'),
+        equals('APRSdroid Special'),
+      );
+    });
+
+    test('APDR20 matches less-specific APDR?? when no APDR2? entry', () {
+      expect(
+        DeviceResolver.resolve(tocall: 'APDR20'),
+        equals('APRSdroid Generic'),
+      );
+    });
+  });
+
+  group('DeviceResolver.loadFromJson — error resilience', () {
+    test('invalid JSON does not throw', () {
+      // Should not throw; prior state (fallback table) is preserved.
+      expect(
+        () => DeviceResolver.loadFromJson('not valid json'),
+        returnsNormally,
+      );
+    });
+
+    test('after bad JSON, hardcoded fallback still works', () {
+      DeviceResolver.loadFromJson('not valid json');
+      // Patterns list is unchanged; fallback table still active.
+      expect(DeviceResolver.resolve(tocall: 'APDR16'), equals('APRSdroid'));
+    });
+
+    tearDown(() {
+      DeviceResolver.resetForTesting();
+    });
+  });
+
+  group('DeviceResolver.loadFromJson — model vs vendor fallback', () {
+    const modelAndVendorJson =
+        '{"tocalls": {"APTEST": {"model": "Test Model", "vendor": "Test Vendor"}}}';
+    const vendorOnlyJson = '{"tocalls": {"APTEST": {"vendor": "Vendor Only"}}}';
+
+    tearDown(() {
+      DeviceResolver.resetForTesting();
+    });
+
+    test('model field is preferred over vendor', () {
+      DeviceResolver.loadFromJson(modelAndVendorJson);
+      expect(DeviceResolver.resolve(tocall: 'APTEST'), equals('Test Model'));
+    });
+
+    test('vendor used when model is absent', () {
+      DeviceResolver.loadFromJson(vendorOnlyJson);
+      expect(DeviceResolver.resolve(tocall: 'APTEST'), equals('Vendor Only'));
     });
   });
 }

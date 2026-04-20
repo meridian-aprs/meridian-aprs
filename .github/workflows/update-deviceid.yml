@@ -1,0 +1,40 @@
+name: Refresh APRS device-ID snapshot
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'  # Weekly, Monday 03:00 UTC
+  workflow_dispatch:       # Allow manual trigger
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter (for Dart)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Refresh device-ID snapshot
+        run: dart run tool/update_deviceid.dart
+
+      - name: Open PR if changed
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: refresh aprs-deviceid snapshot'
+          branch: chore/refresh-deviceid
+          delete-branch: true
+          title: 'chore: refresh aprs-deviceid snapshot'
+          body: |
+            Automated weekly refresh of the bundled APRS device-ID database.
+
+            Source: https://aprs-deviceid.aprsfoundation.org/tocalls.dense.json
+          labels: 'Type: Chore'

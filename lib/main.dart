@@ -6,6 +6,7 @@ import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path_provider/path_provider.dart';
@@ -16,11 +17,13 @@ import 'services/notification_service.dart';
 import 'ui/widgets/in_app_banner_overlay.dart';
 
 import 'config/app_config.dart';
+import 'config/app_version.dart';
 import 'core/connection/aprs_is_connection.dart';
 import 'core/connection/ble_connection.dart';
 import 'core/connection/connection_registry.dart';
 import 'core/connection/serial_connection.dart';
 import 'core/packet/aprs_packet.dart' show PacketSource;
+import 'core/packet/device_resolver.dart';
 import 'core/transport/aprs_is_transport.dart';
 import 'map/stadia_tile_provider.dart';
 import 'screens/map_screen.dart';
@@ -36,8 +39,6 @@ import 'theme/android_theme.dart';
 import 'theme/desktop_theme.dart';
 import 'theme/ios_theme.dart';
 import 'theme/theme_controller.dart';
-
-const String _kVersion = '0.1.0';
 
 /// Global navigator key so [NotificationService] can push routes from outside
 /// the widget tree (notification taps, inline reply navigation).
@@ -63,6 +64,12 @@ Brightness _resolveIosBrightness(ThemeMode mode) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load device identification database from bundled asset.
+  final deviceJson = await rootBundle.loadString(
+    'assets/aprs-deviceid/tocalls.dense.json',
+  );
+  DeviceResolver.loadFromJson(deviceJson);
 
   if (!kIsWeb) {
     // Initialise foreground task communication port before any isolates start.
@@ -107,7 +114,7 @@ Future<void> main() async {
 
   final aprsIsTransport = AprsIsTransport(
     loginLine:
-        'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
+        'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $kAppVersion\r\n',
     filterLine: AprsIsConnection.defaultFilterLine(mapLat, mapLon),
   );
   final aprsIsConn = AprsIsConnection(

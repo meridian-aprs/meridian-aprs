@@ -88,7 +88,7 @@ abstract class MeridianConnection extends ChangeNotifier {
   /// Send an APRS packet via this connection.
   ///
   /// [aprsLine] is the full APRS-IS formatted string, e.g.:
-  /// `W1AW-9>APZMDN,TCPIP*:!4903.50N/07201.75W>Comment`
+  /// `W1AW-9>APMDN0,TCPIP*:=4903.50N/07201.75W>Comment`
   ///
   /// APRS-IS connections append `\r\n` and write to the TCP socket. TNC
   /// connections encode the line as an AX.25 UI frame and send it as a KISS

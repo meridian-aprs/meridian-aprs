@@ -127,8 +127,8 @@ void main() {
 
   test('sendLine appends \\r\\n and delegates', () async {
     await conn.connect();
-    await conn.sendLine('W1AW>APZMDN:hello');
-    expect(transport.sentLines, ['W1AW>APZMDN:hello\r\n']);
+    await conn.sendLine('W1AW>APMDN0:hello');
+    expect(transport.sentLines, ['W1AW>APMDN0:hello\r\n']);
   });
 
   test('beaconingEnabled defaults to true', () {

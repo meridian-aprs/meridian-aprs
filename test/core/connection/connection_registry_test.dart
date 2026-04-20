@@ -181,8 +181,8 @@ void main() {
         final received = <({String line, ConnectionType source})>[];
         registry.lines.listen(received.add);
 
-        a.simulateLine('W1AW>APZMDN:!test');
-        b.simulateLine('W2XY>APZMDN:!test2');
+        a.simulateLine('W1AW>APMDN0:!test');
+        b.simulateLine('W2XY>APMDN0:!test2');
         await Future<void>.delayed(Duration.zero);
 
         expect(received, hasLength(2));
@@ -204,11 +204,11 @@ void main() {
       ({String line, ConnectionType source})? received;
       registry.lines.listen((e) => received = e);
 
-      a.simulateLine('W1AW>APZMDN:!test');
+      a.simulateLine('W1AW>APMDN0:!test');
       await Future<void>.delayed(Duration.zero);
 
       expect(received?.source, ConnectionType.aprsIs);
-      expect(received?.line, 'W1AW>APZMDN:!test');
+      expect(received?.line, 'W1AW>APMDN0:!test');
     });
   });
 

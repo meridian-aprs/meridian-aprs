@@ -64,10 +64,9 @@ See `docs/ARCHITECTURE.md` for full detail.
 | **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.12 complete (onboarding improvements milestone). v0.13 next — Security & connectivity. v0.12 added: 7-step onboarding flow (Welcome, License, Callsign, Location, Station Identity, Connection, Beaconing); `isLicensed` + `passcode` added to `StationSettingsService`; `SymbolPickerDialog` extracted to `lib/ui/widgets/`; unlicensed mode enforcement in `TxService` (hard-reject) and `AprsIsConnection` (N0CALL/-1); messaging compose/reply disabled when unlicensed; existing-user migration guard; comment cap updated to 36 chars. ADRs 001–045 in `docs/DECISIONS.md`.**
+**Current status: v0.12 complete (onboarding improvements milestone). v0.13 next — Security & connectivity. v0.12 added: 7-step onboarding flow (Welcome, License, Callsign, Location, Station Identity, Connection, Beaconing); `isLicensed` + `passcode` added to `StationSettingsService`; `SymbolPickerDialog` extracted to `lib/ui/widgets/`; unlicensed mode enforcement in `TxService` (hard-reject) and `AprsIsConnection` (N0CALL/-1); messaging compose/reply disabled when unlicensed; existing-user migration guard; comment cap updated to 36 chars. Tocall `APMDN?` allocated 2026-04-19; `APMDN0` active for v0.x via `AprsIdentity.tocall`; `DeviceResolver.loadFromJson` loads bundled `assets/aprs-deviceid/tocalls.dense.json`; all `TODO(tocall)` markers removed. ADRs 001–046 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
-- `TODO(tocall)` — marks `APZMDN` destination; register with WB4APR before v1.0 release
 - `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
 - `geolocator` package added for GPS access (required permissions: Android `ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`, iOS `NSLocationWhenInUseUsageDescription`, macOS entitlement + plist key)
 

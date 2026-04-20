@@ -133,7 +133,7 @@ The release milestone. No new features — quality, stability, and store readine
 
 ## Pending Items
 
-- **Tocall:** `APMDNx` allocation filed via `aprsorg/aprs-deviceid`. Placeholder `APZMDN` with `TODO(tocall)` in use until confirmed.
+- **Tocall:** `APMDN?` allocated via `aprsorg/aprs-deviceid` (2026-04-19, Hessu OH7LZB). `APMDN0` is the active tocall for v0.x. All `TODO(tocall)` markers removed; `AprsIdentity.tocall` is the canonical definition.
 - **macOS/Windows serial TNC testing:** Deferred from v0.4. Still pending physical hardware validation.
 - **Stadia Maps tier:** Free tier in use (non-commercial OSS). Upgrade to paid tier when monetization begins.
 - **APRS Symbol Icon Set:** Deferred from v0.10. Standalone `meridian-aprs-symbols` repo (CC BY 4.0) — style guide, SVG generation, Figma polish, sprite sheets, integration into Meridian. Schedule TBD.

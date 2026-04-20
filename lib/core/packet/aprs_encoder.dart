@@ -5,6 +5,8 @@
 /// construct outgoing packets before they are dispatched via [TxService].
 library;
 
+import 'aprs_identity.dart';
+
 /// Encodes APRS packets as APRS-IS text lines.
 ///
 /// All output includes `TCPIP*` in the path per the APRS-IS connecting spec.
@@ -13,8 +15,7 @@ library;
 class AprsEncoder {
   AprsEncoder._();
 
-  // TODO(tocall): register APZMDN with WB4APR before v1.0
-  static const _dest = 'APZMDN';
+  static String get _dest => AprsIdentity.tocall;
 
   // -------------------------------------------------------------------------
   // Position
@@ -23,13 +24,14 @@ class AprsEncoder {
   /// Encodes an uncompressed APRS position packet.
   ///
   /// Returns a full APRS-IS line including the header, e.g.:
-  /// `W1AW-9>APZMDN,TCPIP*:=4903.50N/07201.75W>Comment`
+  /// `W1AW-9>APMDN0,TCPIP*:=4903.50N/07201.75W>Comment`
   ///
   /// [callsign] must be 3–7 uppercase alphanumeric characters.
   /// [ssid] 0–15; omitted from header when 0.
   /// [symbolTable] is `'/'` (primary) or `'\\'` (alternate).
   /// [symbolCode] is the single APRS symbol character.
-  /// [hasMessaging] selects DTI `=` (true) vs `!` (false).
+  /// DTI is always `=` (messaging-capable, no timestamp) because Meridian
+  /// always supports messaging.
   static String encodePosition({
     required String callsign,
     required int ssid,
@@ -38,12 +40,11 @@ class AprsEncoder {
     required String symbolTable,
     required String symbolCode,
     String comment = '',
-    bool hasMessaging = true,
   }) {
     assert(lat >= -90 && lat <= 90, 'lat must be in [-90, 90], got $lat');
     assert(lon >= -180 && lon <= 180, 'lon must be in [-180, 180], got $lon');
     final src = _formatAddress(callsign, ssid);
-    final dti = hasMessaging ? '=' : '!';
+    const dti = '=';
     final latStr = _encodeLat(lat);
     final lonStr = _encodeLon(lon);
     return '$src>$_dest,TCPIP*:$dti$latStr$symbolTable$lonStr$symbolCode$comment';
@@ -56,7 +57,7 @@ class AprsEncoder {
   /// Encodes an APRS message packet (APRS spec §14).
   ///
   /// Returns a full APRS-IS line, e.g.:
-  /// `W1AW-9>APZMDN,TCPIP*::WB4APR   :Hello there{001`
+  /// `W1AW-9>APMDN0,TCPIP*::WB4APR   :Hello there{001`
   ///
   /// [toCallsign] is padded/truncated to 9 characters per spec.
   /// [messageId] is appended as `{id}` when non-null and non-empty.
@@ -78,7 +79,7 @@ class AprsEncoder {
   /// Encodes an APRS ACK packet.
   ///
   /// Returns a full APRS-IS line, e.g.:
-  /// `W1AW-9>APZMDN,TCPIP*::WB4APR   :ack001`
+  /// `W1AW-9>APMDN0,TCPIP*::WB4APR   :ack001`
   static String encodeAck({
     required String fromCallsign,
     required int fromSsid,
@@ -109,7 +110,7 @@ class AprsEncoder {
   /// Returns the APRS-IS packet header for [callsign]/[ssid], including the
   /// `TCPIP*` path that APRS-IS servers require for internet-originated packets.
   ///
-  /// Example: `W1AW-9>APZMDN,TCPIP*:`
+  /// Example: `W1AW-9>APMDN0,TCPIP*:`
   static String _header(String callsign, int ssid) {
     final src = _formatAddress(callsign, ssid);
     return '$src>$_dest,TCPIP*:';

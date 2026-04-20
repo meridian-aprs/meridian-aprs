@@ -94,7 +94,7 @@ void main() {
 
     final rawAx25 = _buildRawAx25(
       'W1AW',
-      'APZMDN',
+      'APMDN0',
       '!4903.50N/07201.75W>Test comment',
     );
     fakeTransport.simulateFrame(rawAx25);
@@ -106,7 +106,7 @@ void main() {
 
   test('sendLine encodes to AX.25 and calls sendFrame', () async {
     await conn.connectWithConfig(_testConfig);
-    await conn.sendLine('W1AW-9>APZMDN,TCPIP*:!4903.50N/07201.75W>Hello');
+    await conn.sendLine('W1AW-9>APMDN0,TCPIP*:!4903.50N/07201.75W>Hello');
     expect(fakeTransport.sentFrames, hasLength(1));
   });
 

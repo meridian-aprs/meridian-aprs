@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -39,3 +40,20 @@ jobs:
 
       - name: Build (Linux debug)
         run: flutter build linux --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
+
+  check-deviceid-freshness:
+    name: Check device-ID snapshot freshness
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if snapshot older than 30 days
+        run: |
+          updated=$(cat assets/aprs-deviceid/last_updated.txt)
+          cutoff=$(date -d '30 days ago' +%Y-%m-%d)
+          if [[ "$updated" < "$cutoff" ]]; then
+            echo "ERROR: aprs-deviceid snapshot is stale (last updated: $updated, cutoff: $cutoff)."
+            echo "Run: dart run tool/update_deviceid.dart"
+            exit 1
+          fi
+          echo "Device-ID snapshot is fresh (last updated: $updated)"
