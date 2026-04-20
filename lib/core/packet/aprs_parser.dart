@@ -1110,15 +1110,19 @@ class AprsParser {
     'Off Duty', // 0b111
   ];
 
+  // APRS 1.0.1 ch.10 Custom message table maps the message bits in reverse
+  // order vs. the Standard table: 0b111 = Custom-0 (most selected), 0b001 =
+  // Custom-6 (least selected). 0b000 remains Emergency in both tables.
+  // Oracles: aprslib `MTYPE_TABLE_CUSTOM`, Dire Wolf `cust_text[]`.
   static const _micECustomMessages = [
     'Emergency', // 0b000 — Emergency regardless of table
-    'Custom-0', // 0b001
-    'Custom-1', // 0b010
-    'Custom-2', // 0b011
+    'Custom-6', // 0b001
+    'Custom-5', // 0b010
+    'Custom-4', // 0b011
     'Custom-3', // 0b100
-    'Custom-4', // 0b101
-    'Custom-5', // 0b110
-    'Custom-6', // 0b111
+    'Custom-2', // 0b101
+    'Custom-1', // 0b110
+    'Custom-0', // 0b111
   ];
 
   AprsPacket _parseMicE({
@@ -1161,48 +1165,47 @@ class AprsParser {
     bool addLonOffset = false;
     bool isWest = false;
 
+    // Decode per APRS 1.2 spec, chapter 10 (Mic-E), destination-field table:
+    //   '0'-'9' (0x30-0x39): digit 0-9, no message bit
+    //   'A'-'J' (0x41-0x4A): digit 0-9, Custom message bit (positions 0-2)
+    //   'K'     (0x4B):      space (ambiguous), Custom message bit (positions 0-2)
+    //   'L'     (0x4C):      space (ambiguous), no message bit
+    //   'P'-'Y' (0x50-0x59): digit 0-9, Standard message bit
+    //   'Z'     (0x5A):      space (ambiguous), Standard message bit
+    // At positions 3-5, the A-K range is "not used" per spec. The letter-flag
+    // (P-Z, i.e. 0x50-0x5A) encodes North / +100 lon / West. Everything else
+    // encodes South / no offset / East.
     for (int i = 0; i < 6; i++) {
       final c = dest[i].codeUnitAt(0);
       int digit;
-      bool msgBit = false;
 
       if (c >= 0x30 && c <= 0x39) {
-        // '0'-'9': standard digit, message bit clear
         digit = c - 0x30;
-        msgBit = false;
       } else if (c >= 0x41 && c <= 0x4A) {
-        // 'A'-'J': digits 0-9 with message bit set (custom message)
         digit = c - 0x41;
-        msgBit = true;
-      } else if (c == 0x4B || c == 0x4C || c == 0x5A) {
-        // 'K', 'L', or 'Z': ambiguous position, digit=0, message bit clear
-        digit = 0;
-        msgBit = false;
       } else if (c >= 0x50 && c <= 0x59) {
-        // 'P'-'Y': digits 0-9 with message bit set (standard message)
         digit = c - 0x50;
-        msgBit = true;
       } else {
-        // Space or other
+        // 'K', 'L', 'Z', space, or unexpected → ambiguous digit (space/0)
         digit = 0;
-        msgBit = false;
       }
-
       latDigits[i] = digit;
-      if (i < 3 && msgBit) {
-        if (c >= 0x41 && c <= 0x4A) {
-          // A-J → Custom message bit
+
+      // Accumulate message bits at positions 0-2.
+      // 'A'-'K' → Custom; 'P'-'Z' → Standard.
+      if (i < 3) {
+        if (c >= 0x41 && c <= 0x4B) {
           custBits |= (1 << (2 - i));
-        } else if (c >= 0x50 && c <= 0x59) {
-          // P-Y → Standard message bit
+        } else if (c >= 0x50 && c <= 0x5A) {
           stdBits |= (1 << (2 - i));
         }
       }
 
-      // Flag bits from specific positions.
-      if (i == 3) isNorth = msgBit; // letter = North
-      if (i == 4) addLonOffset = msgBit; // letter = +100 lon degrees
-      if (i == 5) isWest = msgBit; // letter = West
+      // Positional flags at 3/4/5, driven by ASCII class (P-Z = letter flag).
+      final isLetterFlag = c >= 0x50 && c <= 0x5A;
+      if (i == 3) isNorth = isLetterFlag;
+      if (i == 4) addLonOffset = isLetterFlag;
+      if (i == 5) isWest = isLetterFlag;
     }
 
     // Latitude: DD MM.HH (BCD from 6 digits)
@@ -1358,16 +1361,11 @@ class AprsParser {
     } else if (_micEFt3dRe.hasMatch(comment)) {
       // Strip trailing _\d
       comment = comment.substring(0, comment.length - 2);
-    } else {
-      // Check for generic > suffix: strip from last > onward if valid.
-      final gtIdx = comment.lastIndexOf('>');
-      if (gtIdx >= 0 && gtIdx < comment.length - 1) {
-        final suffix = comment.substring(gtIdx + 1);
-        if (_micEGenericSuffixRe.hasMatch(suffix)) {
-          comment = comment.substring(0, gtIdx);
-        }
-      }
     }
+    // Note: no generic `>IDENT` suffix branch. Per aprs.org/aprs12/mic-e-types.txt
+    // and aprs-deviceid/tocalls.yaml, `>` is a device-identifier *prefix* (used
+    // by Kenwood TH-D7x series), never a suffix. Stripping on trailing `>IDENT`
+    // would delete legitimate in-comment callsign mentions with no spec basis.
     // Mic-E message from the 3 message bits.
     // Bits 2-0: A B C where A is most significant.
     // stdBits accumulate P-Y chars, custBits accumulate A-J chars.
@@ -1402,10 +1400,8 @@ class AprsParser {
     );
   }
 
-  // Regexes reused in Mic-E comment suffix stripping (mirrors DeviceResolver).
+  // Regex for FT3D series suffix (trailing _\d) in Mic-E comment stripping.
   static final _micEFt3dRe = RegExp(r'_\d$');
-  // Alphanumeric only — prevents false positives on user comments containing '>'.
-  static final _micEGenericSuffixRe = RegExp(r'^[A-Za-z0-9]{2,10}$');
 
   // ---------------------------------------------------------------------------
   // Timestamp helpers

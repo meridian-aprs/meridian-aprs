@@ -537,27 +537,29 @@ void main() {
     });
 
     // -------------------------------------------------------------------------
-    // P-Y encoding (custom message) — Bug 2 regression tests
+    // P-Y encoding (standard message) — Bug 2 regression tests
     // -------------------------------------------------------------------------
     //
-    // Packet: N0CALL-9>SX5E0A,WIDE1-1:`i<N Ol>/
-    // Destination SX5E0A encodes:
-    //   'S' (0x53) = P+3 → digit=3, msgBit=true  (custom, A-bit set)
-    //   'X' (0x58) = P+8 → digit=8, msgBit=true  (custom, B-bit set)
-    //   '5'        → digit=5, msgBit=false         (C-bit clear)
-    //   'E' (0x45) = A+4 → digit=4, msgBit=true   (North)
-    //   '0'        → digit=0, msgBit=false          (no lon offset)
-    //   'A' (0x41) = A+0 → digit=0, msgBit=true   (West)
-    // messageBits = 0b110 = 6 → En Route (custom)
-    // lat = 38°54.00' N = 38.9000 N
+    // Packet: N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/
+    // Destination SX5Y0Y encodes (per APRS 1.2 Mic-E destination table):
+    //   'S' (0x53) = P+3 → digit=3, Standard msg bit set (A-bit)
+    //   'X' (0x58) = P+8 → digit=8, Standard msg bit set (B-bit)
+    //   '5'        → digit=5, no bit (C-bit clear)
+    //   'Y' (0x59) = P+9 → digit=9, North (P-Z letter flag)
+    //   '0'        → digit=0, no lon offset
+    //   'Y' (0x59) = P+9 → digit=9, West (P-Z letter flag)
+    // stdBits = 0b110 = 6 → _micEMessages[6] = 'En Route'
+    // lat = 38°59.09' N ≈ 38.9848 N
     // lon: info[1]='i'(105-28=77), info[2]='<'(60-28=32), info[3]='N'(78-28=50)
-    //      → 77°32.50' W = -77.5417
+    //      → 77°32.50' W ≈ -77.5417
+    // Positions 3-5 use P-Y (not A-J) because the spec reserves A-K for
+    // positions 0-2 only; A-K at positions 3-5 is not defined.
     test('P-Y destination decodes lat, lon, hemisphere, and message type', () {
       // All printable ASCII; info field is exactly 9 bytes.
-      final packet = parser.parse('N0CALL-9>SX5E0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse('N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/');
       expect(packet, isA<MicEPacket>());
       final p = packet as MicEPacket;
-      expect(p.lat, closeTo(38.9, 0.001));
+      expect(p.lat, closeTo(38.9848, 0.001));
       expect(p.lon, closeTo(-77.5417, 0.001));
       expect(p.lat, isPositive, reason: 'should be North (positive)');
       expect(p.lon, isNegative, reason: 'should be West (negative)');
@@ -1119,12 +1121,13 @@ void main() {
     //   'B'(0x42=A+1) i=1 → custBits |= 0b010 (2)
     //   'J'(0x4A=A+9) i=2 → custBits |= 0b001 (1)
     //   'E'(A+4) i=3 → isNorth, '0' i=4 → no offset, 'A'(A+0) i=5 → isWest
-    //   custBits = 0b111 = 7, stdBits = 0 → _micECustomMessages[7] = 'Custom-6'
-    test('Mic-E Custom message bits (A-J) decode to Custom-6', () {
+    //   custBits = 0b111 = 7, stdBits = 0 → _micECustomMessages[7] = 'Custom-0'
+    //   (Custom table reverses the bit-to-label mapping vs. Standard.)
+    test('Mic-E Custom message bits (A-J) decode to Custom-0', () {
       final rawLine = 'N0CALL-9>ABJE0A,WIDE1-1:\x60i<N Ol>/';
       final packet = parser.parse(rawLine);
       expect(packet, isA<MicEPacket>());
-      expect((packet as MicEPacket).micEMessage, equals('Custom-6'));
+      expect((packet as MicEPacket).micEMessage, equals('Custom-0'));
     });
 
     // Destination ASRE0A:
@@ -1154,9 +1157,96 @@ void main() {
 
     // All digits → stdBits=0, custBits=0 → Emergency
     test('regression: Emergency (all digits) still decodes correctly', () {
-      final packet = parser.parse('N0CALL-9>385E0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse('N0CALL-9>385Y0Y,WIDE1-1:`i<N Ol>/');
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Emergency'));
+    });
+
+    // Ambiguity character `K` carries the Custom message bit per APRS 1.2
+    // Mic-E destination table. An all-K position triplet must NOT decode as
+    // Emergency — that would flag a bogus emergency on any tracker that
+    // transmits full-position ambiguity with the Custom table selected.
+    //
+    // Destination KKKY0Y:
+    //   'K','K','K' at pos 0,1,2 → digit=0 (space), custBits=0b111=7
+    //   'Y' pos 3 → North, '0' pos 4 → no offset, 'Y' pos 5 → West
+    //   → _micECustomMessages[7] = 'Custom-0'
+    test('K ambiguity at positions 0-2 sets Custom bit (not Emergency)', () {
+      final packet = parser.parse('N0CALL-9>KKKY0Y,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      final p = packet as MicEPacket;
+      expect(
+        p.micEMessage,
+        equals('Custom-0'),
+        reason:
+            'all-K ambiguity must produce Custom-0, not a spurious Emergency',
+      );
+    });
+
+    // Ambiguity character `Z` carries the Standard message bit at positions
+    // 0-2. Similar regression: an all-Z destination must decode to Off Duty
+    // (stdBits=0b111=7), not Emergency.
+    test('Z ambiguity at positions 0-2 sets Standard bit (not Emergency)', () {
+      final packet = parser.parse('N0CALL-9>ZZZY0Y,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
+    });
+
+    // Z at position 5 is the W/E flag. Before the fix, `Z` was lumped with
+    // `L` and decoded as East — flipping longitude sign for every tracker
+    // transmitting longitude-hundredths ambiguity with the West flag. After
+    // the fix, Z is in the P-Z letter-flag class and produces West.
+    //
+    // Destination SX5Y0Z:
+    //   'Y' pos 3 → North, '0' pos 4 → no offset, 'Z' pos 5 → West (ambiguous)
+    test('Z at position 5 decodes as West (not East)', () {
+      final packet = parser.parse('N0CALL-9>SX5Y0Z,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect(
+        (packet as MicEPacket).lon,
+        isNegative,
+        reason: 'Z at pos 5 is the letter-flag (West)',
+      );
+    });
+
+    // Z at position 3 = ambiguous N/S with North flag.
+    test('Z at position 3 decodes as North (not South)', () {
+      final packet = parser.parse('N0CALL-9>SX5Z0Y,WIDE1-1:`i<N Ol>/');
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).lat, isPositive);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Mic-E generic `>IDENTIFIER` tracker-suffix stripper guards
+  // ---------------------------------------------------------------------------
+
+  group('MicEPacket — `>` in comment is never stripped as suffix', () {
+    // Per aprs.org/aprs12/mic-e-types.txt and aprs-deviceid/tocalls.yaml, `>`
+    // is a Kenwood TH-D7x *prefix*, not a suffix. The parser must never strip
+    // trailing `>IDENT` from the comment — that would delete legitimate
+    // in-comment callsign mentions with no spec basis.
+    test('mixed-case prose containing ` > ` is NOT stripped', () {
+      final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/Driving > Fast';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).comment, equals('Driving > Fast'));
+    });
+
+    test('lowercase `a>B` is NOT stripped', () {
+      final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/a>B';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).comment, equals('a>B'));
+    });
+
+    // Callsign-shaped trailing ` >IDENT` looks suffix-like but has no spec
+    // basis; the in-comment callsign mention must be preserved.
+    test('space + `>CALLSIGN` is NOT stripped', () {
+      final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/My Car >VE3ABC';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      expect((packet as MicEPacket).comment, equals('My Car >VE3ABC'));
     });
   });
 
