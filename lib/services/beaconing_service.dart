@@ -203,7 +203,6 @@ class BeaconingService extends ChangeNotifier {
       symbolTable: _settings.symbolTable,
       symbolCode: _settings.symbolCode,
       comment: _settings.comment,
-      hasMessaging: true,
     );
 
     // Self-ingest before transmitting so the user's own station and packet are

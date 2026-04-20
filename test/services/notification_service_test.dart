@@ -87,7 +87,7 @@ class _Fixture {
 
   void injectInbound(String from, String text, {String msgId = '042'}) {
     // Build an APRS message line addressed to our callsign (W1AW-9).
-    stationService.ingestLine('$from>APZMDN::W1AW-9   :$text{$msgId');
+    stationService.ingestLine('$from>APMDN0::W1AW-9   :$text{$msgId');
   }
 }
 

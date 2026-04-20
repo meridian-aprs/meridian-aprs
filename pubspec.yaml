@@ -50,6 +50,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - assets/aprs-deviceid/
     - assets/aprs_symbols/aprs-symbols-64-0.png
     - assets/aprs_symbols/aprs-symbols-64-1.png
     - assets/icons/

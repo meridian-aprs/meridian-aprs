@@ -13,10 +13,9 @@ void main() {
         symbolTable: '/',
         symbolCode: '>',
         comment: 'Test',
-        hasMessaging: false,
       );
       // Should contain source header
-      expect(line, startsWith('W1AW-9>APZMDN,TCPIP*:!'));
+      expect(line, startsWith('W1AW-9>APMDN0,TCPIP*:='));
       // Lat: 49°03.45 → 4903.45N
       expect(line, contains('4903.'));
       expect(line, contains('N'));
@@ -33,7 +32,7 @@ void main() {
       expect(line, contains('Test'));
     });
 
-    test('uses = DTI when hasMessaging is true', () {
+    test('uses = DTI (messaging-capable)', () {
       final line = AprsEncoder.encodePosition(
         callsign: 'K0ABC',
         ssid: 0,
@@ -41,22 +40,8 @@ void main() {
         lon: -77.0,
         symbolTable: '/',
         symbolCode: '-',
-        hasMessaging: true,
       );
       expect(line, contains(':='));
-    });
-
-    test('uses ! DTI when hasMessaging is false', () {
-      final line = AprsEncoder.encodePosition(
-        callsign: 'K0ABC',
-        ssid: 0,
-        lat: 39.0,
-        lon: -77.0,
-        symbolTable: '/',
-        symbolCode: '-',
-        hasMessaging: false,
-      );
-      expect(line, contains(':!'));
     });
 
     test('omits SSID suffix when ssid is 0', () {
@@ -68,7 +53,7 @@ void main() {
         symbolTable: '/',
         symbolCode: '>',
       );
-      expect(line, startsWith('W1AW>APZMDN'));
+      expect(line, startsWith('W1AW>APMDN0'));
     });
 
     test('encodes S/E hemispheres correctly', () {

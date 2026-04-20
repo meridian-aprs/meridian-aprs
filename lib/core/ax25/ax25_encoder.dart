@@ -8,6 +8,7 @@ library;
 import 'dart:typed_data';
 
 import 'ax25_frame.dart';
+import '../packet/aprs_identity.dart';
 
 /// Encodes AX.25 UI frames to byte arrays.
 ///
@@ -33,7 +34,6 @@ class Ax25Encoder {
   /// [infoField] is the raw APRS info string (everything after the `:`
   /// separator in an APRS-IS line, i.e. the DTI + data body).
   /// [digipeaterAliases] defaults to `['WIDE1-1', 'WIDE2-1']`.
-  // TODO(tocall): destination APZMDN needs registration with WB4APR before v1.0
   static Ax25Frame buildAprsFrame({
     required String sourceCallsign,
     required int sourceSsid,
@@ -48,7 +48,7 @@ class Ax25Encoder {
     }).toList();
 
     return Ax25Frame(
-      destination: const Ax25Address(callsign: 'APZMDN', ssid: 0),
+      destination: Ax25Address(callsign: AprsIdentity.tocall, ssid: 0),
       source: Ax25Address(
         callsign: sourceCallsign.toUpperCase(),
         ssid: sourceSsid,

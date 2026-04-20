@@ -5,13 +5,13 @@ import 'package:meridian_aprs/core/ax25/ax25_parser.dart';
 
 void main() {
   group('Ax25Encoder.buildAprsFrame', () {
-    test('sets destination to APZMDN', () {
+    test('sets destination to APMDN0', () {
       final frame = Ax25Encoder.buildAprsFrame(
         sourceCallsign: 'W1AW',
         sourceSsid: 9,
         infoField: '!3910.00N/07700.00W>',
       );
-      expect(frame.destination.callsign, equals('APZMDN'));
+      expect(frame.destination.callsign, equals('APMDN0'));
       expect(frame.destination.ssid, equals(0));
     });
 
@@ -88,7 +88,7 @@ void main() {
         case Ax25Ok(:final frame):
           expect(frame.source.callsign, equals(sourceCallsign));
           expect(frame.source.ssid, equals(sourceSsid));
-          expect(frame.destination.callsign, equals('APZMDN'));
+          expect(frame.destination.callsign, equals('APMDN0'));
           expect(String.fromCharCodes(frame.info), equals(info));
         case Ax25Err(:final reason):
           fail('Expected Ax25Ok but got Ax25Err: $reason');
@@ -122,10 +122,11 @@ void main() {
       );
       final bytes = Ax25Encoder.encodeUiFrame(frame);
       // First 6 bytes are the destination callsign shifted left.
-      // 'A' = 0x41 → 0x82, 'P' = 0x50 → 0xA0, etc.
+      // Destination is APMDN0: 'A' = 0x41 → 0x82, 'P' = 0x50 → 0xA0,
+      // 'M' = 0x4D → 0x9A, etc.
       expect(bytes[0], equals('A'.codeUnitAt(0) << 1));
       expect(bytes[1], equals('P'.codeUnitAt(0) << 1));
-      expect(bytes[2], equals('Z'.codeUnitAt(0) << 1));
+      expect(bytes[2], equals('M'.codeUnitAt(0) << 1));
     });
 
     // -------------------------------------------------------------------------

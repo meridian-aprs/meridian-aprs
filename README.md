@@ -127,6 +127,13 @@ This is a highlights view. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full
 
 ---
 
+## Credits & Acknowledgements
+
+- **APRS device identification data** — [aprsorg/aprs-deviceid](https://github.com/aprsorg/aprs-deviceid) by Heikki Hannikainen (OH7LZB) and contributors, licensed under [CC BY-SA 2.0](https://creativecommons.org/licenses/by-sa/2.0/).
+- **Inter typeface** — by Rasmus Andersson, licensed under [SIL Open Font License](https://scripts.sil.org/OFL).
+
+---
+
 ## License
 
 Meridian APRS is licensed under the [GNU General Public License v3.0](LICENSE).

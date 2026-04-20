@@ -353,7 +353,7 @@ Pure Dart encoder (`lib/core/packet/aprs_encoder.dart`). Produces APRS-IS format
 - `encodePosition(...)` — uncompressed position packet (`DDmm.hhN/DDDmm.hhW`); DTI `!` (no messaging) or `=` (with messaging capability)
 - `encodeMessage(...)` — APRS §14 message packet; addressee padded to 9 characters; `{id}` suffix when message ID provided
 - `encodeAck(...)` / `encodeRej(...)` — ACK and REJ response packets
-- Destination is `APZMDN` throughout. `TODO(tocall): register with WB4APR before v1.0`
+- Destination is `APMDN0` (via `AprsIdentity.tocall`). Tocall `APMDN?` allocated 2026-04-19 by Hessu OH7LZB — registration complete.
 
 ### Ax25Encoder
 

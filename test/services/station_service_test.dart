@@ -26,7 +26,7 @@ void main() {
       final packets = <AprsPacket>[];
       service.packetStream.listen(packets.add);
 
-      service.ingestLine('W1AW>APZMDN,TCPIP*:!4903.50N/07201.75W>Comment');
+      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment');
       await Future<void>.delayed(Duration.zero);
 
       expect(packets, hasLength(1));
@@ -59,7 +59,7 @@ void main() {
         final stationMaps = <Map<String, dynamic>>[];
         service.stationUpdates.listen((m) => stationMaps.add(m));
 
-        service.ingestLine('W1AW>APZMDN,TCPIP*:!4903.50N/07201.75W>Comment');
+        service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment');
         await Future<void>.delayed(Duration.zero);
 
         expect(stationMaps, hasLength(1));
@@ -68,8 +68,8 @@ void main() {
     );
 
     test('adds to recentPackets with newest first', () async {
-      service.ingestLine('W1AW>APZMDN:!4903.50N/07201.75W>A');
-      service.ingestLine('W2XY>APZMDN:!3234.00N/08901.00W>B');
+      service.ingestLine('W1AW>APMDN0:!4903.50N/07201.75W>A');
+      service.ingestLine('W2XY>APMDN0:!3234.00N/08901.00W>B');
       await Future<void>.delayed(Duration.zero);
 
       expect(service.recentPackets, hasLength(2));
@@ -81,7 +81,7 @@ void main() {
       service.packetStream.listen(packets.add);
 
       service.ingestLine(
-        'W1AW>APZMDN:!4903.50N/07201.75W>TNC test',
+        'W1AW>APMDN0:!4903.50N/07201.75W>TNC test',
         source: PacketSource.tnc,
       );
       await Future<void>.delayed(Duration.zero);
@@ -96,21 +96,21 @@ void main() {
 
   group('StationType classification', () {
     test('position packet with car symbol is classified as mobile', () async {
-      service.ingestLine('W1AW>APZMDN,TCPIP*:!4903.50N/07201.75W>Car');
+      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Car');
       await Future<void>.delayed(Duration.zero);
       expect(service.currentStations['W1AW']?.type, StationType.mobile);
     });
 
     test('position packet with house symbol is classified as fixed', () async {
       // Primary table '-' is a house/home
-      service.ingestLine('W1AW>APZMDN,TCPIP*:!4903.50N/07201.75W-Fixed');
+      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W-Fixed');
       await Future<void>.delayed(Duration.zero);
       expect(service.currentStations['W1AW']?.type, StationType.fixed);
     });
 
     test('position packet with wx symbol is classified as weather', () async {
       // Primary table '_' is a weather station
-      service.ingestLine('W1AW>APZMDN,TCPIP*:!4903.50N/07201.75W_Weather');
+      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W_Weather');
       await Future<void>.delayed(Duration.zero);
       expect(service.currentStations['W1AW']?.type, StationType.weather);
     });
@@ -251,7 +251,7 @@ void main() {
       final now = DateTime.now().millisecondsSinceEpoch;
       SharedPreferences.setMockInitialValues({
         'packet_log_v1':
-            '[{"raw":"W1AW>APZMDN:>Test","src":"aprs_is","ts":$now}]',
+            '[{"raw":"W1AW>APMDN0:>Test","src":"aprs_is","ts":$now}]',
         'station_history_v1': '[]',
       });
       final prefs = await SharedPreferences.getInstance();
@@ -265,7 +265,7 @@ void main() {
     test('maps legacy "tnc" source to PacketSource.tnc', () async {
       final now = DateTime.now().millisecondsSinceEpoch;
       SharedPreferences.setMockInitialValues({
-        'packet_log_v1': '[{"raw":"W1AW>APZMDN:>Test","src":"tnc","ts":$now}]',
+        'packet_log_v1': '[{"raw":"W1AW>APMDN0:>Test","src":"tnc","ts":$now}]',
         'station_history_v1': '[]',
       });
       final prefs = await SharedPreferences.getInstance();

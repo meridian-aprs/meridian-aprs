@@ -147,7 +147,7 @@ void main() {
     test('markRead resets unread count', () async {
       final f = await _Fixture.create();
       // Inject inbound message directly via station service.
-      f.stationService.ingestLine('KB1XYZ>APZMDN::W1AW-9   :Hello{042');
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :Hello{042');
       await Future.delayed(const Duration(milliseconds: 50));
 
       if (f.service.totalUnread > 0) {
@@ -176,7 +176,7 @@ void main() {
         await f.service.sendMessage('KB1XYZ', 'Hello');
         // Inject the ACK packet from the remote station via station service.
         // Parser will set isAck=true and messageId='001' on the MessagePacket.
-        f.stationService.ingestLine('KB1XYZ>APZMDN::W1AW-9   :ack001');
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :ack001');
         await Future.delayed(const Duration(milliseconds: 50));
 
         final conv = f.service.conversationWith('KB1XYZ');
@@ -192,7 +192,7 @@ void main() {
         final f = await _Fixture.create(initialCounter: 0);
         await f.service.sendMessage('KB1XYZ', 'Hello');
         // Inject the REJ packet.
-        f.stationService.ingestLine('KB1XYZ>APZMDN::W1AW-9   :rej001');
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :rej001');
         await Future.delayed(const Duration(milliseconds: 50));
 
         final conv = f.service.conversationWith('KB1XYZ');
@@ -208,7 +208,7 @@ void main() {
   group('duplicate detection', () {
     test('same source+wireId is not added twice', () async {
       final f = await _Fixture.create();
-      const line = 'KB1XYZ>APZMDN::W1AW-9   :Hello{099';
+      const line = 'KB1XYZ>APMDN0::W1AW-9   :Hello{099';
       f.stationService.ingestLine(line);
       f.stationService.ingestLine(line);
       await Future.delayed(const Duration(milliseconds: 50));

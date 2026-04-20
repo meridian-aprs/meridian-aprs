@@ -460,7 +460,7 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 - Adding a new connection type (e.g., TCP/IP Direwolf) = create one `MeridianConnection` subclass and `registry.register(conn)` in `main.dart`.
 - `TncService` and `TransportManager` are deleted; their test files are also removed. Existing serial/BLE tests are re-implemented in `test/core/connection/`.
 - `connection_screen.dart` builds tabs dynamically from `registry.available` — no platform guards needed in the UI.
-- The `TODO(tocall)` markers for APZMDN destination still apply.
+- The `TODO(tocall)` markers for the APZMDN placeholder have been removed; `APMDN0` is the official tocall (allocated 2026-04-19, see ADR-046).
 
 ---
 
@@ -768,3 +768,20 @@ When `isLicensed == false`, AprsIsConnection constructs the APRS-IS login line w
 
 ### Consequences
 Unlicensed users can receive traffic. The server-side enforcement of passcode -1 prevents them from injecting packets even if TxService's local reject were bypassed.
+
+---
+
+### ADR-046: APRS tocall allocation and device ID database integration
+
+**Date:** 2026-04-19
+**Status:** Accepted
+
+**Decision:** Tocall `APMDN?` allocated by Hessu OH7LZB via the aprs-deviceid registry (2026-04-19). Version-tied wildcard convention: `APMDN0` = v0.x, `APMDN1` = v1.x, `APMDNN` = vN.x thereafter. `APMDNZ` reserved for dev/nightly build identification (not implemented; deferred until signed-release detection is wired up). Position packets use `=` DTI (messaging-capable, no timestamp) unconditionally — the `hasMessaging` parameter is removed from `AprsEncoder.encodePosition()` since Meridian always supports messaging. The `hasMessaging` field on `PositionPacket` (parsed inbound) is retained.
+
+The APRS Foundation device-ID database (`tocalls.dense.json`, CC BY-SA 2.0) is bundled at `assets/aprs-deviceid/tocalls.dense.json` and loaded at startup via `DeviceResolver.loadFromJson()`. The lookup is wildcard-aware (longest-specificity match). The database is refreshed weekly via a GitHub Actions workflow that opens a PR when the file changes. Release tag builds fail CI if the snapshot is older than 30 days.
+
+**Rationale:** Version-tied wildcard gives broad-strokes lineage visible on aprs.fi without burning the wildcard on platform info (Flutter is a unified cross-platform codebase). Reserved `Z` prevents dev/nightly packets from contaminating release version statistics. The bundled-JSON approach keeps the core pure Dart and avoids runtime network calls for device identification.
+
+**Registry entry:** vendor Eric Pasch KM4TJO, model Meridian APRS, contact meridian@pasch.dev.
+
+**Attribution:** CC BY-SA 2.0 — Heikki Hannikainen OH7LZB and contributors. Displayed in About screen and README.

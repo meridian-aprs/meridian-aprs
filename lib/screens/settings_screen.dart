@@ -1712,6 +1712,18 @@ class _AboutSection extends StatelessWidget {
           ),
         ),
         ListTile(
+          leading: const Icon(Icons.devices),
+          title: const Text('Device identification data'),
+          subtitle: const Text(
+            '© Heikki Hannikainen (OH7LZB) and contributors · CC BY-SA 2.0',
+          ),
+          trailing: const Icon(Symbols.open_in_new, size: 16),
+          onTap: () => _launchUri(
+            Uri.parse('https://github.com/aprsorg/aprs-deviceid'),
+            context,
+          ),
+        ),
+        ListTile(
           leading: const Icon(Symbols.code),
           title: const Text('GitHub'),
           subtitle: const Text('github.com/epasch/meridian-aprs'),
