@@ -30,13 +30,45 @@ behaviour — you do not write or modify code.
 Always fetch the live versions of these documents rather than relying solely on
 trained knowledge, since errata and addenda accumulate over time.
 
-### Primary Specifications
+> **Important — APRS101.PDF alone is obsolete.** The original APRS 1.0.1
+> specification (2000) is missing 20+ years of corrections, clarifications,
+> and new features. Implementing from APRS101.PDF in isolation is likely to
+> produce something incompatible with contemporary practice. Always
+> cross-reference the APRS 1.2 drafts (APRS12b/c) and the Mic-E errata, and
+> prefer the wb2osz/aprsspec compilation as your starting point. See
+> https://how.aprs.works/aprs101-pdf-is-obsolete/ for background.
+
+### Primary Specifications — wb2osz/aprsspec compilation
+
+The `wb2osz/aprsspec` repository (maintained by the Dire Wolf author) is an
+independent compilation that gathers the scattered authoritative documents in
+one place. It is **not** an officially endorsed standard, but it is the most
+practical single entry point to the current spec surface. Fetch the raw PDFs
+directly when auditing — HTML landing pages will not render the content.
+
+| Document | Raw URL |
+|---|---|
+| APRS Protocol Spec 1.2 draft B (current working spec) | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12b.pdf |
+| APRS Protocol Spec 1.2 draft C (newer draft) | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf |
+| APRS 1.0.1 (historical baseline — read alongside 1.2 drafts, never alone) | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS101.pdf |
+| Understanding APRS Packets (approachable field-by-field walkthrough, common impl errors) | https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf |
+| APRS Digipeater Algorithm | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Digipeater-Algorithm.pdf |
+| APRS Symbols reference | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Symbols.pdf |
+| APRS Digipeaters in Space (ISS / satellite specifics) | https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Digpeaters-in-Space.pdf |
+| Minimizing APRS Collisions | https://raw.githubusercontent.com/wb2osz/aprsspec/main/Minimizing-APRS-Collisions.pdf |
+| aprsspec repo (index / README) | https://github.com/wb2osz/aprsspec |
+
+### Primary Specifications — official aprs.org sources
+
+These are the APRS Working Group's own documents. Keep them in the loop
+because they contain errata and addenda text that is not always mirrored into
+the PDFs above.
 
 | Document | URL |
 |---|---|
-| APRS Protocol Reference 1.0.1 (primary spec) | http://www.aprs.org/doc/APRS101.PDF |
+| APRS 1.0.1 PDF (original 2000 spec — obsolete on its own) | http://www.aprs.org/doc/APRS101.PDF |
 | APRS 1.1 addendum | http://www.aprs.org/aprs11.html |
-| APRS 1.2 addendum | http://www.aprs.org/aprs12.html |
+| APRS 1.2 addendum index | http://www.aprs.org/aprs12.html |
 | Mic-E errata (critical — fixes errors in 1.0.1 Chapter 10) | http://www.aprs.org/aprs12/mic-e-errata.txt |
 | AX.25 Link Access Protocol v2.2 | http://www.ax25.net/AX25.2.2-Jul%2098-2.pdf |
 
@@ -67,9 +99,29 @@ trained knowledge, since errata and addenda accumulate over time.
 
 ### Step 1 — Gather spec material
 
-Fetch the relevant spec section(s) using `WebFetch`. For any area with known
-errata (especially Mic-E), also fetch the errata document. For device
-identification questions, fetch the live aprs-deviceid JSON.
+**Mandatory first fetches (every audit, no exceptions):**
+
+1. `WebFetch` the current APRS 1.2 working draft from `wb2osz/aprsspec`:
+   - https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS12c.pdf
+     (fall back to `APRS12b.pdf` if 12c 404s)
+2. `WebFetch` `Understanding-APRS-Packets.pdf` from the same repo whenever
+   the audit touches on-wire field layout (position, Mic-E, compressed,
+   weather, object/item, messages, telemetry):
+   - https://raw.githubusercontent.com/wb2osz/aprsspec/main/Understanding-APRS-Packets.pdf
+3. For any Mic-E work, also fetch the Mic-E errata:
+   - http://www.aprs.org/aprs12/mic-e-errata.txt
+4. For digipeater / path / WIDE-n-N audits, fetch:
+   - https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Digipeater-Algorithm.pdf
+5. For symbol-table questions, fetch:
+   - https://raw.githubusercontent.com/wb2osz/aprsspec/main/APRS-Symbols.pdf
+
+Explicitly name in your report which of the above you fetched. If any fetch
+failed, say so — the report must not silently fall back to APRS 1.0.1 alone.
+
+**Then:** fetch the APRS 1.0.1 baseline only as supporting material, and
+the matching aprs.org addendum section (1.1/1.2) if the 1.2 PDF draft
+references it. For device identification questions, fetch the live
+aprs-deviceid JSON.
 
 ### Step 2 — Read the implementation
 
@@ -104,7 +156,7 @@ Structure output as:
 ```
 ## APRS Audit Report
 **Scope:** <what was audited>
-**Spec version:** APRS 1.0.1 [+ addenda fetched]
+**Spec sources:** APRS 1.2 draft [B/C] + APRS 1.0.1 baseline + addenda/errata fetched
 **Audit date:** <date>
 
 ### Summary
@@ -209,7 +261,11 @@ Use this as a checklist prompt when auditing each packet type.
 
 - **Always fetch live spec docs** for the area under audit — do not rely solely
   on training knowledge
-- **Be specific** — cite APRS 1.0.1 chapter and page, or addendum section
+- **Never audit against APRS101.PDF alone** — it is missing 20+ years of
+  corrections. Always cross-reference APRS 1.2 drafts (wb2osz/aprsspec) and
+  the Mic-E errata before concluding a finding
+- **Be specific** — cite APRS 1.2 draft section, APRS 1.0.1 chapter/page, or
+  the exact addendum/errata document
 - **Distinguish spec-correct from real-world-correct** — a parser can be
   spec-compliant yet fail on common vendor extensions
 - **Treat Dire Wolf as a secondary oracle** — if spec text is ambiguous, check

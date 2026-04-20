@@ -43,12 +43,6 @@ class DeviceResolver {
     ('APY', 'Yaesu (FTM/FT-series)'),
   ];
 
-  // Regex for valid generic > suffix: alphanumeric only, length 2-10.
-  // Restricted to [A-Za-z0-9] to prevent false positives on user comments
-  // that happen to contain '>'.  Device identifiers are always alphanumeric
-  // in practice (e.g. FT3DR, FTM400, TINYTRK).
-  static final _genericSuffixRe = RegExp(r'^[A-Za-z0-9]{2,10}$');
-
   // Regex for Yaesu FT3D series: trailing _\d (e.g. `_0`, `_1`).
   // Known limitation: this pattern will false-positive on user comments that
   // happen to end in `_0`–`_9` (e.g. "grid_0").  This is an accepted
@@ -97,13 +91,9 @@ class DeviceResolver {
     if (comment.endsWith('~')) return 'Yaesu FT2D';
     if (_ft3dRe.hasMatch(comment)) return 'Yaesu FT3D series';
 
-    // Generic > suffix: everything after the last >.
-    final gtIdx = comment.lastIndexOf('>');
-    if (gtIdx >= 0 && gtIdx < comment.length - 1) {
-      final suffix = comment.substring(gtIdx + 1);
-      if (_genericSuffixRe.hasMatch(suffix)) return suffix;
-    }
-
+    // Note: no generic `>IDENT` suffix resolver. Per aprs.org mic-e-types.txt
+    // and aprs-deviceid/tocalls.yaml, `>` is a device-identifier *prefix*
+    // (Kenwood TH-D7x series), never a suffix.
     return null;
   }
 }

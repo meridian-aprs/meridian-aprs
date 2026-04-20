@@ -93,15 +93,18 @@ void main() {
       );
     });
 
-    test('generic >FT3DR suffix → FT3DR', () {
+    // `>` is a Kenwood TH-D7x *prefix* per aprs-deviceid, never a suffix.
+    // Trailing `>IDENT` must not be interpreted as a device identifier —
+    // this used to false-positive on any in-comment callsign mention.
+    test('trailing `>FT3DR` does NOT resolve as a device', () {
       expect(
         DeviceResolver.resolve(micECommentSuffix: 'comment>FT3DR'),
-        equals('FT3DR'),
+        isNull,
       );
     });
 
-    test('generic > suffix with 2-char identifier → returned as device', () {
-      expect(DeviceResolver.resolve(micECommentSuffix: 'hi>AB'), equals('AB'));
+    test('trailing `>AB` does NOT resolve as a device', () {
+      expect(DeviceResolver.resolve(micECommentSuffix: 'hi>AB'), isNull);
     });
 
     test('no known pattern → null', () {
