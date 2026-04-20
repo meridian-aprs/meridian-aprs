@@ -40,7 +40,6 @@ import 'theme/desktop_theme.dart';
 import 'theme/ios_theme.dart';
 import 'theme/theme_controller.dart';
 
-
 /// Global navigator key so [NotificationService] can push routes from outside
 /// the widget tree (notification taps, inline reply navigation).
 final navigatorKey = GlobalKey<NavigatorState>();
