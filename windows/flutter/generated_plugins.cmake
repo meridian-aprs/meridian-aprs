@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   flutter_libserialport
+  flutter_secure_storage_windows
   geolocator_windows
   local_notifier
   permission_handler_windows
