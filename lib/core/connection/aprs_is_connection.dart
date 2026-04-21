@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../transport/aprs_is_transport.dart';
+import 'aprs_is_filter_config.dart';
 import 'connection_credentials.dart';
 import 'lat_lng_box.dart';
 import 'meridian_connection.dart';
@@ -36,6 +37,21 @@ class AprsIsConnection extends MeridianConnection {
 
   bool _beaconingEnabled = true;
   bool _autoConnect = false;
+
+  /// Active server-side filter configuration. Defaults to [AprsIsFilterConfig
+  /// .defaultConfig] (Regional — the v0.12-equivalent values) so callers that
+  /// don't set a config explicitly still get the old behaviour.
+  AprsIsFilterConfig _filterConfig = AprsIsFilterConfig.defaultConfig;
+
+  /// Current filter config used by [updateFilter] and [defaultFilterLine].
+  AprsIsFilterConfig get filterConfig => _filterConfig;
+
+  /// Replace the active filter configuration. Does not send anything to the
+  /// server on its own — the next [updateFilter] call will compose a new
+  /// `#filter a/` line using these values.
+  void setFilterConfig(AprsIsFilterConfig config) {
+    _filterConfig = config;
+  }
 
   /// Whether the user last chose to have this connection active.
   /// Seeded from SharedPreferences in [loadPersistedSettings]; defaults false
@@ -199,25 +215,35 @@ class AprsIsConnection extends MeridianConnection {
     );
   }
 
+  /// Kilometres per degree of latitude — the flat-earth approximation used
+  /// throughout the filter math. Matches the pre-Phase-3 hardcoded value
+  /// (0.45° ≈ 50 km) so Regional remains bit-identical to v0.12.
+  static const double _kmPerDegree = 111.0;
+
   /// Send a `#filter a/` bounding-box command derived from the current map
   /// viewport.
   ///
-  /// The filter is padded by 25 % on each edge to pre-fetch stations just
-  /// outside the visible area, and a minimum of ≈50 km (0.45 °) half-extent is
-  /// enforced on each axis so very close zooms still receive a useful feed.
+  /// The filter is padded by [AprsIsFilterConfig.padPct] on each edge to
+  /// pre-fetch stations just outside the visible area, and a minimum half-
+  /// extent of [AprsIsFilterConfig.minRadiusKm] is enforced on each axis so
+  /// very close zooms still receive a useful feed. Uses [_filterConfig] by
+  /// default; pass [config] explicitly to override for a single call.
   ///
   /// No-op if the transport is not connected.
-  void updateFilter(LatLngBox box) {
-    final latPad = (box.north - box.south) * 0.25;
-    final lonPad = (box.east - box.west) * 0.25;
+  void updateFilter(LatLngBox box, {AprsIsFilterConfig? config}) {
+    final cfg = config ?? _filterConfig;
+    final latPad = (box.north - box.south) * cfg.padPct;
+    final lonPad = (box.east - box.west) * cfg.padPct;
 
     final paddedS = box.south - latPad;
     final paddedN = box.north + latPad;
     final paddedW = box.west - lonPad;
     final paddedE = box.east + lonPad;
 
-    // Enforce minimum ~50 km equivalent half-extent (≈0.45° lat/lon).
-    const minHalf = 0.45;
+    // Enforce minimum radius as a degree half-extent. Uses the same
+    // approximation (no cos(lat) correction) as the pre-Phase-3 code so
+    // Regional values match v0.12 byte-for-byte.
+    final minHalf = cfg.minRadiusKm / _kmPerDegree;
     final midLat = (paddedS + paddedN) / 2;
     final midLon = (paddedW + paddedE) / 2;
     final effectiveS = min(paddedS, midLat - minHalf).clamp(-90.0, 90.0);
@@ -234,10 +260,20 @@ class AprsIsConnection extends MeridianConnection {
   }
 
   /// Build a default bounding-box filter string centred on [lat]/[lon] with a
-  /// 1.5 ° half-extent (≈167 km at the equator). Used at connect time when no
-  /// viewport bounds are available yet.
-  static String defaultFilterLine(double lat, double lon) {
-    const half = 1.5;
+  /// generous half-extent. Used at connect time when no viewport bounds are
+  /// available yet. The no-viewport case uses at least ~167 km (1.5°) so the
+  /// initial feed is useful regardless of the user's preset — a tighter
+  /// preset would otherwise starve the first burst of packets.
+  static String defaultFilterLine(
+    double lat,
+    double lon, {
+    AprsIsFilterConfig? config,
+  }) {
+    final cfg = config ?? AprsIsFilterConfig.defaultConfig;
+    // Use the preset's minimum radius as a floor but never less than ~167 km
+    // so "Local" doesn't collapse the first-connect window to 25 km.
+    final km = cfg.minRadiusKm < 167.0 ? 167.0 : cfg.minRadiusKm;
+    final half = km / _kmPerDegree;
     final s = (lat - half).clamp(-90.0, 90.0);
     final n = (lat + half).clamp(-90.0, 90.0);
     final w = lon - half;

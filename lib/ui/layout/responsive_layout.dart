@@ -33,6 +33,8 @@ class ResponsiveLayout extends StatelessWidget {
     this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
+    this.activeAprsIsFilterLabel,
+    this.onActiveAprsIsFilterTap,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
     this.nearestWxStation,
@@ -57,6 +59,13 @@ class ResponsiveLayout extends StatelessWidget {
   /// Non-null label shown as a chip on the map surface when a non-default
   /// time filter is active.
   final String? activeFilterLabel;
+
+  /// Non-null label shown as a chip on the map surface when a non-default
+  /// APRS-IS filter preset is active (i.e. not Regional).
+  final String? activeAprsIsFilterLabel;
+
+  /// Called when the user taps the APRS-IS filter chip.
+  final VoidCallback? onActiveAprsIsFilterTap;
 
   final int visibleStationCount;
   final int totalStationCount;
@@ -92,6 +101,8 @@ class ResponsiveLayout extends StatelessWidget {
         trackPolylines: trackPolylines,
         onOpenFilterPanel: onOpenFilterPanel,
         activeFilterLabel: activeFilterLabel,
+        activeAprsIsFilterLabel: activeAprsIsFilterLabel,
+        onActiveAprsIsFilterTap: onActiveAprsIsFilterTap,
         visibleStationCount: visibleStationCount,
         totalStationCount: totalStationCount,
         nearestWxStation: nearestWxStation,
@@ -115,6 +126,8 @@ class ResponsiveLayout extends StatelessWidget {
         trackPolylines: trackPolylines,
         onOpenFilterPanel: onOpenFilterPanel,
         activeFilterLabel: activeFilterLabel,
+        activeAprsIsFilterLabel: activeAprsIsFilterLabel,
+        onActiveAprsIsFilterTap: onActiveAprsIsFilterTap,
         visibleStationCount: visibleStationCount,
         totalStationCount: totalStationCount,
         nearestWxStation: nearestWxStation,
@@ -137,6 +150,8 @@ class ResponsiveLayout extends StatelessWidget {
       trackPolylines: trackPolylines,
       onOpenFilterPanel: onOpenFilterPanel,
       activeFilterLabel: activeFilterLabel,
+      activeAprsIsFilterLabel: activeAprsIsFilterLabel,
+      onActiveAprsIsFilterTap: onActiveAprsIsFilterTap,
       visibleStationCount: visibleStationCount,
       totalStationCount: totalStationCount,
       nearestWxStation: nearestWxStation,

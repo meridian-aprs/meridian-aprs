@@ -52,6 +52,8 @@ class MeridianMap extends StatelessWidget {
     this.trackPolylines = const [],
     this.activeFilterLabel,
     this.onActiveFilterTap,
+    this.activeAprsIsFilterLabel,
+    this.onActiveAprsIsFilterTap,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
     this.showCountChip = false,
@@ -97,6 +99,15 @@ class MeridianMap extends StatelessWidget {
 
   /// Called when the user taps the active filter chip.
   final VoidCallback? onActiveFilterTap;
+
+  /// When non-null, a compact chip is shown on the map surface indicating the
+  /// active APRS-IS server-side filter preset (e.g. "Local", "Wide",
+  /// "Custom"). Regional is the default and should pass null here.
+  final String? activeAprsIsFilterLabel;
+
+  /// Called when the user taps the APRS-IS filter chip. Typically opens the
+  /// Settings screen at the APRS-IS Filter section.
+  final VoidCallback? onActiveAprsIsFilterTap;
 
   /// Number of stations passing the current display filter.
   final int visibleStationCount;
@@ -161,7 +172,9 @@ class MeridianMap extends StatelessWidget {
             right: 0,
             child: Center(child: _ConnectingBanner()),
           ),
-        if (onNotConnectedTap != null || activeFilterLabel != null)
+        if (onNotConnectedTap != null ||
+            activeFilterLabel != null ||
+            activeAprsIsFilterLabel != null)
           Positioned(
             top: 12,
             left: 12,
@@ -173,6 +186,15 @@ class MeridianMap extends StatelessWidget {
                   _NotConnectedNudge(
                     visible: !isAnyConnected,
                     onTap: onNotConnectedTap!,
+                  ),
+                if (activeAprsIsFilterLabel != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: _ActiveFilterChip(
+                      label: activeAprsIsFilterLabel!,
+                      icon: Symbols.filter_tilt_shift,
+                      onTap: onActiveAprsIsFilterTap,
+                    ),
                   ),
                 if (activeFilterLabel != null)
                   _ActiveFilterChip(
@@ -249,15 +271,20 @@ class _NotConnectedNudge extends StatelessWidget {
 /// Compact chip shown on the map surface when a non-default time filter is
 /// active. Tapping it opens the filter panel.
 class _ActiveFilterChip extends StatelessWidget {
-  const _ActiveFilterChip({required this.label, this.onTap});
+  const _ActiveFilterChip({
+    required this.label,
+    this.icon = Symbols.filter_list,
+    this.onTap,
+  });
 
   final String label;
+  final IconData icon;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return ActionChip(
-      avatar: const Icon(Symbols.filter_list, size: 16),
+      avatar: Icon(icon, size: 16),
       label: Text(label),
       onPressed: onTap,
       visualDensity: VisualDensity.compact,

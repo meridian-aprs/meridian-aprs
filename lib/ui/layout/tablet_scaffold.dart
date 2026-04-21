@@ -46,6 +46,8 @@ class TabletScaffold extends StatefulWidget {
     this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
+    this.activeAprsIsFilterLabel,
+    this.onActiveAprsIsFilterTap,
     this.visibleStationCount = 0,
     this.totalStationCount = 0,
     this.nearestWxStation,
@@ -67,6 +69,8 @@ class TabletScaffold extends StatefulWidget {
   final List<Polyline> trackPolylines;
   final VoidCallback onOpenFilterPanel;
   final String? activeFilterLabel;
+  final String? activeAprsIsFilterLabel;
+  final VoidCallback? onActiveAprsIsFilterTap;
   final int visibleStationCount;
   final int totalStationCount;
   final Station? nearestWxStation;
@@ -321,6 +325,8 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                         trackPolylines: widget.trackPolylines,
                         activeFilterLabel: widget.activeFilterLabel,
                         onActiveFilterTap: widget.onOpenFilterPanel,
+                        activeAprsIsFilterLabel: widget.activeAprsIsFilterLabel,
+                        onActiveAprsIsFilterTap: widget.onActiveAprsIsFilterTap,
                         visibleStationCount: widget.visibleStationCount,
                         totalStationCount: widget.totalStationCount,
                         nearestWxStation: widget.nearestWxStation,

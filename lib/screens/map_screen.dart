@@ -10,11 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../core/connection/aprs_is_connection.dart';
+import '../core/connection/aprs_is_filter_config.dart';
 import '../core/connection/connection_registry.dart';
 import '../core/connection/lat_lng_box.dart';
 import '../core/packet/station.dart';
 import '../map/meridian_tile_provider.dart';
 import '../services/station_service.dart';
+import '../services/station_settings_service.dart';
 import '../services/tx_service.dart';
 import '../ui/layout/responsive_layout.dart';
 import '../ui/widgets/map_filter_panel.dart';
@@ -83,6 +85,7 @@ class _MapScreenState extends State<MapScreen> {
   int _totalStationCount = 0;
   Station? _nearestWxStation;
   LatLng? _pinLocation;
+  StationSettingsService? _settingsRef;
 
   @override
   void initState() {
@@ -101,6 +104,15 @@ class _MapScreenState extends State<MapScreen> {
       (_) => _rebuildMarkers(),
     );
     _txEventSub = context.read<TxService>().events.listen(_onTxEvent);
+
+    // Push the persisted APRS-IS filter config into the connection once at
+    // startup, before the first viewport update fires, so the initial
+    // `#filter` line reflects the user's choice rather than the Regional
+    // default. Then subscribe to further settings changes.
+    final settings = context.read<StationSettingsService>();
+    _settingsRef = settings;
+    _pushFilterConfigToConnection();
+    settings.addListener(_onFilterSettingsChanged);
 
     // APRS-IS filter update and prefs persistence: wait until the map fully
     // settles (momentum animation ends) before sending a new server filter.
@@ -155,9 +167,26 @@ class _MapScreenState extends State<MapScreen> {
     _slidingWindowTick?.cancel();
     _txEventSub?.cancel();
     _service.removeListener(_onServiceSettingChanged);
+    _settingsRef?.removeListener(_onFilterSettingsChanged);
     _tileProvider.dispose();
     super.dispose();
   }
+
+  /// Push the current persisted [AprsIsFilterConfig] into the active APRS-IS
+  /// connection so the next `updateFilter(box)` call uses the user's values.
+  void _pushFilterConfigToConnection() {
+    if (!mounted) return;
+    final aprsIsConn = context.read<ConnectionRegistry>().byId('aprs_is');
+    if (aprsIsConn is! AprsIsConnection) return;
+    aprsIsConn.setFilterConfig(
+      context.read<StationSettingsService>().aprsIsFilter,
+    );
+  }
+
+  /// Re-push the filter config whenever [StationSettingsService] notifies.
+  /// Cheap — the connection just updates an internal field; no network I/O
+  /// happens until the next viewport move fires.
+  void _onFilterSettingsChanged() => _pushFilterConfigToConnection();
 
   /// Called when [StationService] notifies — e.g. when [stationMaxAgeMinutes]
   /// changes. Rebuilds markers so the display filter takes effect immediately.
@@ -550,10 +579,20 @@ class _MapScreenState extends State<MapScreen> {
     };
 
     final stationService = context.watch<StationService>();
+    final settings = context.watch<StationSettingsService>();
 
     // Show an active-filter chip when the time window is non-default (≠60 min).
     final maxAge = stationService.stationMaxAgeMinutes;
     final activeFilterLabel = _activeFilterLabel(maxAge);
+
+    // Show the APRS-IS preset chip only when not on the default (Regional).
+    final aprsIsPreset = settings.aprsIsFilter.preset;
+    final activeAprsIsFilterLabel = switch (aprsIsPreset) {
+      AprsIsFilterPreset.regional => null,
+      AprsIsFilterPreset.local => 'Local',
+      AprsIsFilterPreset.wide => 'Wide',
+      AprsIsFilterPreset.custom => 'Custom',
+    };
 
     // Badge the filter FAB when any filter deviates from defaults (60 min,
     // all types visible, tracks on).
@@ -594,6 +633,8 @@ class _MapScreenState extends State<MapScreen> {
       trackPolylines: _trackPolylines,
       onOpenFilterPanel: _openFilterPanel,
       activeFilterLabel: activeFilterLabel,
+      activeAprsIsFilterLabel: activeAprsIsFilterLabel,
+      onActiveAprsIsFilterTap: _navigateToSettings,
       visibleStationCount: _visibleStationCount,
       totalStationCount: _totalStationCount,
       nearestWxStation: _nearestWxStation,

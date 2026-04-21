@@ -5,6 +5,7 @@ import 'settings/sections/account_section.dart';
 import 'settings/sections/acknowledgements_section.dart';
 import 'settings/sections/app_color_section.dart';
 import 'settings/sections/appearance_section.dart';
+import 'settings/sections/aprs_is_filter_section.dart';
 import 'settings/sections/beaconing_section.dart';
 import 'settings/sections/connection_section.dart';
 import 'settings/sections/display_section.dart';
@@ -29,6 +30,7 @@ class SettingsScreen extends StatelessWidget {
       const MyStationSection(),
       const BeaconingSection(),
       const ConnectionSection(),
+      const AprsIsFilterSection(),
       const HistorySection(),
       const MapSection(),
       const DisplaySection(),
