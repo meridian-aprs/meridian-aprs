@@ -1,5 +1,6 @@
 # Local development overrides (never commit)
 ios/Flutter/local.xcconfig
+docs/milestones/v0.13-security-connectivity-spec.md
 
 # Miscellaneous
 *.class
