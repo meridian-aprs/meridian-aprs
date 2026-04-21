@@ -364,7 +364,7 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 - `FlutterForegroundTask.updateService()` called directly from the main isolate (not via `sendDataToTask()` round-trip) — simpler and correct.
 - `ACCESS_BACKGROUND_LOCATION` permission check placed in `BackgroundServiceManager.requestStartService(BuildContext)` — stays at the UI-initiation boundary, keeps `BeaconingService` free of Android-specific permission handling.
 - `minSdk` hardcoded to 21 in `build.gradle.kts` (required by `flutter_foreground_task`; previously `flutter.minSdkVersion` which resolves to 16).
-- `FOREGROUND_SERVICE_CONNECTED_DEVICE` and `FOREGROUND_SERVICE_DATA_SYNC` added with `android:minSdkVersion="34"` guard — silently ignored on lower API levels.
+- `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `FOREGROUND_SERVICE_LOCATION`, and `FOREGROUND_SERVICE_DATA_SYNC` added with `android:minSdkVersion="34"` guard — silently ignored on lower API levels. `android:foregroundServiceType="dataSync|location|connectedDevice"` on the service element matches the permissions so the service can serve both auto/smart beaconing (location) and BLE TNC keepalive (connectedDevice). The `connectedDevice` type was initially missing from the manifest; corrected in v0.13 (issue #44) — see ADR-047.
 - `ForegroundServiceApi` injectable interface added to `BackgroundServiceManager` so the state machine can be unit-tested without platform channel dependencies.
 - `autoRunOnBoot: false` — the service does not automatically restart after device reboot.
 
