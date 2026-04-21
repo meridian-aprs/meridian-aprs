@@ -10,12 +10,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/core/connection/aprs_is_connection.dart';
+import 'package:meridian_aprs/core/connection/connection_credentials.dart';
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
 import 'package:meridian_aprs/core/transport/aprs_is_transport.dart';
 import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../helpers/fake_meridian_connection.dart';
+import '../helpers/fake_secure_credential_store.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,7 +93,10 @@ void main() {
         // isLicensed defaults to false when key is absent
       });
       prefs = await SharedPreferences.getInstance();
-      settings = StationSettingsService(prefs);
+      settings = StationSettingsService(
+        prefs,
+        store: FakeSecureCredentialStore(),
+      );
 
       registry = ConnectionRegistry();
       sentViaConn = [];
@@ -143,17 +148,21 @@ void main() {
   // ---------------------------------------------------------------------------
 
   group('AprsIsConnection — N0CALL/-1 when unlicensed', () {
-    late SharedPreferences prefs;
-    late StationSettingsService settings;
     late _CapturingAprsIsTransport transport;
     late AprsIsConnection conn;
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
-      prefs = await SharedPreferences.getInstance();
-      settings = StationSettingsService(prefs);
       transport = _CapturingAprsIsTransport();
-      conn = AprsIsConnection(transport, settings: settings);
+      conn = AprsIsConnection(
+        transport,
+        credentials: const ConnectionCredentials(
+          callsign: 'W1AW',
+          ssid: 9,
+          passcode: '12345',
+          isLicensed: false,
+        ),
+      );
     });
 
     tearDown(() async {
@@ -161,30 +170,39 @@ void main() {
     });
 
     test('connect() applies N0CALL/-1 override when unlicensed', () async {
-      expect(settings.isLicensed, isFalse);
       await conn.connect();
-      // _applyLicenseOverride calls updateCredentials with N0CALL/-1.
+      // Override pushes a N0CALL/-1 login line into the transport on connect.
       expect(transport.capturedLoginLines, isNotEmpty);
       expect(transport.capturedLoginLines.last, contains('N0CALL'));
       expect(transport.capturedLoginLines.last, contains('-1'));
     });
 
-    test('connect() does NOT override when licensed', () async {
-      await settings.setIsLicensed(true);
-      // updateCredentials is not called by _applyLicenseOverride when licensed
-      final countBefore = transport.capturedLoginLines.length;
+    test('connect() does NOT force N0CALL when licensed', () async {
+      conn.setCredentials(
+        const ConnectionCredentials(
+          callsign: 'W1AW',
+          ssid: 9,
+          passcode: '12345',
+          isLicensed: true,
+        ),
+      );
       await conn.connect();
-      expect(transport.capturedLoginLines.length, equals(countBefore));
+      expect(transport.capturedLoginLines.last, contains('W1AW-9'));
+      expect(transport.capturedLoginLines.last, contains('12345'));
+      expect(transport.capturedLoginLines.last, isNot(contains('N0CALL')));
     });
 
     test(
-      'updateCredentials() applies N0CALL/-1 override when unlicensed',
+      'setCredentials() applies N0CALL/-1 override when unlicensed',
       () async {
-        expect(settings.isLicensed, isFalse);
-        conn.updateCredentials(
-          loginLine: 'user W1AW-9 pass 12345 vers meridian-aprs\r\n',
+        conn.setCredentials(
+          const ConnectionCredentials(
+            callsign: 'W1AW',
+            ssid: 9,
+            passcode: '12345',
+            isLicensed: false,
+          ),
         );
-        // Two calls: the raw passthrough + the override.
         expect(
           transport.capturedLoginLines.any((l) => l.contains('N0CALL')),
           isTrue,

@@ -17,11 +17,11 @@ import 'services/notification_service.dart';
 import 'ui/widgets/in_app_banner_overlay.dart';
 
 import 'config/app_config.dart';
-import 'config/app_version.dart';
 import 'core/connection/aprs_is_connection.dart';
 import 'core/connection/ble_connection.dart';
 import 'core/connection/connection_registry.dart';
 import 'core/connection/serial_connection.dart';
+import 'core/credentials/secure_credential_store.dart';
 import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/packet/device_resolver.dart';
 import 'core/transport/aprs_is_transport.dart';
@@ -85,8 +85,12 @@ Future<void> main() async {
 
   // StationSettingsService is the canonical owner of all station identity
   // fields. Create it here so passcode and callsign can be read from it
-  // rather than from raw SharedPreferences below.
-  final stationSettings = StationSettingsService(prefs);
+  // rather than from raw SharedPreferences below. The passcode is backed by
+  // the platform secure store (Keychain / Keystore) via [FlutterSecureCredentialStore];
+  // [load] primes the in-memory cache before any connection reads credentials.
+  final credentialStore = FlutterSecureCredentialStore();
+  final stationSettings = StationSettingsService(prefs, store: credentialStore);
+  await stationSettings.load();
 
   // Migration guard: users who completed setup before v0.12 won't have
   // onboarding_complete set, but already have a callsign saved. Mark them
@@ -103,23 +107,21 @@ Future<void> main() async {
   final effectiveCallsign = stationSettings.callsign.isNotEmpty
       ? stationSettings.callsign
       : 'NOCALL';
-  final ssidSuffix = stationSettings.ssid > 0 ? '-${stationSettings.ssid}' : '';
-  final effectivePasscode = stationSettings.passcode.isEmpty
-      ? '-1'
-      : stationSettings.passcode;
 
   // ---------------------------------------------------------------------------
   // Build connections
   // ---------------------------------------------------------------------------
 
+  final initialCredentials = stationSettings.credentials;
   final aprsIsTransport = AprsIsTransport(
-    loginLine:
-        'user $effectiveCallsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $kAppVersion\r\n',
+    loginLine: initialCredentials.isLicensed
+        ? initialCredentials.aprsIsLoginLine
+        : 'user N0CALL pass -1 vers meridian-aprs\r\n',
     filterLine: AprsIsConnection.defaultFilterLine(mapLat, mapLon),
   );
   final aprsIsConn = AprsIsConnection(
     aprsIsTransport,
-    settings: stationSettings,
+    credentials: initialCredentials,
   );
 
   // Platform-conditional TNC connections.

@@ -1,9 +1,8 @@
 import 'dart:async';
 
-import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:meridian_aprs/core/connection/aprs_is_connection.dart';
+import 'package:meridian_aprs/core/connection/lat_lng_box.dart';
 import 'package:meridian_aprs/core/connection/meridian_connection.dart';
 import 'package:meridian_aprs/core/transport/aprs_is_transport.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -159,11 +158,13 @@ void main() {
       // padded: s=46.75, n=48.25, w=-123.25, e=-121.75
       // minimum half-extent check: midLat=47.5, midLon=-122.5 → already >0.45
       // a/ format: a/latN/lonW/latS/lonE → a/48.25/-123.25/46.75/-121.75
-      final bounds = LatLngBounds(
-        const LatLng(47.0, -123.0),
-        const LatLng(48.0, -122.0),
+      const box = LatLngBox(
+        north: 48.0,
+        south: 47.0,
+        east: -122.0,
+        west: -123.0,
       );
-      conn.updateFilter(bounds);
+      conn.updateFilter(box);
       expect(transport.sentLines.length, 1);
       expect(transport.sentLines.first, startsWith('#filter a/'));
       expect(transport.sentLines.first, endsWith('\r\n'));

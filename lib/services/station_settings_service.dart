@@ -5,17 +5,27 @@
 /// [BeaconingService] and [MessageService].
 /// Persists changes immediately to [SharedPreferences] on every setter call —
 /// there is no Save button.
+///
+/// The APRS-IS passcode is the one exception: it is persisted to
+/// [SecureCredentialStore] (platform keychain / keystore) rather than
+/// SharedPreferences. Call [load] after construction and before the first
+/// read of [passcode] to prime the in-memory cache from the secure store.
 library;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/connection/connection_credentials.dart';
+import '../core/credentials/credential_key.dart';
+import '../core/credentials/secure_credential_store.dart';
+
 /// Whether to use live GPS or a manually entered position for beaconing.
 enum LocationSource { gps, manual }
 
 class StationSettingsService extends ChangeNotifier {
-  StationSettingsService(this._prefs)
-    : _callsign = _prefs.getString(_keyCallsign) ?? '',
+  StationSettingsService(this._prefs, {required SecureCredentialStore store})
+    : _store = store,
+      _callsign = _prefs.getString(_keyCallsign) ?? '',
       _ssid = _prefs.getInt(_keySsid) ?? 0,
       _symbolTable = _prefs.getString(_keySymbolTable) ?? '/',
       _symbolCode = _prefs.getString(_keySymbolCode) ?? '>',
@@ -28,9 +38,10 @@ class StationSettingsService extends ChangeNotifier {
           ) ??
           LocationSource.gps,
       _isLicensed = _prefs.getBool(_keyIsLicensed) ?? false,
-      _passcode = _prefs.getString(_keyPasscode) ?? '';
+      _passcode = '';
 
   final SharedPreferences _prefs;
+  final SecureCredentialStore _store;
 
   // SharedPreferences keys — reuse existing keys for callsign/SSID so that
   // values entered during onboarding are reflected here automatically.
@@ -43,7 +54,6 @@ class StationSettingsService extends ChangeNotifier {
   static const _keyManualLon = 'user_manual_lon';
   static const _keyLocationSource = 'user_location_source';
   static const _keyIsLicensed = 'user_is_licensed';
-  static const _keyPasscode = 'user_passcode';
 
   String _callsign;
   int _ssid;
@@ -63,7 +73,12 @@ class StationSettingsService extends ChangeNotifier {
   String get comment => _comment;
   bool get isLicensed => _isLicensed;
 
-  // plaintext stopgap; v0.13 migrates to secure storage
+  /// APRS-IS passcode, primed from [SecureCredentialStore] by [load].
+  ///
+  /// Returns an empty string before [load] completes (or if no passcode is
+  /// stored). Call sites that need a fresh value should await [load] at
+  /// startup — the secure store read is asynchronous but the getter itself
+  /// stays synchronous for UI consumption.
   String get passcode => _passcode;
 
   /// Whether to obtain position from live GPS or from [manualLat]/[manualLon].
@@ -78,6 +93,38 @@ class StationSettingsService extends ChangeNotifier {
   String get fullAddress => _ssid == 0
       ? _callsign.toUpperCase()
       : '${_callsign.toUpperCase()}-$_ssid';
+
+  /// Current credentials snapshot, suitable for pushing into
+  /// [AprsIsConnection.setCredentials].
+  ConnectionCredentials get credentials => ConnectionCredentials(
+    callsign: _callsign,
+    ssid: _ssid,
+    passcode: _passcode,
+    isLicensed: _isLicensed,
+  );
+
+  /// Prime async-backed fields (currently just [passcode]) from their
+  /// underlying stores. Call once at startup — and from onboarding — before
+  /// relying on the synchronous getter.
+  ///
+  /// Swallows [CredentialStoreException] silently: a failing secure store
+  /// leaves [passcode] empty, which the APRS-IS layer treats as the
+  /// unlicensed `-1` fallback. Errors are visible in debug output via the
+  /// store's own logging.
+  Future<void> load() async {
+    String? stored;
+    try {
+      stored = await _store.read(CredentialKey.aprsIsPasscode);
+    } catch (_) {
+      // SecureCredentialStore already logs platform errors; callers treat
+      // a missing passcode as receive-only (ADR-045).
+      stored = null;
+    }
+    final next = stored ?? '';
+    if (next == _passcode) return;
+    _passcode = next;
+    notifyListeners();
+  }
 
   Future<void> setCallsign(String value) async {
     final v = value.trim().toUpperCase();
@@ -124,7 +171,11 @@ class StationSettingsService extends ChangeNotifier {
   Future<void> setPasscode(String value) async {
     if (value == _passcode) return;
     _passcode = value;
-    await _prefs.setString(_keyPasscode, value);
+    if (value.isEmpty) {
+      await _store.delete(CredentialKey.aprsIsPasscode);
+    } else {
+      await _store.write(CredentialKey.aprsIsPasscode, value);
+    }
     notifyListeners();
   }
 

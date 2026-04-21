@@ -5,6 +5,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/credentials/credential_key.dart';
+import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
 
 /// Entry point called by flutter_foreground_task when the foreground service
@@ -132,7 +134,25 @@ class MeridianConnectionTask extends TaskHandler {
     if (callsign.isEmpty) return; // Not configured — skip.
 
     final ssid = prefs.getInt('user_ssid') ?? 0;
-    final passcode = prefs.getString('user_passcode') ?? '-1';
+
+    // Passcode lives in the platform secure store rather than SharedPreferences
+    // (v0.13 — [SecureCredentialStore]). Reading from here in the background
+    // isolate requires flutter_secure_storage to be accessible; on Android and
+    // iOS this works because the Keystore/Keychain entries are process-scoped
+    // and the plugin initialises itself per isolate. NEEDS-DEVICE-VERIFICATION
+    // on first background beacon after upgrade.
+    String passcode;
+    try {
+      passcode =
+          await FlutterSecureCredentialStore().read(
+            CredentialKey.aprsIsPasscode,
+          ) ??
+          '-1';
+      if (passcode.isEmpty) passcode = '-1';
+    } catch (_) {
+      passcode = '-1';
+    }
+
     final symbolTable = prefs.getString('user_symbol_table') ?? '/';
     final symbolCode = prefs.getString('user_symbol_code') ?? '>';
     final comment = prefs.getString('user_comment') ?? '';

@@ -13,6 +13,7 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import 'helpers/fake_meridian_connection.dart';
+import 'helpers/fake_secure_credential_store.dart';
 
 void main() {
   testWidgets('MapScreen renders without throwing', (
@@ -32,7 +33,10 @@ void main() {
     registry.register(aprsIsConn);
 
     final service = StationService();
-    final stationSettings = StationSettingsService(prefs);
+    final stationSettings = StationSettingsService(
+      prefs,
+      store: FakeSecureCredentialStore(),
+    );
     final txService = TxService(registry, stationSettings);
     final beaconingService = BeaconingService(stationSettings, txService);
     final messageService = MessageService(stationSettings, txService, service);

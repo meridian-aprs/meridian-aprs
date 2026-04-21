@@ -13,6 +13,8 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 import 'package:meridian_aprs/ui/widgets/in_app_banner_overlay.dart';
 
+import '../helpers/fake_secure_credential_store.dart';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -45,7 +47,10 @@ class _Fixture {
     });
 
     final prefs = await SharedPreferences.getInstance();
-    final settings = StationSettingsService(prefs);
+    final settings = StationSettingsService(
+      prefs,
+      store: FakeSecureCredentialStore(),
+    );
     final stationService = StationService();
     final registry = ConnectionRegistry();
     final txService = _SilentTxService(registry, settings);

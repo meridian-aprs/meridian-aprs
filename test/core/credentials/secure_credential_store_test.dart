@@ -2,40 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/credentials/credential_key.dart';
 import 'package:meridian_aprs/core/credentials/secure_credential_store.dart';
 
-// ---------------------------------------------------------------------------
-// In-memory fake used by the contract tests.
-//
-// Lives in the test file (per Phase 1 scope) rather than in production code.
-// Models the library's natural behaviour: missing keys return null from read,
-// no platform errors are simulated here.
-// ---------------------------------------------------------------------------
-
-class _FakeSecureCredentialStore implements SecureCredentialStore {
-  final Map<CredentialKey, String> _values = {};
-
-  @override
-  Future<String?> read(CredentialKey key) async => _values[key];
-
-  @override
-  Future<void> write(CredentialKey key, String value) async {
-    _values[key] = value;
-  }
-
-  @override
-  Future<void> delete(CredentialKey key) async {
-    _values.remove(key);
-  }
-
-  @override
-  Future<bool> exists(CredentialKey key) async => _values.containsKey(key);
-
-  @override
-  Future<void> clear() async => _values.clear();
-}
+import '../../helpers/fake_secure_credential_store.dart';
 
 /// Contract tests — invoked against any [SecureCredentialStore] factory.
 ///
-/// Phase 1 only exercises the [_FakeSecureCredentialStore]. Phase 2+ may
+/// Phase 1 only exercises the [FakeSecureCredentialStore]. Phase 2+ may
 /// reuse this helper against a platform-channel-mocked
 /// [FlutterSecureCredentialStore].
 void runContractTests(String name, SecureCredentialStore Function() factory) {
@@ -98,7 +69,7 @@ void runContractTests(String name, SecureCredentialStore Function() factory) {
 void main() {
   runContractTests(
     'FakeSecureCredentialStore',
-    () => _FakeSecureCredentialStore(),
+    () => FakeSecureCredentialStore(),
   );
 
   group('CredentialKey.storageKey', () {

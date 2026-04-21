@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../core/connection/aprs_is_connection.dart';
 import '../core/connection/connection_registry.dart';
+import '../core/connection/lat_lng_box.dart';
 import '../core/packet/station.dart';
 import '../map/meridian_tile_provider.dart';
 import '../services/station_service.dart';
@@ -221,7 +222,10 @@ class _MapScreenState extends State<MapScreen> {
       debugPrint('Filter update: bounds=${camera.visibleBounds}');
       final aprsIsConn = context.read<ConnectionRegistry>().byId('aprs_is');
       if (aprsIsConn is AprsIsConnection) {
-        aprsIsConn.updateFilter(camera.visibleBounds);
+        final b = camera.visibleBounds;
+        aprsIsConn.updateFilter(
+          LatLngBox(north: b.north, south: b.south, east: b.east, west: b.west),
+        );
       }
       SharedPreferences.getInstance().then((prefs) {
         prefs.setDouble('map_last_lat', center.latitude);

@@ -1,7 +1,9 @@
 /// Integration tests for onboarding persistence via [StationSettingsService].
 ///
-/// Verifies that all fields default correctly, round-trip through
-/// SharedPreferences, and that the 36-character comment cap is enforced.
+/// Verifies that all fields default correctly, round-trip through their
+/// respective backing stores (SharedPreferences for most fields, the
+/// [SecureCredentialStore] for the passcode), and that the 36-character
+/// comment cap is enforced.
 library;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -9,9 +11,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/services/station_settings_service.dart';
 
+import '../helpers/fake_secure_credential_store.dart';
+
 void main() {
+  late FakeSecureCredentialStore store;
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
+    store = FakeSecureCredentialStore();
   });
 
   // ---------------------------------------------------------------------------
@@ -20,7 +27,8 @@ void main() {
 
   test('all fields default correctly on fresh install', () async {
     final prefs = await SharedPreferences.getInstance();
-    final service = StationSettingsService(prefs);
+    final service = StationSettingsService(prefs, store: store);
+    await service.load();
 
     expect(service.callsign, '');
     expect(service.ssid, 0);
@@ -37,13 +45,13 @@ void main() {
 
   test('callsign and SSID round-trip across service instances', () async {
     final prefs = await SharedPreferences.getInstance();
-    final service1 = StationSettingsService(prefs);
+    final service1 = StationSettingsService(prefs, store: store);
 
     await service1.setCallsign('W1AW');
     await service1.setSsid(9);
 
     // Simulate cold restart: new instance reads the same prefs singleton.
-    final service2 = StationSettingsService(prefs);
+    final service2 = StationSettingsService(prefs, store: store);
 
     expect(service2.callsign, 'W1AW');
     expect(service2.ssid, 9);
@@ -55,26 +63,43 @@ void main() {
 
   test('isLicensed round-trips across service instances', () async {
     final prefs = await SharedPreferences.getInstance();
-    final service1 = StationSettingsService(prefs);
+    final service1 = StationSettingsService(prefs, store: store);
 
     await service1.setIsLicensed(true);
 
-    final service2 = StationSettingsService(prefs);
+    final service2 = StationSettingsService(prefs, store: store);
     expect(service2.isLicensed, true);
   });
 
   // ---------------------------------------------------------------------------
-  // 4. passcode round-trip
+  // 4. passcode round-trip via SecureCredentialStore
   // ---------------------------------------------------------------------------
 
-  test('passcode round-trips across service instances', () async {
+  test(
+    'passcode round-trips across service instances via secure store',
+    () async {
+      final prefs = await SharedPreferences.getInstance();
+      final service1 = StationSettingsService(prefs, store: store);
+
+      await service1.setPasscode('12345');
+
+      // Both service instances share the same fake store — simulates a cold
+      // restart where the platform secure store persists across launches.
+      final service2 = StationSettingsService(prefs, store: store);
+      await service2.load();
+      expect(service2.passcode, '12345');
+    },
+  );
+
+  test('setPasscode with empty string clears the secure store entry', () async {
     final prefs = await SharedPreferences.getInstance();
-    final service1 = StationSettingsService(prefs);
+    final service = StationSettingsService(prefs, store: store);
+    await service.setPasscode('12345');
+    await service.setPasscode('');
 
-    await service1.setPasscode('12345');
-
-    final service2 = StationSettingsService(prefs);
-    expect(service2.passcode, '12345');
+    final service2 = StationSettingsService(prefs, store: store);
+    await service2.load();
+    expect(service2.passcode, '');
   });
 
   // ---------------------------------------------------------------------------
@@ -83,7 +108,7 @@ void main() {
 
   test('setComment truncates input to 36 characters', () async {
     final prefs = await SharedPreferences.getInstance();
-    final service = StationSettingsService(prefs);
+    final service = StationSettingsService(prefs, store: store);
 
     // Pass a 50-character string — should be capped at 36.
     const input = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEF'; // 42 chars
@@ -93,7 +118,7 @@ void main() {
     expect(service.comment, input.substring(0, 36));
 
     // Verify the truncated value also persisted.
-    final service2 = StationSettingsService(prefs);
+    final service2 = StationSettingsService(prefs, store: store);
     expect(service2.comment.length, 36);
   });
 }

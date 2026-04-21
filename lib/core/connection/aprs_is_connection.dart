@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:math' show min, max;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../services/station_settings_service.dart';
 import '../transport/aprs_is_transport.dart';
+import 'connection_credentials.dart';
+import 'lat_lng_box.dart';
 import 'meridian_connection.dart';
 
 /// APRS-IS connection over TCP (or WebSocket proxy on web — see ADR-004).
@@ -15,12 +15,12 @@ import 'meridian_connection.dart';
 /// interface. Beaconing is enabled by default and persisted to
 /// SharedPreferences under the key `beacon_enabled_aprs_is`.
 ///
-/// When [StationSettingsService.isLicensed] is false, the APRS-IS login line
+/// When [ConnectionCredentials.isLicensed] is false, the APRS-IS login line
 /// is substituted with `N0CALL` / passcode `-1` on every [connect] call — see
 /// ADR-045.
 class AprsIsConnection extends MeridianConnection {
-  AprsIsConnection(this._transport, {StationSettingsService? settings})
-    : _settings = settings {
+  AprsIsConnection(this._transport, {ConnectionCredentials? credentials})
+    : _credentials = credentials {
     // Mirror every transport state change into a ChangeNotifier notification so
     // that ConnectionRegistry (and all UI widgets watching it) rebuild whenever
     // the socket connects, disconnects, or drops unexpectedly.
@@ -28,7 +28,7 @@ class AprsIsConnection extends MeridianConnection {
   }
 
   final AprsIsTransport _transport;
-  final StationSettingsService? _settings;
+  ConnectionCredentials? _credentials;
   StreamSubscription<ConnectionStatus>? _stateSub;
 
   static const _kBeaconingKey = 'beacon_enabled_aprs_is';
@@ -106,7 +106,7 @@ class AprsIsConnection extends MeridianConnection {
 
   @override
   Future<void> connect() async {
-    _applyLicenseOverride();
+    _applyCredentialsToTransport();
     await _transport.connect();
     _autoConnect = true;
     SharedPreferences.getInstance().then(
@@ -144,40 +144,62 @@ class AprsIsConnection extends MeridianConnection {
   // APRS-IS specific API
   // ---------------------------------------------------------------------------
 
-  /// Update the login and filter lines used on the next [connect] call.
+  /// Currently-held credentials snapshot, or null if none has been set yet.
+  ConnectionCredentials? get credentials => _credentials;
+
+  /// Replace the credentials used on the next [connect] call.
   ///
   /// Safe to call while disconnected. Has no effect on an active connection —
-  /// reconnect to apply the new credentials.
+  /// reconnect to apply the new credentials. Also applies the resulting login
+  /// line to the underlying transport immediately so that later inspection or
+  /// reconnect paths see a consistent value.
   ///
-  /// When [StationSettingsService.isLicensed] is false, the supplied
-  /// [loginLine] is overridden with the N0CALL/-1 receive-only form — see
-  /// ADR-045.
-  void updateCredentials({required String loginLine, String? filterLine}) {
-    _transport.updateCredentials(loginLine: loginLine, filterLine: filterLine);
-    // Re-apply the override so the stored line reflects the licensed state.
-    _applyLicenseOverride(filterLine: filterLine);
+  /// When [ConnectionCredentials.isLicensed] is false, the login line is
+  /// overridden with the N0CALL/-1 receive-only form — see ADR-045.
+  void setCredentials(ConnectionCredentials credentials, {String? filterLine}) {
+    _credentials = credentials;
+    _applyCredentialsToTransport(filterLine: filterLine);
+  }
+
+  /// Update only the APRS-IS server-side filter line.
+  ///
+  /// Unlike [setCredentials], this does not touch the login line; safe to call
+  /// while connected and the next `#filter` sent via [updateFilter] will
+  /// continue to honour it.
+  void updateFilterLine(String filterLine) {
+    _transport.updateCredentials(
+      loginLine: _effectiveLoginLine(),
+      filterLine: filterLine,
+    );
   }
 
   // ---------------------------------------------------------------------------
   // License-mode override
   // ---------------------------------------------------------------------------
 
-  /// When the user is unlicensed, replaces the login line in the underlying
-  /// transport with the APRS-IS receive-only form (`N0CALL` / passcode `-1`).
-  ///
-  /// Called on every [connect] and [updateCredentials] so that a change in
-  /// licensed status always takes effect before the next connection attempt.
-  /// The [filterLine] is preserved unchanged.
-  void _applyLicenseOverride({String? filterLine}) {
-    final settings = _settings;
-    if (settings == null || settings.isLicensed) return;
+  /// Computes the login line the transport should carry given the current
+  /// credentials and licensed state. Returns the N0CALL/-1 receive-only line
+  /// whenever credentials are absent or the user is unlicensed (ADR-045).
+  String _effectiveLoginLine() {
+    final creds = _credentials;
+    if (creds == null || !creds.isLicensed) {
+      return 'user N0CALL pass -1 vers meridian-aprs\r\n';
+    }
+    return creds.aprsIsLoginLine;
+  }
+
+  /// Pushes the current effective login (and optional filter) into the
+  /// underlying transport. Invoked on [connect] and whenever credentials
+  /// change so the licensed-state override always takes effect before the
+  /// next connection attempt.
+  void _applyCredentialsToTransport({String? filterLine}) {
     _transport.updateCredentials(
-      loginLine: 'user N0CALL pass -1 vers meridian-aprs\r\n',
+      loginLine: _effectiveLoginLine(),
       filterLine: filterLine,
     );
   }
 
-  /// Send a `#filter b/` bounding-box command derived from the current map
+  /// Send a `#filter a/` bounding-box command derived from the current map
   /// viewport.
   ///
   /// The filter is padded by 25 % on each edge to pre-fetch stations just
@@ -185,14 +207,14 @@ class AprsIsConnection extends MeridianConnection {
   /// enforced on each axis so very close zooms still receive a useful feed.
   ///
   /// No-op if the transport is not connected.
-  void updateFilter(LatLngBounds bounds) {
-    final latPad = (bounds.north - bounds.south) * 0.25;
-    final lonPad = (bounds.east - bounds.west) * 0.25;
+  void updateFilter(LatLngBox box) {
+    final latPad = (box.north - box.south) * 0.25;
+    final lonPad = (box.east - box.west) * 0.25;
 
-    final paddedS = bounds.south - latPad;
-    final paddedN = bounds.north + latPad;
-    final paddedW = bounds.west - lonPad;
-    final paddedE = bounds.east + lonPad;
+    final paddedS = box.south - latPad;
+    final paddedN = box.north + latPad;
+    final paddedW = box.west - lonPad;
+    final paddedE = box.east + lonPad;
 
     // Enforce minimum ~50 km equivalent half-extent (≈0.45° lat/lon).
     const minHalf = 0.45;

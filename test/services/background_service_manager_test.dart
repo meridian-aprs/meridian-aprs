@@ -10,6 +10,7 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../helpers/fake_meridian_connection.dart';
+import '../helpers/fake_secure_credential_store.dart';
 
 // ---------------------------------------------------------------------------
 // FakeForegroundServiceApi
@@ -82,7 +83,10 @@ _buildDeps() async {
     type: ConnectionType.aprsIs,
   );
   registry.register(aprsIs);
-  final settings = StationSettingsService(prefs);
+  final settings = StationSettingsService(
+    prefs,
+    store: FakeSecureCredentialStore(),
+  );
   final tx = TxService(registry, settings);
   final beaconing = BeaconingService(settings, tx);
   return (registry: registry, aprsIs: aprsIs, beaconing: beaconing, tx: tx);
