@@ -579,20 +579,10 @@ class _MapScreenState extends State<MapScreen> {
     };
 
     final stationService = context.watch<StationService>();
-    final settings = context.watch<StationSettingsService>();
 
     // Show an active-filter chip when the time window is non-default (≠60 min).
     final maxAge = stationService.stationMaxAgeMinutes;
     final activeFilterLabel = _activeFilterLabel(maxAge);
-
-    // Show the APRS-IS preset chip only when not on the default (Regional).
-    final aprsIsPreset = settings.aprsIsFilter.preset;
-    final activeAprsIsFilterLabel = switch (aprsIsPreset) {
-      AprsIsFilterPreset.regional => null,
-      AprsIsFilterPreset.local => 'Local',
-      AprsIsFilterPreset.wide => 'Wide',
-      AprsIsFilterPreset.custom => 'Custom',
-    };
 
     // Badge the filter FAB when any filter deviates from defaults (60 min,
     // all types visible, tracks on).
@@ -633,8 +623,6 @@ class _MapScreenState extends State<MapScreen> {
       trackPolylines: _trackPolylines,
       onOpenFilterPanel: _openFilterPanel,
       activeFilterLabel: activeFilterLabel,
-      activeAprsIsFilterLabel: activeAprsIsFilterLabel,
-      onActiveAprsIsFilterTap: _navigateToSettings,
       visibleStationCount: _visibleStationCount,
       totalStationCount: _totalStationCount,
       nearestWxStation: _nearestWxStation,
