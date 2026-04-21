@@ -7,6 +7,8 @@ import 'package:meridian_aprs/services/station_service.dart';
 import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
+import '../helpers/fake_secure_credential_store.dart';
+
 // ---------------------------------------------------------------------------
 // Test fixture
 // ---------------------------------------------------------------------------
@@ -38,7 +40,10 @@ class _Fixture {
       'message_id_counter': initialCounter,
     });
     final prefs = await SharedPreferences.getInstance();
-    final settings = StationSettingsService(prefs);
+    final settings = StationSettingsService(
+      prefs,
+      store: FakeSecureCredentialStore(),
+    );
     final stationService = StationService();
     final registry = ConnectionRegistry();
     final sentLines = <String>[];

@@ -20,7 +20,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.10 — Map Experience | Viewport-adaptive APRS-IS filter, configurable time filter, track history polylines, map filters UI | ✅ Complete |
 | v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | ✅ Complete |
 | v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | ✅ Complete |
-| v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | — |
+| v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | ✅ Complete |
 | v0.14 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
 | v0.15 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
 | v1.0 — Launch | Final polish, all-platform store submission (iOS App Store, Google Play, macOS, Windows, Linux) | — |
@@ -93,11 +93,20 @@ Made the first-launch experience complete and self-sufficient.
 
 ---
 
-### v0.13 — Security
+### ~~v0.13 — Security~~ ✅
+
 Harden credential handling and network filtering.
 
-- Passcode stored in platform secure storage (Keychain / Keystore)
-- APRS-IS server-side filter configuration UI
+- ✅ `SecureCredentialStore` abstraction backed by `flutter_secure_storage` — Android `EncryptedSharedPreferences`, iOS/macOS Keychain, Windows Credential Manager, Linux libsecret, web encrypted IndexedDB
+- ✅ APRS-IS passcode migrated from plaintext SharedPreferences to platform secure storage; `_keyPasscode` removed from `StationSettingsService`
+- ✅ `ConnectionCredentials` value object introduced in Connection Core — removes `StationSettingsService` upward-layer import from `AprsIsConnection` (audit #45)
+- ✅ `LatLngBox` replaces `LatLngBounds` in `AprsIsConnection.updateFilter` — removes `flutter_map` UI-layer dependency from Connection Core (audit #45)
+- ✅ `AprsIsFilterConfig` / `AprsIsFilterPreset` model — Local / Regional / Wide / Custom presets; pad fraction + minimum radius; no station-window (client-side time filter covers that)
+- ✅ APRS-IS Filter Settings section (`lib/screens/settings/sections/aprs_is_filter_section.dart`) — `SegmentedButton` preset selector + collapsible Advanced sliders
+- ✅ `SettingsScreen` section split — 1,823-line file extracted to per-section files in `lib/screens/settings/sections/` (audit #42)
+- ✅ `TxTransportPref` enum fully removed — `TxService` routing is unconditional Serial > BLE > APRS-IS per ADR-029; per-message IS/RF toggle removed from `MessageThreadScreen` (audit #48)
+- ✅ Android foreground service `foregroundServiceType` aligned with ADR-025 — `connectedDevice` added alongside `dataSync|location`; `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission declared (audit #44)
+- ✅ ADRs 047–052 in `docs/DECISIONS.md`
 
 ---
 
@@ -140,4 +149,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-19*
+*Last updated: 2026-04-21*

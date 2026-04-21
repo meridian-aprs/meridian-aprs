@@ -364,7 +364,7 @@ A new `BackgroundServiceManager` ChangeNotifier on the main isolate manages the 
 - `FlutterForegroundTask.updateService()` called directly from the main isolate (not via `sendDataToTask()` round-trip) — simpler and correct.
 - `ACCESS_BACKGROUND_LOCATION` permission check placed in `BackgroundServiceManager.requestStartService(BuildContext)` — stays at the UI-initiation boundary, keeps `BeaconingService` free of Android-specific permission handling.
 - `minSdk` hardcoded to 21 in `build.gradle.kts` (required by `flutter_foreground_task`; previously `flutter.minSdkVersion` which resolves to 16).
-- `FOREGROUND_SERVICE_CONNECTED_DEVICE` and `FOREGROUND_SERVICE_DATA_SYNC` added with `android:minSdkVersion="34"` guard — silently ignored on lower API levels.
+- `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `FOREGROUND_SERVICE_LOCATION`, and `FOREGROUND_SERVICE_DATA_SYNC` added with `android:minSdkVersion="34"` guard — silently ignored on lower API levels. `android:foregroundServiceType="dataSync|location|connectedDevice"` on the service element matches the permissions so the service can serve both auto/smart beaconing (location) and BLE TNC keepalive (connectedDevice). The `connectedDevice` type was initially missing from the manifest; corrected in v0.13 (issue #44) — see ADR-047.
 - `ForegroundServiceApi` injectable interface added to `BackgroundServiceManager` so the state machine can be unit-tested without platform channel dependencies.
 - `autoRunOnBoot: false` — the service does not automatically restart after device reboot.
 
@@ -785,3 +785,151 @@ The APRS Foundation device-ID database (`tocalls.dense.json`, CC BY-SA 2.0) is b
 **Registry entry:** vendor Eric Pasch KM4TJO, model Meridian APRS, contact meridian@pasch.dev.
 
 **Attribution:** CC BY-SA 2.0 — Heikki Hannikainen OH7LZB and contributors. Displayed in About screen and README.
+
+---
+
+## ADR-047: SecureCredentialStore abstraction (v0.13)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+The APRS-IS passcode was stored in `SharedPreferences` under the key `user_passcode`. SharedPreferences is plaintext on all platforms — the passcode (a derived number from the licensed callsign, not a high-entropy secret) was recoverable from an adb backup or standard file system inspection. While the threat model for APRS passcodes is low, storing credentials in plaintext is poor hygiene and fails basic app-store security review expectations.
+
+### Decision
+
+Introduce `SecureCredentialStore` (`lib/core/credentials/`) as an abstract interface backed by `flutter_secure_storage`:
+
+- **Interface contract:** `read(CredentialKey)` → `String?`, `write(CredentialKey, String)`, `delete(CredentialKey)`, `exists(CredentialKey)` → `bool`, `clear()`. Missing credentials return `null`; platform failures throw `CredentialStoreException`.
+- **`CredentialKey`** is a sealed class with a single member `aprsIsPasscode`. No placeholder keys — keys are added only when a real credential is needed.
+- **Platform backends** (via `flutter_secure_storage ^9.2.2`): Android `EncryptedSharedPreferences`, iOS/macOS Keychain, Windows Credential Manager, Linux `libsecret`, web encrypted IndexedDB.
+- **Web caveat:** Web credential storage depends on browser implementation of the Web Crypto API and is not backed by a hardware element. This is documented in the About screen and README.
+- The `FlutterSecureCredentialStore` concrete implementation is the production backend. A `FakeSecureCredentialStore` backed by an in-memory `Map` supports unit tests without platform channels.
+
+### Consequences
+
+Passcode is no longer stored in plaintext SharedPreferences. No migration code — v0.13 drops `_keyPasscode` from `StationSettingsService` entirely; existing passcode values in SharedPreferences are orphaned silently (users re-enter their passcode once after upgrade, which is acceptable). Background isolate (`MeridianConnectionTask`) reads the passcode via `flutter_secure_storage` directly — the package supports background isolates on Android and iOS.
+
+---
+
+## ADR-048: ConnectionCredentials value object (v0.13)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+`AprsIsConnection` (Connection Core, `lib/core/connection/`) previously imported `StationSettingsService` (Service Layer) to read callsign, SSID, passcode, and `isLicensed`. This is an upward layer violation: Core should not depend on Service.
+
+### Decision
+
+Introduce `ConnectionCredentials { String callsign; int ssid; String passcode; bool isLicensed; }` in `lib/core/connection/connection_credentials.dart`. `StationSettingsService` exposes a `credentials` getter that constructs the value object. `AprsIsConnection` accepts `ConnectionCredentials` at construction time and via `updateCredentials(ConnectionCredentials)` — no longer imports `StationSettingsService`.
+
+`aprsIsLoginLine` and `isLicensed` are derived from `ConnectionCredentials` internally. The N0CALL/-1 unlicensed override (ADR-045) is applied inside `AprsIsConnection._applyLicenseOverride()`.
+
+### Consequences
+
+`AprsIsConnection` is now a pure Connection Core class. The only upward dependency removed is `StationSettingsService`; transport and packet core imports remain appropriate. `main.dart` passes the initial credentials at construction and subscribes to `StationSettingsService` changes to call `updateCredentials`.
+
+---
+
+## ADR-049: LatLngBox replaces LatLngBounds in Connection Core (v0.13)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+`AprsIsConnection.updateFilter(LatLngBounds)` imported `LatLngBounds` from the `flutter_map` package — a UI-layer library — directly into the Connection Core. This is the same upward layer violation as ADR-048 but for the filter-update path.
+
+### Decision
+
+Introduce `LatLngBox { double north; double west; double south; double east; }` in `lib/core/connection/lat_lng_box.dart`. The `updateFilter` signature becomes `updateFilter(LatLngBox)`. The conversion from `flutter_map`'s `LatLngBounds` to `LatLngBox` happens at the UI boundary in `map_screen.dart`.
+
+### Consequences
+
+`flutter_map` is no longer imported by any file in `lib/core/`. The Connection Core is now isolated from UI-layer dependencies. `LatLngBox` is a simple value class with no external dependencies.
+
+---
+
+## ADR-050: AprsIsFilterConfig preset model (v0.13)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+v0.13 introduces user-configurable APRS-IS server-side filter presets. The filter is expressed as a bounding-box (`b/`) string derived from the map viewport. Three parameters describe the filter shape: the viewport pad fraction, and a minimum radius floor.
+
+A third parameter, station time window (minutes), was considered but rejected: the APRS-IS `b/` filter is a purely geographic gate — it has no time dimension. Implementing a time window here would require polling the connection for periodic filter rotation, which adds complexity for no server-side benefit. Station-age filtering is already handled client-side in `StationService` via the time filter introduced in v0.10.
+
+### Decision
+
+`AprsIsFilterConfig` stores three fields: `preset` (`AprsIsFilterPreset { local, regional, wide, custom }`), `padPct` (viewport pad fraction), `minRadiusKm` (minimum bounding-box half-size in km). No `stationWindow` field.
+
+Preset snap table:
+
+| Preset | padPct | minRadiusKm |
+|---|---|---|
+| local | 0.10 | 25 km |
+| regional (default) | 0.25 | 50 km |
+| wide | 0.50 | 150 km |
+| custom | user-set | user-set |
+
+The `custom` preset is entered automatically when the user adjusts either slider away from the active preset's values. Custom values persist independently of preset values (separate SharedPreferences keys). Changing back to a named preset snaps values; returning to `custom` restores the previously edited custom values.
+
+`AprsIsFilterConfig` is owned by `StationSettingsService` and persisted to SharedPreferences. `AprsIsConnection.updateFilter` reads the config through the existing viewport-update path — no reconnect needed.
+
+### Consequences
+
+No stationWindow means one less SharedPreferences key, one less slider in the UI, and no reconnection-on-window-change complexity. The client-side time filter in `StationService` already covers the station-age use case. The preset UI (four-option `SegmentedButton` + collapsible Advanced sliders) lives in `lib/screens/settings/sections/aprs_is_filter_section.dart`.
+
+---
+
+## ADR-051: TxTransportPref full removal (v0.13, ADR-029 follow-up)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+ADR-029 established the `ConnectionRegistry` abstraction with an unconditional Serial > BLE > APRS-IS routing hierarchy. However, `TxService` retained a `TxTransportPref { auto, aprsIs, tnc }` enum that allowed per-session and per-message transport overrides. This surface was incompatible with ADR-029's hierarchy model and added state that had to be tracked, persisted, and tested. v0.13 includes audit finding F-ARCH-002 (#48) calling for its removal.
+
+### Decision
+
+`TxTransportPref` enum and all associated surfaces are removed from `TxService`:
+- Removed fields: `_preference`, `_userHasExplicitlySet`, `_tncWasConnected` context.
+- Removed public API: `preference`, `userHasExplicitlySet`, `effective`, `aprsIsAvailable`, `tncAvailable`, `beaconToAprsIs`, `beaconToTnc`, `setBeaconToAprsIs`, `setBeaconToTnc`, `setPreference`, `loadPersistedPreference`.
+- `MessageThreadScreen` loses the per-message IS/RF `SegmentedButton` — all sends follow the unconditional hierarchy.
+- `MeridianConnectionTask` background isolate migrates from legacy `beacon_to_aprs_is` / `beacon_to_tnc` global pref keys to per-connection `beacon_enabled_<id>` keys (already written by `ConnectionRegistry.loadAllSettings`).
+- Legacy SharedPreferences keys `beacon_to_aprs_is`, `beacon_to_tnc` are orphaned — no migration (consistent with no-migration policy for this milestone).
+- `main.dart` no longer calls `txService.loadPersistedPreference()`.
+
+`TxService` retains: `resolvedTxLabel`, `sendLine`, `sendBeacon`, `sendViaTncOnly`, `events` stream, `TxEventTncDisconnected`, `TxEventTncReconnected`.
+
+### Consequences
+
+Simpler `TxService` with no persisted routing state. Routing is always hierarchy-driven. The TNC-disconnect banner in `MapScreen` now only reports the disconnect event and the fallback transport — it no longer offers a "switch to APRS-IS" action because that is now the automatic behavior. Users lose the per-message IS/RF override in `MessageThreadScreen`, which is an acceptable tradeoff given the explicit ADR-029 hierarchy commitment.
+
+---
+
+## ADR-052: foregroundServiceType connectedDevice addition (v0.13, ADR-025 follow-up)
+
+**Date:** 2026-04-21
+**Status:** Accepted
+
+### Context
+
+ADR-025 established the Android foreground service for background APRS connectivity. The service uses `foregroundServiceType="dataSync|location"` to satisfy Android API 34 requirements for foreground services with data sync and location access. However, the service also maintains a BLE TNC connection alive — on Android 14+ (API 34), a foreground service that manages a connected Bluetooth device must declare `connectedDevice` in `foregroundServiceType` and hold the `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission. This was missing, creating a policy violation that would be caught on API 34+ devices.
+
+### Decision
+
+- `AndroidManifest.xml`: service `foregroundServiceType` updated from `"dataSync|location"` to `"dataSync|location|connectedDevice"`.
+- `AndroidManifest.xml`: `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission added with `android:minSdkVersion="34"`.
+
+This resolves audit finding F-META-003 (#44). ADR-025's narrative is updated to reflect all three service types.
+
+### Consequences
+
+No runtime behavior change on Android < 14. On Android 14+, the foreground service now correctly declares all its capabilities to the OS. Google Play policy compliance is maintained. The `connectedDevice` type declaration does not require an additional runtime permission prompt — it is a manifest-level declaration only.

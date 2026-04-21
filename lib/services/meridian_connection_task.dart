@@ -5,6 +5,8 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/credentials/credential_key.dart';
+import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
 
 /// Entry point called by flutter_foreground_task when the foreground service
@@ -132,18 +134,42 @@ class MeridianConnectionTask extends TaskHandler {
     if (callsign.isEmpty) return; // Not configured — skip.
 
     final ssid = prefs.getInt('user_ssid') ?? 0;
-    final passcode = prefs.getString('user_passcode') ?? '-1';
+
+    // Passcode lives in the platform secure store rather than SharedPreferences
+    // (v0.13 — [SecureCredentialStore]). Reading from here in the background
+    // isolate requires flutter_secure_storage to be accessible; on Android and
+    // iOS this works because the Keystore/Keychain entries are process-scoped
+    // and the plugin initialises itself per isolate. NEEDS-DEVICE-VERIFICATION
+    // on first background beacon after upgrade.
+    String passcode;
+    try {
+      passcode =
+          await FlutterSecureCredentialStore().read(
+            CredentialKey.aprsIsPasscode,
+          ) ??
+          '-1';
+      if (passcode.isEmpty) passcode = '-1';
+    } catch (_) {
+      passcode = '-1';
+    }
+
     final symbolTable = prefs.getString('user_symbol_table') ?? '/';
     final symbolCode = prefs.getString('user_symbol_code') ?? '>';
     final comment = prefs.getString('user_comment') ?? '';
     final locationSourceIdx = prefs.getInt('user_location_source') ?? 0;
 
-    // Beacon target flags — mirror TxService keys read directly from prefs
-    // since TxService is on the main isolate and unavailable here.
-    final beaconToAprsIs = prefs.getBool('beacon_to_aprs_is') ?? true;
-    final beaconToTnc = prefs.getBool('beacon_to_tnc') ?? true;
+    // Per-connection beaconing flags (ADR-029). Default true so freshly
+    // registered connections beacon until the user opts out. The background
+    // isolate cannot reach `ConnectionRegistry` (main isolate) so it reads
+    // each connection's key directly; the key names are the single source of
+    // truth defined on each connection class.
+    final beaconToAprsIs = prefs.getBool('beacon_enabled_aprs_is') ?? true;
+    final beaconToBleTnc = prefs.getBool('beacon_enabled_ble_tnc') ?? true;
+    final beaconToSerialTnc =
+        prefs.getBool('beacon_enabled_serial_tnc') ?? true;
+    final beaconToAnyTnc = beaconToBleTnc || beaconToSerialTnc;
 
-    if (!beaconToAprsIs && !beaconToTnc) return; // Nothing to do.
+    if (!beaconToAprsIs && !beaconToAnyTnc) return; // Nothing to do.
 
     double? lat;
     double? lon;
@@ -196,7 +222,7 @@ class MeridianConnectionTask extends TaskHandler {
       }
     }
 
-    if (beaconToTnc) {
+    if (beaconToAnyTnc) {
       // The TNC connection lives on the main isolate. Request transmission via
       // IPC; the main isolate processes this through its event loop while the
       // foreground service wake lock keeps the CPU active.

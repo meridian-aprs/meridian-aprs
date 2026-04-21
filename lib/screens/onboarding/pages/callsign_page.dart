@@ -7,8 +7,6 @@ import '../../../core/connection/connection_registry.dart';
 import '../../../services/station_settings_service.dart';
 import '../../../ui/widgets/callsign_field.dart';
 
-const String _kVersion = '0.1.0';
-
 /// Onboarding step 3 (licensed path only) — callsign, SSID, passcode.
 class CallsignPage extends StatefulWidget {
   const CallsignPage({super.key, required this.onNext, required this.onBack});
@@ -29,6 +27,7 @@ class _CallsignPageState extends State<CallsignPage> {
   final _passcodeController = TextEditingController();
   int _ssid = 0;
   bool _callsignValid = false;
+  bool _passcodeRevealed = false;
 
   @override
   void initState() {
@@ -112,8 +111,6 @@ class _CallsignPageState extends State<CallsignPage> {
 
     final callsign = _callsignController.text.trim().toUpperCase();
     final passcode = _passcodeController.text.trim();
-    final ssidSuffix = _ssid > 0 ? '-$_ssid' : '';
-    final effectivePasscode = passcode.isEmpty ? '-1' : passcode;
 
     final stationSettings = context.read<StationSettingsService>();
     await stationSettings.setCallsign(callsign);
@@ -122,15 +119,13 @@ class _CallsignPageState extends State<CallsignPage> {
 
     if (!mounted) return;
 
-    // Update APRS-IS credentials so the login line reflects the new callsign.
+    // Push the fresh credentials into the APRS-IS connection so the login line
+    // reflects the new callsign on the next connect.
     final registry = context.read<ConnectionRegistry>();
     final aprsIsConn = registry.byId('aprs_is');
     if (aprsIsConn is AprsIsConnection) {
       try {
-        aprsIsConn.updateCredentials(
-          loginLine:
-              'user $callsign$ssidSuffix pass $effectivePasscode vers meridian-aprs $_kVersion\r\n',
-        );
+        aprsIsConn.setCredentials(stationSettings.credentials);
       } catch (_) {
         // Safe to ignore — credentials will be applied on next connect.
       }
@@ -203,12 +198,24 @@ class _CallsignPageState extends State<CallsignPage> {
               TextFormField(
                 controller: _passcodeController,
                 keyboardType: TextInputType.number,
-                obscureText: true,
-                decoration: const InputDecoration(
+                obscureText: !_passcodeRevealed,
+                decoration: InputDecoration(
                   labelText: 'APRS-IS Passcode',
                   hintText: 'APRS-IS passcode (optional)',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Symbols.lock),
+                  border: const OutlineInputBorder(),
+                  prefixIcon: const Icon(Symbols.lock),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      _passcodeRevealed
+                          ? Symbols.visibility_off
+                          : Symbols.visibility,
+                    ),
+                    tooltip: _passcodeRevealed
+                        ? 'Hide passcode'
+                        : 'Show passcode',
+                    onPressed: () =>
+                        setState(() => _passcodeRevealed = !_passcodeRevealed),
+                  ),
                 ),
               ),
               const SizedBox(height: 4),

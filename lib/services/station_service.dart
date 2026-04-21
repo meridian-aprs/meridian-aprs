@@ -135,7 +135,7 @@ class StationService extends ChangeNotifier {
   /// No-op. Use [ConnectionRegistry] to access [AprsIsConnection].
   Future<void> disconnectAprsIs() async {}
 
-  /// No-op. Use [AprsIsConnection.updateCredentials] directly.
+  /// No-op. Use [AprsIsConnection.setCredentials] directly.
   void updateAprsIsCredentials({
     required String loginLine,
     String? filterLine,

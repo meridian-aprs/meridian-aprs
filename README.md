@@ -54,6 +54,8 @@ Primary brand color: `#4D1D8C` — a saturated, warm-leaning purple. Icon assets
 | Linux    | ✅ Supported |
 | Web      | ⚠️ Partial — APRS-IS via WebSocket proxy; Web Serial and Web Bluetooth are Chromium-only |
 
+> **Web credential note:** On the web platform, the APRS-IS passcode is stored in browser-encrypted IndexedDB (via the Web Crypto API) rather than a hardware-backed keystore. This offers lower tamper-resistance than native OS keystores on Android, iOS, macOS, Windows, and Linux. The web platform is a secondary target.
+
 ---
 
 ## Licensing Notice
@@ -118,9 +120,9 @@ flutter build linux        # Linux
 
 | Milestone | Status |
 |-----------|--------|
-| v0.1 - v0.8 — Foundation through cross-platform parity | ✅ Complete |
-| v0.9 — iOS background beaconing | 🔜 Next |
-| … | — |
+| v0.1 – v0.13 — Foundation through security & connectivity | ✅ Complete |
+| v0.14 — Battery & performance optimization | 🔜 Next |
+| v0.15 — Bug triage pass | 🔜 Planned |
 | v1.0 — Final polish + store submission | 🔜 Planned |
 
 This is a highlights view. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full milestone breakdown.

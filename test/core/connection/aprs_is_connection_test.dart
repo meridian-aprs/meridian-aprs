@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter_map/flutter_map.dart' show LatLngBounds;
 import 'package:flutter_test/flutter_test.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:meridian_aprs/core/connection/aprs_is_connection.dart';
+import 'package:meridian_aprs/core/connection/aprs_is_filter_config.dart';
+import 'package:meridian_aprs/core/connection/lat_lng_box.dart';
 import 'package:meridian_aprs/core/connection/meridian_connection.dart';
 import 'package:meridian_aprs/core/transport/aprs_is_transport.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -151,6 +151,114 @@ void main() {
     await conn2.dispose();
   });
 
+  // ---------------------------------------------------------------------------
+  // Filter configuration
+  // ---------------------------------------------------------------------------
+
+  test('filterConfig defaults to Regional (v0.12 parity)', () {
+    expect(conn.filterConfig, AprsIsFilterConfig.regional);
+  });
+
+  test('setFilterConfig updates in-memory config without I/O', () {
+    conn.setFilterConfig(AprsIsFilterConfig.wide);
+    expect(conn.filterConfig, AprsIsFilterConfig.wide);
+    // Setting config does not send anything to the server on its own.
+    expect(transport.sentLines, isEmpty);
+  });
+
+  test('updateFilter with Regional matches pre-Phase-3 output', () {
+    // Same 1°×1° box as the legacy test: Seattle area.
+    const box = LatLngBox(north: 48.0, south: 47.0, east: -122.0, west: -123.0);
+    conn.setFilterConfig(AprsIsFilterConfig.regional);
+    conn.updateFilter(box);
+
+    // Regional = 25% pad, 50 km min. padded south=46.75, north=48.25,
+    // west=-123.25, east=-121.75. minHalf = 50/111 ≈ 0.4505, formatted
+    // to 2dp = 0.45 — same as the v0.12 hardcoded value.
+    expect(
+      transport.sentLines.single,
+      '#filter a/48.25/-123.25/46.75/-121.75\r\n',
+    );
+  });
+
+  test('updateFilter produces different strings per preset', () {
+    const box = LatLngBox(north: 48.0, south: 47.0, east: -122.0, west: -123.0);
+
+    conn.setFilterConfig(AprsIsFilterConfig.local);
+    conn.updateFilter(box);
+    final local = transport.sentLines.last;
+
+    conn.setFilterConfig(AprsIsFilterConfig.regional);
+    conn.updateFilter(box);
+    final regional = transport.sentLines.last;
+
+    conn.setFilterConfig(AprsIsFilterConfig.wide);
+    conn.updateFilter(box);
+    final wide = transport.sentLines.last;
+
+    expect(local, isNot(equals(regional)));
+    expect(regional, isNot(equals(wide)));
+    expect(local, isNot(equals(wide)));
+  });
+
+  test('updateFilter honours pad percentage', () {
+    // A tiny box so the minimum radius does NOT kick in and we see the
+    // pad percentage effect cleanly.
+    const box = LatLngBox(north: 48.0, south: 40.0, east: -120.0, west: -130.0);
+
+    const tightPad = AprsIsFilterConfig(
+      preset: AprsIsFilterPreset.custom,
+      padPct: 0.0,
+      minRadiusKm: 10,
+    );
+    conn.setFilterConfig(tightPad);
+    conn.updateFilter(box);
+    // 0% pad, small min radius → bounding box ≈ original.
+    expect(
+      transport.sentLines.last,
+      '#filter a/48.00/-130.00/40.00/-120.00\r\n',
+    );
+  });
+
+  test('updateFilter passes explicit config override', () {
+    const box = LatLngBox(north: 48.0, south: 47.0, east: -122.0, west: -123.0);
+    // Registered config is Regional, but we override with Wide on this call.
+    conn.setFilterConfig(AprsIsFilterConfig.regional);
+    conn.updateFilter(box, config: AprsIsFilterConfig.wide);
+
+    // Wide = 50% pad, 150 km min. For a 1°×1° box centred on 47.5°N,
+    // the minimum half-extent (150/111 ≈ 1.35°) dominates the 50% pad
+    // (0.5°), so the effective north is 47.5 + 1.35 = 48.85.
+    final parts = transport.sentLines.last
+        .replaceFirst('#filter a/', '')
+        .replaceAll('\r\n', '')
+        .split('/');
+    expect(double.parse(parts[0]), greaterThan(48.8)); // north
+    expect(double.parse(parts[2]), lessThan(46.2)); // south
+  });
+
+  test('defaultFilterLine uses 167 km floor regardless of preset', () {
+    // Local has 25 km min, but defaultFilterLine is the no-viewport
+    // fallback — it enforces a 167 km floor so the initial feed is useful.
+    final line = AprsIsConnection.defaultFilterLine(
+      47.5,
+      -122.5,
+      config: AprsIsFilterConfig.local,
+    );
+    // 167 km / 111 ≈ 1.505° half-extent.
+    expect(line, startsWith('#filter a/49.00/-124.00'));
+  });
+
+  test('defaultFilterLine honours Wide above the floor', () {
+    // Wide = 150 km min — still below the 167 km floor, so it uses 167.
+    final line = AprsIsConnection.defaultFilterLine(
+      47.5,
+      -122.5,
+      config: AprsIsFilterConfig.wide,
+    );
+    expect(line, startsWith('#filter a/49.00/-124.00'));
+  });
+
   test(
     'updateFilter sends area filter line (a/ = geographic bounding box)',
     () async {
@@ -159,11 +267,13 @@ void main() {
       // padded: s=46.75, n=48.25, w=-123.25, e=-121.75
       // minimum half-extent check: midLat=47.5, midLon=-122.5 → already >0.45
       // a/ format: a/latN/lonW/latS/lonE → a/48.25/-123.25/46.75/-121.75
-      final bounds = LatLngBounds(
-        const LatLng(47.0, -123.0),
-        const LatLng(48.0, -122.0),
+      const box = LatLngBox(
+        north: 48.0,
+        south: 47.0,
+        east: -122.0,
+        west: -123.0,
       );
-      conn.updateFilter(bounds);
+      conn.updateFilter(box);
       expect(transport.sentLines.length, 1);
       expect(transport.sentLines.first, startsWith('#filter a/'));
       expect(transport.sentLines.first, endsWith('\r\n'));
