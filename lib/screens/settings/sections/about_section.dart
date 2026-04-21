@@ -62,6 +62,13 @@ class AboutSection extends StatelessWidget {
           ),
         ),
         ListTile(
+          leading: const Icon(Symbols.lock_outline),
+          title: const Text('Credential storage'),
+          subtitle: const Text(
+            'Passcode stored in platform secure storage (Keychain on iOS/macOS, EncryptedSharedPreferences on Android, Credential Manager on Windows, libsecret on Linux). Web: browser-encrypted IndexedDB — not hardware-backed.',
+          ),
+        ),
+        ListTile(
           leading: const Icon(Icons.devices),
           title: const Text('Device identification data'),
           subtitle: const Text(

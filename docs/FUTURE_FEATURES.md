@@ -4,6 +4,22 @@ Features tracked here are planned but not yet committed to a milestone. They gra
 
 ---
 
+## Security / Credentials
+
+### Raw APRS-IS Filter String Editor
+Allow power users to type a raw APRS-IS filter string (e.g. `p/KM4/WX4 r/39.0/-77.0/100`) instead of using the preset UI. Explicitly out of scope for v0.13 — the preset + pad/radius model covers the vast majority of use cases and a raw editor adds significant validation surface.
+
+### Biometric Unlock
+Gate app launch or credential access behind fingerprint / face ID on platforms that support it. Useful when sharing a device. Blocked on evaluating `local_auth` plugin compatibility with `flutter_secure_storage`'s existing Keychain configuration.
+
+### Credential Export / Import
+Allow operators to export their credential set (callsign, passcode, settings) as an encrypted backup and import on a new device. Higher-effort feature; not needed before v1.0. See ADR-047 for the SecureCredentialStore abstraction that would underpin this.
+
+### Web Platform Credential Hardening
+Web credential storage currently uses browser-encrypted IndexedDB via `flutter_secure_storage` — not backed by a hardware element. A future improvement is to expose an explicit "web credentials are not hardware-protected" warning dialog on first launch on web, and optionally require a user passphrase to encrypt the store. Deferred until web is a first-class target.
+
+---
+
 ## Onboarding / Licensing
 
 ### "I Got My License" Transition Flow
@@ -90,4 +106,4 @@ Show nearby Winlink RMS gateways on the map as a convenience layer for hybrid op
 
 ---
 
-*Last updated: 2026-04-19*
+*Last updated: 2026-04-21*

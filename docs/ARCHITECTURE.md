@@ -384,11 +384,13 @@ Pure Dart algorithm implementation (`lib/core/beaconing/smart_beaconing.dart`). 
 
 ### TxService
 
-Global TX transport router (`lib/services/tx_service.dart`). `ChangeNotifier`. Routes all outgoing packets to either APRS-IS or TNC — a single global preference (not per-station); see ADR-023.
+Global TX transport router (`lib/services/tx_service.dart`). `ChangeNotifier`. Routes all outgoing packets using an unconditional Serial > BLE > APRS-IS hierarchy — see ADR-029 and ADR-051.
 
-- `TxTransportPref { auto, aprsIs, tnc }` — stored in SharedPreferences (`tx_transport_pref`); `auto` resolves to TNC when connected, APRS-IS otherwise
-- `sendLine(String aprsLine)` — routes to `AprsTransport.sendLine` (APRS-IS) or builds AX.25 bytes via `Ax25Encoder` and calls `KissTncTransport.sendFrame` (TNC)
-- `TxEvent` sealed class — `TxEventTncDisconnected` / `TxEventTncReconnected` drive UI banners without persisting fallback
+- `sendLine(String aprsLine)` — finds the first connected transport in hierarchy order and sends
+- `sendBeacon(String aprsLine)` — fans out to every connection where `beaconingEnabled` is true
+- `sendViaTncOnly(String aprsLine)` — background isolate IPC path: sends only via TNC connections
+- `TxEvent` sealed class — `TxEventTncDisconnected` / `TxEventTncReconnected` drive UI banners
+- No per-message or per-session routing override — `TxTransportPref` was removed in v0.13 (ADR-051)
 
 ---
 
@@ -468,9 +470,9 @@ The persistent notification shows two lines:
 
 ### Android Manifest Requirements
 
-New permissions (v0.7): `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` (API 34+), `FOREGROUND_SERVICE_CONNECTED_DEVICE` (API 34+), `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS` (API 33+), `RECEIVE_BOOT_COMPLETED`.
+New permissions (v0.7, updated v0.13): `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_DATA_SYNC` (API 34+), `FOREGROUND_SERVICE_LOCATION` (API 34+), `FOREGROUND_SERVICE_CONNECTED_DEVICE` (API 34+, added v0.13), `ACCESS_BACKGROUND_LOCATION`, `POST_NOTIFICATIONS` (API 33+), `RECEIVE_BOOT_COMPLETED`.
 
-Service element: `com.pravera.flutter_foreground_task.service.ForegroundService` with `foregroundServiceType="dataSync|connectedDevice"` and `stopWithTask="false"`.
+Service element: `com.pravera.flutter_foreground_task.service.ForegroundService` with `foregroundServiceType="dataSync|location|connectedDevice"` and `stopWithTask="false"`. The `connectedDevice` type was added in v0.13 to satisfy Android 14+ policy for services that maintain a BLE TNC connection (see ADR-052).
 
 ---
 
@@ -591,6 +593,42 @@ Immutable value object persisted to SharedPreferences (keys: `notif_channel_<id>
 
 ---
 
+## Credential Storage (v0.13)
+
+### SecureCredentialStore (`lib/core/credentials/`)
+
+Platform-backed secure credential storage accessed via a clean abstract interface:
+
+```dart
+abstract interface class SecureCredentialStore {
+  Future<String?> read(CredentialKey key);
+  Future<void> write(CredentialKey key, String value);
+  Future<void> delete(CredentialKey key);
+  Future<bool> exists(CredentialKey key);
+  Future<void> clear();
+}
+```
+
+`CredentialKey` is a sealed class with a single member `aprsIsPasscode`. Keys are added only when a real credential is added — no placeholder slots.
+
+**Platform backends** (via `flutter_secure_storage ^9.2.2`):
+
+| Platform | Backend |
+|---|---|
+| Android | `EncryptedSharedPreferences` |
+| iOS / macOS | Keychain |
+| Windows | Windows Credential Manager |
+| Linux | `libsecret` |
+| Web | Encrypted IndexedDB (browser Web Crypto API) |
+
+**Web caveat:** Web credential storage is not backed by a hardware security element. It is encrypted in browser storage, which offers lower tamper-resistance than native OS keystores. This is documented in the About screen.
+
+`FlutterSecureCredentialStore` is the production implementation. `FakeSecureCredentialStore` (in-memory `Map`) is used in unit tests to avoid platform channels.
+
+The APRS-IS passcode migrated from plaintext SharedPreferences to `SecureCredentialStore` in v0.13. See ADR-047.
+
+---
+
 ## Key Dependencies
 
 | Package | Purpose |
@@ -605,6 +643,7 @@ Immutable value object persisted to SharedPreferences (keys: `notif_channel_<id>
 | `flutter_local_notifications` | System notification dispatch on Android, iOS, and macOS; inline reply via RemoteInput/UNTextInputAction (added v0.11) |
 | `local_notifier` | Desktop system tray toast notifications on macOS, Windows, and Linux (added v0.11) |
 | `provider` | ChangeNotifier wiring throughout service layer |
+| `flutter_secure_storage` | Platform-backed credential storage — Android EncryptedSharedPreferences, iOS/macOS Keychain, Windows Credential Manager, Linux libsecret (added v0.13) |
 | `shared_preferences` | Theme mode, settings, beaconing config, and session state persistence |
 | `dynamic_color` | Android 12+ wallpaper-derived ColorScheme |
 | `m3e_design` | M3 Expressive ThemeExtension (shapes, spacing, motion, typography tokens) |

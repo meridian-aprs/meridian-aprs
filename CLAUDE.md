@@ -59,12 +59,12 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.10~~ | ~~Map experience — viewport-adaptive APRS-IS filter, time filter, track history, cluster markers, station type filters, object/item display~~ ✓ |
 | ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
 | ~~v0.12~~ | ~~Onboarding improvements~~ ✓ |
-| **v0.13** | Security & connectivity (passcode secure storage, APRS-IS filter config) |
+| ~~v0.13~~ | ~~Security & connectivity (passcode secure storage, APRS-IS filter config)~~ ✓ |
 | **v0.14** | Battery & performance optimization pass |
 | **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.12 complete (onboarding improvements milestone). v0.13 next — Security & connectivity. v0.12 added: 7-step onboarding flow (Welcome, License, Callsign, Location, Station Identity, Connection, Beaconing); `isLicensed` + `passcode` added to `StationSettingsService`; `SymbolPickerDialog` extracted to `lib/ui/widgets/`; unlicensed mode enforcement in `TxService` (hard-reject) and `AprsIsConnection` (N0CALL/-1); messaging compose/reply disabled when unlicensed; existing-user migration guard; comment cap updated to 36 chars. Tocall `APMDN?` allocated 2026-04-19; `APMDN0` active for v0.x via `AprsIdentity.tocall`; `DeviceResolver.loadFromJson` loads bundled `assets/aprs-deviceid/tocalls.dense.json`; all `TODO(tocall)` markers removed. ADRs 001–046 in `docs/DECISIONS.md`.**
+**Current status: v0.13 complete (Security & connectivity milestone). v0.14 next — Battery & performance optimization. v0.13 added: `SecureCredentialStore` abstraction backed by `flutter_secure_storage`; APRS-IS passcode migrated from SharedPreferences to platform secure storage; `ConnectionCredentials` value object (removes `StationSettingsService` from Connection Core); `LatLngBox` replaces `LatLngBounds` (removes `flutter_map` from Connection Core); `AprsIsFilterConfig` / `AprsIsFilterPreset` model with Local/Regional/Wide/Custom presets; APRS-IS Filter settings section; `SettingsScreen` split into per-section files in `lib/screens/settings/sections/`; `TxTransportPref` enum fully removed (unconditional Serial > BLE > APRS-IS routing); Android `foregroundServiceType` updated to `dataSync|location|connectedDevice`. ADRs 001–052 in `docs/DECISIONS.md`.**
 
 **Conventions added in v0.5:**
 - `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
