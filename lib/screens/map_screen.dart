@@ -199,47 +199,32 @@ class _MapScreenState extends State<MapScreen> {
     final messenger = ScaffoldMessenger.of(context);
     messenger.clearMaterialBanners();
 
-    final txService = context.read<TxService>();
+    // Routing is now unconditional Serial > BLE > APRS-IS; the banners just
+    // surface the transition so the user knows which path is live.
+    // TODO(ios): use Cupertino-styled banner
+    final content = switch (event) {
+      TxEventTncDisconnected() =>
+        _aprsIsConnected()
+            ? 'TNC disconnected — using APRS-IS'
+            : 'TNC disconnected',
+      TxEventTncReconnected() => 'TNC connected — using RF',
+    };
+    messenger.showMaterialBanner(
+      MaterialBanner(
+        content: Text(content),
+        actions: [
+          TextButton(
+            onPressed: messenger.clearMaterialBanners,
+            child: const Text('Dismiss'),
+          ),
+        ],
+      ),
+    );
+  }
 
-    if (event is TxEventTncDisconnected) {
-      // Only mention APRS-IS fallback if IS is actually connected.
-      final content = txService.aprsIsAvailable
-          ? 'TNC disconnected — switched to APRS-IS'
-          : 'TNC disconnected';
-      // TODO(ios): use Cupertino-styled banner
-      messenger.showMaterialBanner(
-        MaterialBanner(
-          content: Text(content),
-          actions: [
-            TextButton(
-              onPressed: messenger.clearMaterialBanners,
-              child: const Text('Dismiss'),
-            ),
-          ],
-        ),
-      );
-    } else if (event is TxEventTncReconnected) {
-      // If APRS-IS is not connected there is no meaningful choice — skip banner.
-      if (!txService.aprsIsAvailable) return;
-      messenger.showMaterialBanner(
-        MaterialBanner(
-          content: const Text('TNC connected — switch to RF?'),
-          actions: [
-            TextButton(
-              onPressed: () {
-                context.read<TxService>().setPreference(TxTransportPref.tnc);
-                messenger.clearMaterialBanners();
-              },
-              child: const Text('Switch to RF'),
-            ),
-            TextButton(
-              onPressed: messenger.clearMaterialBanners,
-              child: const Text('Stay on APRS-IS'),
-            ),
-          ],
-        ),
-      );
-    }
+  bool _aprsIsConnected() {
+    final conn = context.read<ConnectionRegistry>().byId('aprs_is');
+    return conn?.isConnected ?? false;
   }
 
   void _onMapMoveEnd(MapEventMoveEnd event) {

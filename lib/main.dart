@@ -173,7 +173,6 @@ Future<void> main() async {
   }
 
   final txService = TxService(registry, stationSettings);
-  await txService.loadPersistedPreference();
 
   final beaconingService = BeaconingService(
     stationSettings,

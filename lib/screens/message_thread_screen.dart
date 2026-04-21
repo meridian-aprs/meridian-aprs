@@ -1,7 +1,8 @@
 /// APRS one-to-one message thread screen.
 ///
 /// Chat-bubble layout with per-message delivery status and a compose bar
-/// at the bottom. The RF / APRS-IS transport toggle is in the app bar.
+/// at the bottom. Routing follows the unconditional Serial > BLE > APRS-IS
+/// hierarchy owned by `TxService` — there is no per-message override.
 library;
 
 import 'package:flutter/material.dart';
@@ -12,7 +13,6 @@ import 'package:provider/provider.dart';
 import '../services/message_service.dart';
 import '../services/notification_service.dart';
 import '../services/station_settings_service.dart';
-import '../services/tx_service.dart';
 
 class MessageThreadScreen extends StatefulWidget {
   const MessageThreadScreen({super.key, required this.peerCallsign});
@@ -68,7 +68,6 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
   @override
   Widget build(BuildContext context) {
     final messageService = context.watch<MessageService>();
-    final txService = context.watch<TxService>();
     final isLicensed = context.select<StationSettingsService, bool>(
       (s) => s.isLicensed,
     );
@@ -76,48 +75,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
     final messages = conv?.messages ?? [];
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.peerCallsign),
-        actions: [
-          // RF / APRS-IS transport toggle — only meaningful when licensed.
-          if (isLicensed)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Tooltip(
-                message: !txService.tncAvailable ? 'TNC not connected' : '',
-                child: SegmentedButton<TxTransportPref>(
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                  ),
-                  segments: [
-                    ButtonSegment(
-                      value: TxTransportPref.aprsIs,
-                      icon: const Icon(Symbols.wifi),
-                      label: const Text('IS'),
-                      enabled: txService.aprsIsAvailable,
-                    ),
-                    ButtonSegment(
-                      value: TxTransportPref.tnc,
-                      icon: const Icon(Symbols.settings_input_antenna),
-                      label: const Text('RF'),
-                      enabled: txService.tncAvailable,
-                    ),
-                  ],
-                  selected: {
-                    txService.preference == TxTransportPref.auto
-                        ? txService.effective
-                        : txService.preference,
-                  },
-                  onSelectionChanged: (modes) {
-                    if (modes.isNotEmpty) {
-                      context.read<TxService>().setPreference(modes.first);
-                    }
-                  },
-                ),
-              ),
-            ),
-        ],
-      ),
+      appBar: AppBar(title: Text(widget.peerCallsign)),
       body: Column(
         children: [
           Expanded(
