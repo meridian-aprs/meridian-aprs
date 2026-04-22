@@ -34,6 +34,10 @@ class AprsIsConnection extends MeridianConnection {
 
   static const _kBeaconingKey = 'beacon_enabled_aprs_is';
   static const _kAutoConnectKey = 'aprs_is_auto_connect';
+  static const _kServerOverrideKey = 'aprs_is_server_override';
+
+  static const _defaultHost = 'rotate.aprs2.net';
+  static const _defaultPort = 14580;
 
   bool _beaconingEnabled = true;
   bool _autoConnect = false;
@@ -153,6 +157,10 @@ class AprsIsConnection extends MeridianConnection {
     final prefs = await SharedPreferences.getInstance();
     _beaconingEnabled = prefs.getBool(_kBeaconingKey) ?? true;
     _autoConnect = prefs.getBool(_kAutoConnectKey) ?? false;
+    final override = prefs.getString(_kServerOverrideKey);
+    if (override != null && override.isNotEmpty) {
+      _applyServerOverride(override);
+    }
     notifyListeners();
   }
 
@@ -213,6 +221,36 @@ class AprsIsConnection extends MeridianConnection {
       loginLine: _effectiveLoginLine(),
       filterLine: filterLine,
     );
+  }
+
+  /// The currently active server displayed as "host:port".
+  String get serverDisplay => '${_transport.host}:${_transport.port}';
+
+  /// Whether a non-default server override is active.
+  bool get hasServerOverride =>
+      _transport.host != _defaultHost || _transport.port != _defaultPort;
+
+  /// Persist and apply a server override ("host:port"), or clear it when null.
+  ///
+  /// Takes effect on the next [connect] call. Does not automatically reconnect.
+  Future<void> setServerOverride(String? override) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (override == null || override.isEmpty) {
+      await prefs.remove(_kServerOverrideKey);
+      _transport.updateServer(host: _defaultHost, port: _defaultPort);
+    } else {
+      _applyServerOverride(override);
+      await prefs.setString(_kServerOverrideKey, override);
+    }
+    notifyListeners();
+  }
+
+  void _applyServerOverride(String override) {
+    final colon = override.lastIndexOf(':');
+    if (colon <= 0) return;
+    final h = override.substring(0, colon);
+    final p = int.tryParse(override.substring(colon + 1));
+    if (p != null) _transport.updateServer(host: h, port: p);
   }
 
   /// Kilometres per degree of latitude — the flat-earth approximation used

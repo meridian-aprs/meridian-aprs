@@ -8,18 +8,30 @@ import 'aprs_transport.dart';
 
 // TODO(web): replace with WebSocketTransport — see ADR-004
 class AprsIsTransport implements AprsTransport {
-  final String host;
-  final int port;
+  String _host;
+  int _port;
   String _loginLine;
   String? _filterLine;
 
   AprsIsTransport({
-    this.host = 'rotate.aprs2.net',
-    this.port = 14580,
+    String host = 'rotate.aprs2.net',
+    int port = 14580,
     required String loginLine,
     String? filterLine,
-  }) : _loginLine = loginLine,
+  }) : _host = host,
+       _port = port,
+       _loginLine = loginLine,
        _filterLine = filterLine;
+
+  String get host => _host;
+  int get port => _port;
+
+  /// Updates the server host and port used on the next [connect] call.
+  /// Safe to call while disconnected; has no effect on an active connection.
+  void updateServer({required String host, required int port}) {
+    _host = host;
+    _port = port;
+  }
 
   /// Updates the login and filter lines used on the next [connect] call.
   /// Safe to call while disconnected; has no effect on an active connection.
@@ -66,7 +78,7 @@ class AprsIsTransport implements AprsTransport {
 
     _emitState(ConnectionStatus.connecting);
     try {
-      _socket = await Socket.connect(host, port);
+      _socket = await Socket.connect(_host, _port);
       // Socket also implements IOSink, whose .done future completes with the
       // same SocketException when the OS aborts the connection (e.g. Android
       // kills TCP sockets on screen lock). Our stream listener's onError

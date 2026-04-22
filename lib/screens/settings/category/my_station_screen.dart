@@ -12,14 +12,15 @@ import '../../../ui/widgets/symbol_picker_dialog.dart';
 import '../../location_picker_screen.dart';
 import '../widgets/section_header.dart';
 
-class MyStationSection extends StatefulWidget {
-  const MyStationSection({super.key});
+class MyStationSettingsContent extends StatefulWidget {
+  const MyStationSettingsContent({super.key});
 
   @override
-  State<MyStationSection> createState() => _MyStationSectionState();
+  State<MyStationSettingsContent> createState() =>
+      _MyStationSettingsContentState();
 }
 
-class _MyStationSectionState extends State<MyStationSection> {
+class _MyStationSettingsContentState extends State<MyStationSettingsContent> {
   late final TextEditingController _callsignCtrl;
   late final TextEditingController _commentCtrl;
   late final TextEditingController _latCtrl;
@@ -70,8 +71,7 @@ class _MyStationSectionState extends State<MyStationSection> {
   Widget build(BuildContext context) {
     final service = context.watch<StationSettingsService>();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
       children: [
         const SectionHeader('My Station'),
         Padding(
@@ -80,7 +80,7 @@ class _MyStationSectionState extends State<MyStationSection> {
             controller: _callsignCtrl,
             focusNode: _callsignFocus,
             label: 'Callsign',
-            onChanged: (_) {}, // validation only; persist on focus loss
+            onChanged: (_) {},
           ),
         ),
         Padding(
@@ -164,16 +164,12 @@ class _MyStationSectionState extends State<MyStationSection> {
         ),
         const SectionHeader('Position Source'),
         _LocationSourcePicker(latCtrl: _latCtrl, lonCtrl: _lonCtrl),
+        const SizedBox(height: 16),
       ],
     );
   }
 }
 
-// ---------------------------------------------------------------------------
-// Symbol picker
-// ---------------------------------------------------------------------------
-
-/// ListTile that shows the current symbol and opens a searchable picker dialog.
 class _SymbolPickerTile extends StatelessWidget {
   const _SymbolPickerTile({
     required this.symbolTable,
@@ -212,7 +208,6 @@ class _SymbolPickerTile extends StatelessWidget {
   }
 }
 
-/// Source picker: GPS (disabled with notice when unsupported) or Manual.
 class _LocationSourcePicker extends StatelessWidget {
   const _LocationSourcePicker({required this.latCtrl, required this.lonCtrl});
 

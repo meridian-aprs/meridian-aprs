@@ -38,6 +38,7 @@ import 'services/tx_service.dart';
 import 'theme/android_theme.dart';
 import 'theme/desktop_theme.dart';
 import 'theme/ios_theme.dart';
+import 'screens/settings/advanced_mode_controller.dart';
 import 'theme/theme_controller.dart';
 
 /// Global navigator key so [NotificationService] can push routes from outside
@@ -80,6 +81,7 @@ Future<void> main() async {
 
   // Load theme preference and onboarding state before the first frame.
   final themeController = await ThemeController.create();
+  final advancedModeController = await AdvancedModeController.create();
   final prefs = await SharedPreferences.getInstance();
   var onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
 
@@ -249,6 +251,9 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider<ThemeController>.value(value: themeController),
+        ChangeNotifierProvider<AdvancedModeController>.value(
+          value: advancedModeController,
+        ),
         ChangeNotifierProvider<StationService>.value(value: service),
         ChangeNotifierProvider<ConnectionRegistry>.value(value: registry),
         ChangeNotifierProvider<StationSettingsService>.value(

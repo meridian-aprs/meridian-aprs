@@ -8,8 +8,8 @@ import '../../../models/notification_preferences.dart';
 import '../../../services/notification_service.dart';
 import '../widgets/section_header.dart';
 
-class NotificationsSection extends StatelessWidget {
-  const NotificationsSection({super.key});
+class NotificationsSettingsContent extends StatelessWidget {
+  const NotificationsSettingsContent({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -17,8 +17,7 @@ class NotificationsSection extends StatelessWidget {
     final prefs = notif.preferences;
     final isMobile = !kIsWeb && (Platform.isAndroid || Platform.isIOS);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
       children: [
         const SectionHeader('Notifications'),
         SwitchListTile.adaptive(
@@ -46,6 +45,7 @@ class NotificationsSection extends StatelessWidget {
             notif: notif,
             isMobile: isMobile,
           ),
+        const SizedBox(height: 16),
       ],
     );
   }
