@@ -130,6 +130,12 @@ class _MessageBubble extends StatelessWidget {
   /// Used to detect cross-SSID messages and show the addressee badge.
   final String myAddr;
 
+  String _ssidSuffix(String addressee) {
+    final upper = addressee.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '→ $upper' : '→ ${upper.substring(dashIdx)}';
+  }
+
   String _formatTime(DateTime dt) {
     final diff = DateTime.now().difference(dt);
     if (diff.inSeconds < 60) return 'just now';
@@ -270,10 +276,6 @@ class _MessageBubble extends StatelessWidget {
                 : CrossAxisAlignment.start,
             children: [
               Text(entry.text, style: TextStyle(color: fgColor)),
-              if (!isOut && entry.isCrossSsid(myAddr)) ...[
-                const SizedBox(height: 4),
-                _AddresseeBadge(addressee: entry.addressee!, fgColor: fgColor),
-              ],
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -285,6 +287,19 @@ class _MessageBubble extends StatelessWidget {
                       color: fgColor.withAlpha(160),
                     ),
                   ),
+                  if (!isOut && entry.isCrossSsid(myAddr)) ...[
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Addressed to ${entry.addressee}',
+                      child: Text(
+                        '· ${_ssidSuffix(entry.addressee!)}',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: fgColor.withAlpha(160),
+                        ),
+                      ),
+                    ),
+                  ],
                   if (isOut) ...[
                     const SizedBox(width: 6),
                     IconTheme(
@@ -443,34 +458,3 @@ class _UnlicensedComposeBar extends StatelessWidget {
 
 /// Small inline badge shown on incoming cross-SSID messages to indicate which
 /// SSID of the operator's callsign the message was addressed to.
-class _AddresseeBadge extends StatelessWidget {
-  const _AddresseeBadge({required this.addressee, required this.fgColor});
-
-  final String addressee;
-  final Color fgColor;
-
-  String get _label {
-    final upper = addressee.trim().toUpperCase();
-    final dashIdx = upper.lastIndexOf('-');
-    return dashIdx == -1 ? '→ $upper' : '→ ${upper.substring(dashIdx)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Tooltip(
-      message: 'Addressed to $addressee',
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.outlineVariant.withAlpha(80),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          _label,
-          style: TextStyle(fontSize: 10, color: fgColor.withAlpha(180)),
-        ),
-      ),
-    );
-  }
-}
