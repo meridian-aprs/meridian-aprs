@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
 import 'advanced_mode_controller.dart';
@@ -21,21 +20,18 @@ class SettingsCategoryList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final advanced = context.watch<AdvancedModeController>();
+    final theme = Theme.of(context);
 
     return ListView(
       children: [
-        SwitchListTile.adaptive(
-          title: const Text('Advanced User Mode'),
-          subtitle: const Text('Show advanced settings throughout the app.'),
-          secondary: const Icon(Symbols.tune),
-          value: advanced.isEnabled,
-          onChanged: (v) =>
-              context.read<AdvancedModeController>().setEnabled(v),
-        ),
-        const Divider(indent: 16, endIndent: 16),
         for (var i = 0; i < categories.length; i++)
           ListTile(
-            leading: Icon(categories[i].icon),
+            leading: Icon(
+              categories[i].icon,
+              color: (categories[i].indicatesAdvanced && advanced.isEnabled)
+                  ? theme.colorScheme.primary
+                  : null,
+            ),
             title: Text(categories[i].title),
             selected: i == selectedIndex,
             trailing: showChevron ? const Icon(Icons.chevron_right) : null,
@@ -51,9 +47,11 @@ class SettingsCategory {
     required this.title,
     required this.icon,
     required this.content,
+    this.indicatesAdvanced = false,
   });
 
   final String title;
   final IconData icon;
   final Widget content;
+  final bool indicatesAdvanced;
 }

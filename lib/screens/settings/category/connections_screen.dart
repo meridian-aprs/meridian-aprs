@@ -261,11 +261,20 @@ class _ConnectionsSettingsContentState
         if (showCustomActive) ...[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: Text(
-              'Custom filter values are active.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Symbols.info, size: 16, color: theme.colorScheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Custom filter values are active. Enable Advanced User Mode to configure.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],

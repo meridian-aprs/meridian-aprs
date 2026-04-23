@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 
 import 'settings/category/about_screen.dart';
+import 'settings/category/advanced_screen.dart';
 import 'settings/category/appearance_screen.dart';
 import 'settings/category/beaconing_screen.dart';
 import 'settings/category/connections_screen.dart';
@@ -57,6 +58,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       title: 'Appearance',
       icon: Symbols.palette,
       content: const AppearanceSettingsContent(),
+    ),
+    SettingsCategory(
+      title: 'Advanced',
+      icon: Symbols.tune,
+      content: const AdvancedSettingsContent(),
+      indicatesAdvanced: true,
     ),
     SettingsCategory(
       title: 'About',
