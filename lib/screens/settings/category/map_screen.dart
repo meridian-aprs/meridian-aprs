@@ -15,26 +15,8 @@ enum _DistanceUnit { metric, imperial }
 
 enum _TempUnit { fahrenheit, celsius }
 
-class MapSettingsContent extends StatefulWidget {
+class MapSettingsContent extends StatelessWidget {
   const MapSettingsContent({super.key});
-
-  @override
-  State<MapSettingsContent> createState() => _MapSettingsContentState();
-}
-
-class _MapSettingsContentState extends State<MapSettingsContent> {
-  // Remember the last age the user had selected, so toggling the switch back
-  // on restores that value rather than defaulting to something arbitrary.
-  int _lastSelectedAge = 60;
-
-  static const _ageOptions = <({String label, int value})>[
-    (label: '15 min', value: 15),
-    (label: '30 min', value: 30),
-    (label: '1 hour', value: 60),
-    (label: '2 hours', value: 120),
-    (label: '6 hours', value: 360),
-    (label: '12 hours', value: 720),
-  ];
 
   static const _radiusOptionValues = [10, 25, 50, 100];
 
@@ -45,13 +27,6 @@ class _MapSettingsContentState extends State<MapSettingsContent> {
     (label: '2 hr', value: 120),
   ];
 
-  static String _ageLabelFor(int? value) {
-    if (value == null) return 'No limit';
-    return _ageOptions
-        .firstWhere((o) => o.value == value, orElse: () => _ageOptions[2])
-        .label;
-  }
-
   static String _radiusLabelFor(int km, {required bool imperial}) =>
       formatRadiusKm(
         _radiusOptionValues.contains(km) ? km : 50,
@@ -61,71 +36,6 @@ class _MapSettingsContentState extends State<MapSettingsContent> {
   static String _wxAgeLabelFor(int value) => _wxAgeOptions
       .firstWhere((o) => o.value == value, orElse: () => _wxAgeOptions[2])
       .label;
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final age = context.read<StationService>().stationMaxAgeMinutes;
-    if (age != null) _lastSelectedAge = age;
-  }
-
-  void _showAgeDialog(BuildContext context, StationService stations) {
-    if (!kIsWeb && Platform.isIOS) {
-      showCupertinoModalPopup<int>(
-        context: context,
-        builder: (_) => CupertinoActionSheet(
-          title: const Text('Age limit'),
-          actions: _ageOptions
-              .map(
-                (o) => CupertinoActionSheetAction(
-                  onPressed: () {
-                    Navigator.pop(context, o.value);
-                  },
-                  child: Text(o.label),
-                ),
-              )
-              .toList(),
-          cancelButton: CupertinoActionSheetAction(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-        ),
-      ).then((v) {
-        if (v != null) {
-          setState(() => _lastSelectedAge = v);
-          stations.setStationMaxAgeMinutes(v);
-        }
-      });
-    } else {
-      showDialog<int>(
-        context: context,
-        builder: (ctx) => SimpleDialog(
-          title: const Text('Age limit'),
-          children: _ageOptions
-              .map(
-                (o) => SimpleDialogOption(
-                  onPressed: () => Navigator.of(ctx).pop(o.value),
-                  child: Text(
-                    o.label,
-                    style: o.value == stations.stationMaxAgeMinutes
-                        ? TextStyle(
-                            color: Theme.of(ctx).colorScheme.primary,
-                            fontWeight: FontWeight.bold,
-                          )
-                        : null,
-                  ),
-                ),
-              )
-              .toList(),
-        ),
-      ).then((v) {
-        if (v != null) {
-          setState(() => _lastSelectedAge = v);
-          stations.setStationMaxAgeMinutes(v);
-        }
-      });
-    }
-  }
 
   void _showRadiusDialog(
     BuildContext context,
@@ -190,7 +100,6 @@ class _MapSettingsContentState extends State<MapSettingsContent> {
     final stations = context.watch<StationService>();
     final advanced = context.watch<AdvancedModeController>();
     final imperial = stations.useImperialUnits;
-    final currentAge = stations.stationMaxAgeMinutes;
     final isIos = !kIsWeb && Platform.isIOS;
 
     final distanceUnit = imperial
@@ -234,32 +143,6 @@ class _MapSettingsContentState extends State<MapSettingsContent> {
                     }
                   },
                 ),
-        ),
-
-        // Station timeout — two controls
-        SwitchListTile.adaptive(
-          title: const Text('Limit station age'),
-          subtitle: const Text('Hide stations not heard within a time window'),
-          value: currentAge != null,
-          onChanged: (v) {
-            if (v) {
-              stations.setStationMaxAgeMinutes(_lastSelectedAge);
-            } else {
-              if (currentAge != null) {
-                setState(() => _lastSelectedAge = currentAge);
-              }
-              stations.setStationMaxAgeMinutes(null);
-            }
-          },
-        ),
-        ListTile(
-          title: const Text('Age limit'),
-          subtitle: Text(_ageLabelFor(currentAge)),
-          enabled: currentAge != null,
-          trailing: const Icon(Icons.chevron_right),
-          onTap: currentAge != null
-              ? () => _showAgeDialog(context, stations)
-              : null,
         ),
 
         // Weather overlay toggle (always visible)
