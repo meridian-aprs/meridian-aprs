@@ -133,7 +133,10 @@ class NotificationService extends ChangeNotifier {
 
     // Seed the snapshot so the first notification fires only for genuinely
     // new messages, not for all persisted unread counts on cold start.
-    for (final conv in _messageService.conversations) {
+    // Use allConversations (not conversations) so cross-SSID threads are
+    // seeded even when showOtherSsids is false — prevents spurious re-notify
+    // of pre-existing cross-SSID unread counts on startup.
+    for (final conv in _messageService.allConversations) {
       _lastUnread[conv.peerCallsign] = conv.unreadCount;
     }
   }
@@ -355,19 +358,36 @@ class NotificationService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setNotifyOtherSsids(bool v) async {
+    _notifPrefs = _notifPrefs.copyWithNotifyOtherSsids(v);
+    await _notifPrefs.save(_prefs);
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------------------
   // MessageService listener
   // ---------------------------------------------------------------------------
 
   void _onMessageServiceChange() {
-    final conversations = _messageService.conversations;
-    for (final conv in conversations) {
+    final myAddr = _messageService.myFullAddress;
+    for (final conv in _messageService.allConversations) {
       final peer = conv.peerCallsign;
       final prevUnread = _lastUnread[peer] ?? 0;
       if (conv.unreadCount > prevUnread) {
         final lastMsg = conv.lastMessage;
         if (lastMsg != null && !lastMsg.isOutgoing) {
-          _dispatchMessage(peer, lastMsg.text);
+          final isCross = lastMsg.isCrossSsid(myAddr);
+          if (isCross) {
+            if (_notifPrefs.notifyOtherSsids) {
+              _dispatchMessage(
+                peer,
+                lastMsg.text,
+                crossSsidAddressee: lastMsg.addressee,
+              );
+            }
+          } else {
+            _dispatchMessage(peer, lastMsg.text);
+          }
         }
       }
       _lastUnread[peer] = conv.unreadCount;
@@ -378,38 +398,80 @@ class NotificationService extends ChangeNotifier {
   // Dispatch
   // ---------------------------------------------------------------------------
 
-  Future<void> _dispatchMessage(String callsign, String text) async {
+  Future<void> _dispatchMessage(
+    String callsign,
+    String text, {
+    String? crossSsidAddressee,
+  }) async {
     if (!_notifPrefs.optedIn) return;
     if (!_notifPrefs.isChannelEnabled(NotificationChannels.messages)) return;
+
+    // Build a display label for cross-SSID messages: "W1ABC-9 → your -7".
+    // For exact-match messages the callsign is used unchanged.
+    final displayTitle = crossSsidAddressee != null
+        ? '$callsign → your ${_ssidSuffix(crossSsidAddressee)}'
+        : callsign;
 
     // In-app banner (fires regardless of foreground/background state,
     // but not if the user is already looking at that thread).
     if (_activeThreadCallsign?.toUpperCase() != callsign.toUpperCase()) {
-      _bannerController.show(callsign, text);
+      _bannerController.show(displayTitle, text);
     }
 
     if (kIsWeb) return;
 
     if (Platform.isAndroid || Platform.isIOS || Platform.isMacOS) {
-      await _dispatchMobileNotification(callsign, text);
+      await _dispatchMobileNotification(
+        callsign,
+        text,
+        displayTitle: displayTitle,
+      );
     } else if (Platform.isWindows || Platform.isLinux) {
-      await _dispatchDesktopNotification(callsign, text);
+      await _dispatchDesktopNotification(
+        callsign,
+        text,
+        displayTitle: displayTitle,
+      );
     }
   }
 
-  Future<void> _dispatchMobileNotification(String callsign, String text) async {
+  /// Extracts the SSID suffix from a full callsign string for use in
+  /// cross-SSID notification titles.
+  ///
+  /// 'KM4TJO-7' returns '-7'.
+  /// 'KM4TJO' (no SSID) returns '' — no suffix to display.
+  String _ssidSuffix(String callsign) {
+    final upper = callsign.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '' : upper.substring(dashIdx);
+  }
+
+  Future<void> _dispatchMobileNotification(
+    String callsign,
+    String text, {
+    String? displayTitle,
+  }) async {
     final withSound = _notifPrefs.isSoundEnabled(NotificationChannels.messages);
     final withVibration = _notifPrefs.isVibrationEnabled(
       NotificationChannels.messages,
     );
     final notifId = callsign.hashCode.abs() % 100000 + 1;
+    final titleToUse = displayTitle ?? callsign;
 
     if (!kIsWeb && Platform.isAndroid) {
       // Android: post natively so inline reply works without opening the app.
-      await _dispatchAndroidNotification(notifId, callsign, withSound);
+      // The callsign (not titleToUse) is passed for routing — native reply
+      // actions key on callsign. displayTitle is forwarded so the native side
+      // can use it for the visible title once it reads the new key.
+      await _dispatchAndroidNotification(
+        notifId,
+        callsign,
+        withSound,
+        displayTitle: titleToUse,
+      );
 
       // Group summary for 2+ unread conversations.
-      final unreadConvs = _messageService.conversations
+      final unreadConvs = _messageService.allConversations
           .where((c) => c.unreadCount > 0)
           .toList();
       if (unreadConvs.length >= 2) {
@@ -423,6 +485,7 @@ class NotificationService extends ChangeNotifier {
         text,
         withSound,
         withVibration,
+        displayTitle: titleToUse,
       );
     }
   }
@@ -430,11 +493,17 @@ class NotificationService extends ChangeNotifier {
   /// Posts an Android notification natively via [MainActivity] so that the
   /// custom [MeridianNotificationActionReceiver] PendingIntents are used for
   /// inline reply and mark-as-read — enabling reply without opening the app.
+  ///
+  /// [displayTitle] is forwarded to native for the visible notification title.
+  /// Routing (reply / mark-as-read) always uses [callsign] — never displayTitle.
+  /// NOTE: native Kotlin must read `displayTitle` from the arg map to use it;
+  /// until that follow-up lands, Android will continue showing the plain callsign.
   Future<void> _dispatchAndroidNotification(
     int id,
     String callsign,
     bool withSound, {
     bool alertOnce = false,
+    String? displayTitle,
   }) async {
     final conv = _messageService.conversationWith(callsign);
     final all = conv?.messages ?? [];
@@ -470,6 +539,10 @@ class NotificationService extends ChangeNotifier {
         'messages': messages,
         'withSound': withSound,
         'alertOnce': alertOnce,
+        // displayTitle: used by native side for the visible notification title.
+        // Routing (reply/mark-as-read) always uses 'callsign', not this value.
+        if (displayTitle != null && displayTitle != callsign)
+          'displayTitle': displayTitle,
       });
     } catch (_) {}
   }
@@ -479,11 +552,14 @@ class NotificationService extends ChangeNotifier {
     String callsign,
     String text,
     bool withSound,
-    bool withVibration,
-  ) async {
+    bool withVibration, {
+    String? displayTitle,
+  }) async {
     // iOS / macOS only — Android uses _dispatchAndroidNotification.
     final darwinDetails = DarwinNotificationDetails(
       categoryIdentifier: NotificationChannels.messages,
+      // threadIdentifier groups notifications by conversation; always keyed
+      // by raw callsign so threading is correct regardless of display title.
       threadIdentifier: callsign,
       presentAlert: true,
       presentSound: withSound,
@@ -493,9 +569,10 @@ class NotificationService extends ChangeNotifier {
     final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
     await _plugin.show(
       id,
-      callsign,
+      displayTitle ?? callsign,
       preview,
       NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
+      // payload always carries the raw callsign for navigation routing.
       payload: callsign,
     );
   }
@@ -537,11 +614,16 @@ class NotificationService extends ChangeNotifier {
 
   Future<void> _dispatchDesktopNotification(
     String callsign,
-    String text,
-  ) async {
+    String text, {
+    String? displayTitle,
+  }) async {
     if (!_desktopNotifierReady) return;
     final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
-    final notification = LocalNotification(title: callsign, body: preview);
+    final notification = LocalNotification(
+      title: displayTitle ?? callsign,
+      body: preview,
+    );
+    // onClick navigation always routes to the raw callsign thread.
     notification.onClick = () => _navigateToThread(callsign);
     await notification.show();
   }

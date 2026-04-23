@@ -9,6 +9,7 @@ import 'settings/category/connections_screen.dart';
 import 'settings/category/history_screen.dart';
 import 'settings/category/map_screen.dart';
 import 'settings/category/my_station_screen.dart';
+import 'settings/category/messaging_screen.dart';
 import 'settings/category/notifications_screen.dart';
 import 'settings/settings_category_list.dart';
 import '../ui/utils/platform_route.dart';
@@ -48,6 +49,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       title: 'Notifications',
       icon: Symbols.notifications,
       content: const NotificationsSettingsContent(),
+    ),
+    SettingsCategory(
+      title: 'Messaging',
+      icon: Symbols.forum,
+      content: const MessagingSettingsContent(),
     ),
     SettingsCategory(
       title: 'History & Storage',

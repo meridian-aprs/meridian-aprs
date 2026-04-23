@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../core/callsign/callsign_utils.dart';
 import '../services/message_service.dart';
 import '../services/notification_service.dart';
 import '../services/station_settings_service.dart';
@@ -71,8 +72,18 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
     final isLicensed = context.select<StationSettingsService, bool>(
       (s) => s.isLicensed,
     );
+    final myAddr = context.select<StationSettingsService, String>(
+      (s) => normalizeCallsign(s.fullAddress),
+    );
+    final showOther = context.select<MessageService, bool>(
+      (s) => s.showOtherSsids,
+    );
+
     final conv = messageService.conversationWith(widget.peerCallsign);
-    final messages = conv?.messages ?? [];
+    final allMessages = conv?.messages ?? [];
+    final messages = allMessages
+        .where((m) => showOther || !m.isCrossSsid(myAddr))
+        .toList();
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.peerCallsign)),
@@ -91,6 +102,7 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
                     itemBuilder: (_, i) => _MessageBubble(
                       entry: messages[i],
                       peerCallsign: widget.peerCallsign,
+                      myAddr: myAddr,
                     ),
                   ),
           ),
@@ -105,10 +117,18 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.entry, required this.peerCallsign});
+  const _MessageBubble({
+    required this.entry,
+    required this.peerCallsign,
+    required this.myAddr,
+  });
 
   final MessageEntry entry;
   final String peerCallsign;
+
+  /// Operator's own normalized full address (e.g. 'KM4TJO' or 'KM4TJO-9').
+  /// Used to detect cross-SSID messages and show the addressee badge.
+  final String myAddr;
 
   String _formatTime(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -250,6 +270,10 @@ class _MessageBubble extends StatelessWidget {
                 : CrossAxisAlignment.start,
             children: [
               Text(entry.text, style: TextStyle(color: fgColor)),
+              if (!isOut && entry.isCrossSsid(myAddr)) ...[
+                const SizedBox(height: 4),
+                _AddresseeBadge(addressee: entry.addressee!, fgColor: fgColor),
+              ],
               const SizedBox(height: 4),
               Row(
                 mainAxisSize: MainAxisSize.min,
@@ -411,6 +435,40 @@ class _UnlicensedComposeBar extends StatelessWidget {
             color: theme.colorScheme.outline,
           ),
           textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+/// Small inline badge shown on incoming cross-SSID messages to indicate which
+/// SSID of the operator's callsign the message was addressed to.
+class _AddresseeBadge extends StatelessWidget {
+  const _AddresseeBadge({required this.addressee, required this.fgColor});
+
+  final String addressee;
+  final Color fgColor;
+
+  String get _label {
+    final upper = addressee.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '→ $upper' : '→ ${upper.substring(dashIdx)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: 'Addressed to $addressee',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.outlineVariant.withAlpha(80),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          _label,
+          style: TextStyle(fontSize: 10, color: fgColor.withAlpha(180)),
         ),
       ),
     );

@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/callsign/callsign_utils.dart';
 import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_encoder.dart';
 import 'station_settings_service.dart';
@@ -32,6 +33,7 @@ class MessageEntry {
     required this.text,
     required this.timestamp,
     required this.isOutgoing,
+    this.addressee,
     this.status = MessageStatus.pending,
     this.retryCount = 0,
   });
@@ -45,8 +47,22 @@ class MessageEntry {
   final String text;
   final DateTime timestamp;
   final bool isOutgoing;
+
+  /// Full callsign the message was addressed to (incoming only).
+  final String? addressee;
+
   MessageStatus status;
   int retryCount;
+
+  /// Returns true when this incoming message was addressed to a different SSID
+  /// of the operator's callsign (i.e., cross-SSID capture).
+  ///
+  /// [myFullAddress] must be already normalized via [normalizeCallsign] and uppercased.
+  /// Always returns false for outgoing messages or when [addressee] is null.
+  bool isCrossSsid(String myFullAddress) =>
+      !isOutgoing &&
+      addressee != null &&
+      normalizeCallsign(addressee!) != myFullAddress;
 }
 
 /// A conversation thread with a single remote callsign.
@@ -75,12 +91,14 @@ class MessageService extends ChangeNotifier {
   static const _keyCounter = 'message_id_counter';
   static const _keyPeers = 'msg_peers';
   static const _keyMessageDays = 'history_message_days';
+  static const _keyShowOtherSsids = 'msg_show_other_ssids';
   static const _retryDelays = [30, 60, 120, 240, 480]; // seconds (APRS spec)
 
   /// Sentinel value meaning "keep forever" (no age-based pruning).
   static const int forever = 0;
 
   int _messageHistoryDays = 90;
+  bool _showOtherSsids = false;
 
   static String _convKey(String peer) => 'msg_conv_$peer';
 
@@ -100,8 +118,28 @@ class MessageService extends ChangeNotifier {
   // Public read API
   // ---------------------------------------------------------------------------
 
+  /// The operator's own callsign in normalized form (no '-0' suffix, uppercase).
+  /// Used to derive cross-SSID status for incoming messages.
+  String get myFullAddress => normalizeCallsign(_settings.fullAddress);
+
+  bool get showOtherSsids => _showOtherSsids;
+
   /// All conversations sorted by most recent activity (newest first).
+  /// When [showOtherSsids] is false, hides threads that contain only cross-SSID
+  /// messages (no outgoing messages and no exact-match incoming messages).
   List<Conversation> get conversations {
+    final myAddr = myFullAddress;
+    final list = _conversations.values.where((conv) {
+      if (_showOtherSsids) return true;
+      return conv.messages.any((m) => m.isOutgoing || !m.isCrossSsid(myAddr));
+    }).toList()..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
+    return list;
+  }
+
+  /// All conversations sorted by most recent activity — unfiltered.
+  /// Used by NotificationService to dispatch notifications for cross-SSID messages
+  /// regardless of the display preference.
+  List<Conversation> get allConversations {
     final list = _conversations.values.toList()
       ..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
     return list;
@@ -136,6 +174,14 @@ class MessageService extends ChangeNotifier {
     _persist(); // ignore: unawaited_futures
   }
 
+  Future<void> setShowOtherSsids(bool v) async {
+    if (_showOtherSsids == v) return;
+    _showOtherSsids = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyShowOtherSsids, v);
+    notifyListeners();
+  }
+
   /// Restore persisted conversations from [SharedPreferences].
   ///
   /// Call once after construction (before [runApp]). Messages that were
@@ -145,6 +191,7 @@ class MessageService extends ChangeNotifier {
   Future<void> loadHistory() async {
     final prefs = await SharedPreferences.getInstance();
     _messageHistoryDays = prefs.getInt(_keyMessageDays) ?? 90;
+    _showOtherSsids = prefs.getBool(_keyShowOtherSsids) ?? false;
 
     final peersRaw = prefs.getString(_keyPeers);
     if (peersRaw == null) return;
@@ -264,10 +311,14 @@ class MessageService extends ChangeNotifier {
 
   void _onPacket(AprsPacket packet) {
     if (packet is! MessagePacket) return;
-    final myAddress = _settings.fullAddress.toUpperCase();
+    final myAddress = myFullAddress;
+    final addresseeNorm = normalizeCallsign(packet.addressee.toUpperCase());
 
-    // Only process packets addressed to this station.
-    if (packet.addressee.toUpperCase() != myAddress) {
+    final isExactMatch = addresseeNorm == myAddress;
+    final isCrossSsidMatch =
+        !isExactMatch && stripSsid(addresseeNorm) == stripSsid(myAddress);
+
+    if (!isExactMatch && !isCrossSsidMatch) {
       debugPrint(
         'MessageService: dropped packet — addressee="${packet.addressee.toUpperCase()}" '
         'myAddress="$myAddress"',
@@ -279,14 +330,14 @@ class MessageService extends ChangeNotifier {
     final text = packet.message;
     final wireId = packet.messageId;
 
-    // ACK/REJ detection is done in the parser (MessagePacket.isAck / isRej).
+    // ACK/REJ: process only for exact-match addressee.
     if (packet.isAck) {
       debugPrint('MessageService: inbound ACK from=$source id=$wireId');
-      _handleAck(source, wireId ?? '');
+      if (isExactMatch) _handleAck(source, wireId ?? '');
       return;
     }
     if (packet.isRej) {
-      _handleRej(source, wireId ?? '');
+      if (isExactMatch) _handleRej(source, wireId ?? '');
       return;
     }
 
@@ -301,6 +352,7 @@ class MessageService extends ChangeNotifier {
       text: text,
       timestamp: packet.receivedAt,
       isOutgoing: false,
+      addressee: packet.addressee.trim(),
     );
 
     final conv = _getOrCreateConversation(source);
@@ -308,8 +360,8 @@ class MessageService extends ChangeNotifier {
     conv.lastActivity = packet.receivedAt;
     conv.unreadCount++;
 
-    // Send ACK immediately.
-    if (wireId != null && wireId.isNotEmpty) {
+    // Send ACK immediately — exact match only. Never ACK cross-SSID messages.
+    if (isExactMatch && wireId != null && wireId.isNotEmpty) {
       _transmitAck(source, wireId); // ignore: unawaited_futures
     }
 
@@ -494,6 +546,7 @@ class MessageService extends ChangeNotifier {
     'text': e.text,
     'timestamp': e.timestamp.millisecondsSinceEpoch,
     'isOutgoing': e.isOutgoing,
+    'addressee': e.addressee,
     'status': e.status.name,
     'retryCount': e.retryCount,
   };
@@ -531,6 +584,7 @@ class MessageService extends ChangeNotifier {
       text: json['text'] as String,
       timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
       isOutgoing: (json['isOutgoing'] as bool?) ?? false,
+      addressee: json['addressee'] as String?,
       status: status,
       retryCount: (json['retryCount'] as int?) ?? 0,
     );

@@ -1,3 +1,5 @@
+library;
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Notification channel IDs — extensible taxonomy established in v0.11.
@@ -17,6 +19,7 @@ class NotificationPreferences {
     required this.channelEnabled,
     required this.soundEnabled,
     required this.vibrationEnabled,
+    this.notifyOtherSsids = false,
   });
 
   /// Global opt-in flag — false means no notifications are dispatched even if
@@ -28,6 +31,13 @@ class NotificationPreferences {
   final Map<String, bool> channelEnabled;
   final Map<String, bool> soundEnabled;
   final Map<String, bool> vibrationEnabled;
+
+  /// When true, notifications are also dispatched for messages addressed to a
+  /// different SSID of the operator's callsign (cross-SSID capture). Defaults
+  /// to false — opt-in only.
+  final bool notifyOtherSsids;
+
+  static const _keyNotifyOtherSsids = 'notif_notify_other_ssids';
 
   // Default sound/vibration: on for messages+alerts, off for nearby+system.
   static const _defaultSound = {
@@ -44,6 +54,8 @@ class NotificationPreferences {
     NotificationChannels.system: false,
   };
 
+  // notifyOtherSsids uses its constructor default (false) and is not passed
+  // explicitly in defaults() — intentional.
   static NotificationPreferences defaults({bool optedIn = false}) =>
       NotificationPreferences(
         optedIn: optedIn,
@@ -75,11 +87,13 @@ class NotificationPreferences {
           prefs.getBool('notif_vibration_$ch') ??
           (_defaultVibration[ch] ?? false);
     }
+    final notifyOtherSsids = prefs.getBool(_keyNotifyOtherSsids) ?? false;
     return NotificationPreferences(
       optedIn: optedIn,
       channelEnabled: channelEnabled,
       soundEnabled: soundEnabled,
       vibrationEnabled: vibrationEnabled,
+      notifyOtherSsids: notifyOtherSsids,
     );
   }
 
@@ -94,6 +108,7 @@ class NotificationPreferences {
     for (final e in vibrationEnabled.entries) {
       await prefs.setBool('notif_vibration_${e.key}', e.value);
     }
+    await prefs.setBool(_keyNotifyOtherSsids, notifyOtherSsids);
   }
 
   NotificationPreferences copyWithOptedIn(bool value) =>
@@ -102,6 +117,7 @@ class NotificationPreferences {
         channelEnabled: Map.of(channelEnabled),
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: notifyOtherSsids,
       );
 
   NotificationPreferences copyWithChannel(String id, bool enabled) =>
@@ -110,6 +126,7 @@ class NotificationPreferences {
         channelEnabled: Map.of(channelEnabled)..[id] = enabled,
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: notifyOtherSsids,
       );
 
   NotificationPreferences copyWithSound(String id, bool enabled) =>
@@ -118,6 +135,7 @@ class NotificationPreferences {
         channelEnabled: Map.of(channelEnabled),
         soundEnabled: Map.of(soundEnabled)..[id] = enabled,
         vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: notifyOtherSsids,
       );
 
   NotificationPreferences copyWithVibration(String id, bool enabled) =>
@@ -126,5 +144,15 @@ class NotificationPreferences {
         channelEnabled: Map.of(channelEnabled),
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled)..[id] = enabled,
+        notifyOtherSsids: notifyOtherSsids,
+      );
+
+  NotificationPreferences copyWithNotifyOtherSsids(bool v) =>
+      NotificationPreferences(
+        optedIn: optedIn,
+        channelEnabled: Map.of(channelEnabled),
+        soundEnabled: Map.of(soundEnabled),
+        vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: v,
       );
 }

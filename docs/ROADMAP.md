@@ -21,8 +21,9 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | ✅ Complete |
 | v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | ✅ Complete |
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | ✅ Complete |
-| v0.14 — Performance | Battery & performance optimization pass (motivated by background service drain) | — |
-| v0.15 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
+| v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | — |
+| v0.15 — Battery & Performance | Battery & performance optimization pass (background service drain, SQLite evaluation) | — |
+| v0.16 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
 | v1.0 — Launch | Final polish, all-platform store submission (iOS App Store, Google Play, macOS, Windows, Linux) | — |
 
 ---
@@ -110,7 +111,24 @@ Harden credential handling and network filtering.
 
 ---
 
-### v0.14 — Battery & Performance
+### v0.14 — Base-Callsign Message Matching
+
+Operators running multiple SSID stations can receive and display messages addressed to any SSID of their callsign.
+
+- Capture-always architecture: all messages to any SSID of the operator's base callsign are persisted regardless of display preferences
+- `showOtherSsids` toggle (default off) — controls conversation list and thread visibility; toggling is instant and non-destructive
+- `notifyOtherSsids` toggle (default off, dependent on `showOtherSsids`) — controls OS notifications for cross-SSID messages
+- Cross-SSID notification copy: `W1ABC-9 → your -7: <body>` makes the mismatch explicit
+- Addressee badge on incoming bubbles when `addressee ≠ currentStation` — subdued chip showing `→ -7`
+- Conversation-list grouping by base callsign when 2+ threads share a base call — non-collapsible group headers with aggregated unread count
+- ACK behavior unchanged: exact-match only, always; cross-SSID messages are never ACKed
+- New Settings → Messaging category with both toggles and live-interpolated helper text
+- `stripSsid` / `normalizeCallsign` utilities in `lib/core/callsign/` (APRS `-0` equivalence handled)
+- ADR-054 in `docs/DECISIONS.md`
+
+---
+
+### v0.15 — Battery & Performance
 Optimize for real-world sustained use.
 
 - Profile and reduce background service battery drain
@@ -120,7 +138,7 @@ Optimize for real-world sustained use.
 
 ---
 
-### v0.15 — Bug Triage
+### v0.16 — Bug Triage
 Dedicated milestone for clearing the bug backlog before final polish.
 
 - Triage all open `bug` issues
@@ -149,4 +167,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-21*
+*Last updated: 2026-04-22*

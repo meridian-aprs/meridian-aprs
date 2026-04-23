@@ -60,11 +60,12 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
 | ~~v0.12~~ | ~~Onboarding improvements~~ ✓ |
 | ~~v0.13~~ | ~~Security & connectivity (passcode secure storage, APRS-IS filter config)~~ ✓ |
-| **v0.14** | Battery & performance optimization pass |
-| **v0.15** | Bug triage pass |
+| **v0.14** | Base-callsign message matching (cross-SSID capture, addressee badges, conversation grouping) |
+| **v0.15** | Battery & performance optimization pass |
+| **v0.16** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.13 complete (Security & connectivity milestone). v0.14 next — Battery & performance optimization. v0.13 added: `SecureCredentialStore` abstraction backed by `flutter_secure_storage`; APRS-IS passcode migrated from SharedPreferences to platform secure storage; `ConnectionCredentials` value object (removes `StationSettingsService` from Connection Core); `LatLngBox` replaces `LatLngBounds` (removes `flutter_map` from Connection Core); `AprsIsFilterConfig` / `AprsIsFilterPreset` model with Local/Regional/Wide/Custom presets; APRS-IS Filter settings section; `SettingsScreen` split into per-section files in `lib/screens/settings/sections/`; `TxTransportPref` enum fully removed (unconditional Serial > BLE > APRS-IS routing); Android `foregroundServiceType` updated to `dataSync|location|connectedDevice`. ADRs 001–052 in `docs/DECISIONS.md`. Post-v0.13 chore: settings screen reorganized into 8 navigable categories with master/detail layout (≥840dp), Advanced User Mode toggle (`AdvancedModeController`), control-type fixes (segmented unit selectors, discrete beacon interval slider, dialog-picker retention), APRS-IS server override. ADR-053.**
+**Current status: v0.14 in progress (Base-Callsign Message Matching). v0.14 adds: capture-always cross-SSID message ingestion (`MessageEntry.addressee`, `isCrossSsid()`); `showOtherSsids` pref on `MessageService` gates conversation list and thread display; `notifyOtherSsids` on `NotificationPreferences` gates cross-SSID OS notifications; cross-SSID notification copy `"W1ABC-9 → your -7: body"`; addressee badge (`→ -7`) on incoming thread bubbles; conversation-list grouping by base callsign (non-collapsible group headers, left-accent sub-rows); `stripSsid`/`normalizeCallsign` utilities in `lib/core/callsign/`; new Settings → Messaging category (9th category, after Notifications). v0.15 = Battery & Performance; v0.16 = Bug Triage. ADRs 001–054 in `docs/DECISIONS.md`. Post-v0.13 chore: settings screen reorganized into 8 navigable categories with master/detail layout (≥840dp), Advanced User Mode toggle (`AdvancedModeController`), control-type fixes (segmented unit selectors, discrete beacon interval slider, dialog-picker retention), APRS-IS server override. ADR-053.**
 
 **Conventions added in v0.5:**
 - `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
