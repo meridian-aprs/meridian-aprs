@@ -20,24 +20,61 @@ class SettingsCategoryList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final advanced = context.watch<AdvancedModeController>();
-    final theme = Theme.of(context);
 
     return ListView(
       children: [
         for (var i = 0; i < categories.length; i++)
           ListTile(
-            leading: Icon(
-              categories[i].icon,
-              color: (categories[i].indicatesAdvanced && advanced.isEnabled)
-                  ? theme.colorScheme.primary
-                  : null,
-            ),
+            leading: Icon(categories[i].icon),
             title: Text(categories[i].title),
             selected: i == selectedIndex,
-            trailing: showChevron ? const Icon(Icons.chevron_right) : null,
+            trailing: _buildTrailing(
+              context,
+              cat: categories[i],
+              advancedOn: advanced.isEnabled,
+            ),
             onTap: () => onCategoryTap(i),
           ),
       ],
+    );
+  }
+
+  Widget? _buildTrailing(
+    BuildContext context, {
+    required SettingsCategory cat,
+    required bool advancedOn,
+  }) {
+    final showPill = cat.indicatesAdvanced && advancedOn;
+    if (!showChevron && !showPill) return null;
+    if (!showChevron) return const _OnPill();
+    if (!showPill) return const Icon(Icons.chevron_right);
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [_OnPill(), SizedBox(width: 8), Icon(Icons.chevron_right)],
+    );
+  }
+}
+
+class _OnPill extends StatelessWidget {
+  const _OnPill();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final ts = Theme.of(context).textTheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: cs.primaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        'On',
+        style: ts.labelSmall?.copyWith(
+          color: cs.onPrimaryContainer,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
