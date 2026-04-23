@@ -1,9 +1,9 @@
 /// APRS messages thread list screen.
 ///
-/// Shows all conversations sorted by most recent activity. Conversations
-/// sharing a base callsign are grouped under a collapsible header when
-/// [MessageService.showOtherSsids] is active. Compose button opens
-/// [ComposeMessageSheet] to start a new thread.
+/// Shows all conversations sorted by most recent activity. Each base callsign
+/// gets its own Card — single-SSID threads are a one-tile card; multi-SSID
+/// threads show a base callsign header row followed by indented sub-rows,
+/// all within the same card.
 library;
 
 import 'dart:io' show Platform;
@@ -21,57 +21,34 @@ import '../ui/widgets/compose_message_sheet.dart';
 import 'message_thread_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Display item types for the grouped list
+// Group model
 // ---------------------------------------------------------------------------
 
-sealed class _DisplayItem {}
-
-final class _GroupHeader extends _DisplayItem {
-  _GroupHeader({required this.baseCallsign, required this.conversations});
+final class _ConvGroup {
+  _ConvGroup({required this.baseCallsign, required this.conversations});
   final String baseCallsign;
   final List<Conversation> conversations;
+  bool get isMulti => conversations.length >= 2;
   int get totalUnread => conversations.fold(0, (sum, c) => sum + c.unreadCount);
 }
 
-final class _ConvItem extends _DisplayItem {
-  _ConvItem({required this.conversation, required this.isSubRow});
-  final Conversation conversation;
-  final bool isSubRow;
-}
-
-// ---------------------------------------------------------------------------
-// Grouping helper
-// ---------------------------------------------------------------------------
-
-List<_DisplayItem> _buildGroupedItems(List<Conversation> conversations) {
-  // Group conversations by base callsign.
+List<_ConvGroup> _buildGroups(List<Conversation> conversations) {
   final byBase = <String, List<Conversation>>{};
   for (final conv in conversations) {
     final base = stripSsid(conv.peerCallsign);
     byBase.putIfAbsent(base, () => []).add(conv);
   }
 
-  // Build display items, preserving the overall lastActivity sort order from
-  // MessageService (conversations is already sorted newest-first).
-  final items = <_DisplayItem>[];
+  final groups = <_ConvGroup>[];
   final emitted = <String>{};
 
   for (final conv in conversations) {
     final base = stripSsid(conv.peerCallsign);
     if (emitted.contains(base)) continue;
     emitted.add(base);
-
-    final group = byBase[base]!;
-    if (group.length >= 2) {
-      items.add(_GroupHeader(baseCallsign: base, conversations: group));
-      for (final c in group) {
-        items.add(_ConvItem(conversation: c, isSubRow: true));
-      }
-    } else {
-      items.add(_ConvItem(conversation: conv, isSubRow: false));
-    }
+    groups.add(_ConvGroup(baseCallsign: base, conversations: byBase[base]!));
   }
-  return items;
+  return groups;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,37 +69,74 @@ class MessagesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildGroupedList(
+  List<Widget> _buildMultiCardChildren(
+    BuildContext context,
+    _ConvGroup group,
+    MessageService service,
+  ) {
+    final children = <Widget>[
+      _CardGroupHeader(
+        baseCallsign: group.baseCallsign,
+        totalUnread: group.totalUnread,
+      ),
+    ];
+    for (var i = 0; i < group.conversations.length; i++) {
+      if (i > 0) {
+        children.add(
+          const Divider(indent: 72, endIndent: 16, height: 1, thickness: 0.5),
+        );
+      }
+      final c = group.conversations[i];
+      children.add(
+        _ConversationTile(
+          conversation: c,
+          onTap: () {
+            service.markRead(c.peerCallsign);
+            Navigator.push(
+              context,
+              buildPlatformRoute(
+                (_) => MessageThreadScreen(peerCallsign: c.peerCallsign),
+              ),
+            );
+          },
+        ),
+      );
+    }
+    return children;
+  }
+
+  Widget _buildList(
     BuildContext context,
     List<Conversation> conversations,
     MessageService service,
   ) {
-    final items = _buildGroupedItems(conversations);
+    final groups = _buildGroups(conversations);
     return ListView.builder(
-      itemCount: items.length,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      itemCount: groups.length,
       itemBuilder: (ctx, i) {
-        final item = items[i];
-        if (item is _GroupHeader) {
-          return _GroupHeaderTile(
-            baseCallsign: item.baseCallsign,
-            totalUnread: item.totalUnread,
-          );
-        }
-        final convItem = item as _ConvItem;
-        return _ConversationTile(
-          conversation: convItem.conversation,
-          isSubRow: convItem.isSubRow,
-          onTap: () {
-            service.markRead(convItem.conversation.peerCallsign);
-            Navigator.push(
-              context,
-              buildPlatformRoute(
-                (_) => MessageThreadScreen(
-                  peerCallsign: convItem.conversation.peerCallsign,
+        final group = groups[i];
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          clipBehavior: Clip.antiAlias,
+          child: group.isMulti
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: _buildMultiCardChildren(context, group, service),
+                )
+              : _ConversationTile(
+                  conversation: group.conversations.first,
+                  onTap: () {
+                    final peer = group.conversations.first.peerCallsign;
+                    service.markRead(peer);
+                    Navigator.push(
+                      context,
+                      buildPlatformRoute(
+                        (_) => MessageThreadScreen(peerCallsign: peer),
+                      ),
+                    );
+                  },
                 ),
-              ),
-            );
-          },
         );
       },
     );
@@ -152,7 +166,7 @@ class MessagesScreen extends StatelessWidget {
           ? _EmptyState(
               onCompose: isLicensed ? () => _openCompose(context) : null,
             )
-          : _buildGroupedList(context, conversations, service),
+          : _buildList(context, conversations, service),
       floatingActionButton: (_isDesktop || !isLicensed)
           ? null
           : FloatingActionButton(
@@ -166,11 +180,11 @@ class MessagesScreen extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Group header tile
+// Card group header (shown only for multi-SSID groups)
 // ---------------------------------------------------------------------------
 
-class _GroupHeaderTile extends StatelessWidget {
-  const _GroupHeaderTile({
+class _CardGroupHeader extends StatelessWidget {
+  const _CardGroupHeader({
     required this.baseCallsign,
     required this.totalUnread,
   });
@@ -182,14 +196,14 @@ class _GroupHeaderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
       child: Row(
         children: [
           Text(
             baseCallsign,
-            style: theme.textTheme.labelSmall?.copyWith(
+            style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.tertiary,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.w700,
               letterSpacing: 0.5,
             ),
           ),
@@ -206,15 +220,10 @@ class _GroupHeaderTile extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ConversationTile extends StatelessWidget {
-  const _ConversationTile({
-    required this.conversation,
-    required this.onTap,
-    this.isSubRow = false,
-  });
+  const _ConversationTile({required this.conversation, required this.onTap});
 
   final Conversation conversation;
   final VoidCallback onTap;
-  final bool isSubRow;
 
   String _formatTime(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -224,18 +233,37 @@ class _ConversationTile extends StatelessWidget {
     return '${diff.inDays}d ago';
   }
 
+  /// Returns the SSID portion of [callsign] for use in the avatar.
+  /// 'W1ABC-9' → '-9', 'W1ABC-15' → '-15', 'W1ABC' → '0'
+  /// (APRS spec: a callsign with no SSID is equivalent to SSID -0.)
+  String _ssidLabel(String callsign) {
+    final upper = callsign.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '0' : upper.substring(dashIdx);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUnread = conversation.unreadCount > 0;
     final lastMsg = conversation.lastMessage;
 
-    Widget tile = ListTile(
+    final tile = ListTile(
+      tileColor: hasUnread
+          ? theme.colorScheme.primaryContainer.withAlpha(60)
+          : null,
       leading: CircleAvatar(
         backgroundColor: theme.colorScheme.primaryContainer,
-        child: Text(
-          conversation.peerCallsign.substring(0, 1),
-          style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            _ssidLabel(conversation.peerCallsign),
+            style: TextStyle(
+              color: theme.colorScheme.onPrimaryContainer,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
       title: Text(
@@ -271,20 +299,6 @@ class _ConversationTile extends StatelessWidget {
       onTap: onTap,
     );
 
-    if (isSubRow) {
-      tile = Container(
-        margin: const EdgeInsets.only(left: 20),
-        decoration: BoxDecoration(
-          border: Border(
-            left: BorderSide(
-              color: theme.colorScheme.tertiaryContainer,
-              width: 4,
-            ),
-          ),
-        ),
-        child: tile,
-      );
-    }
     return tile;
   }
 }
