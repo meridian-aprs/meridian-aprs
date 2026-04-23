@@ -12,18 +12,19 @@ import '../../../services/beaconing_service.dart';
 import '../../../services/ios_background_service.dart';
 import '../../../theme/meridian_colors.dart';
 import '../../../ui/utils/platform_route.dart';
+import '../advanced_mode_controller.dart';
 import '../smart_beaconing_params_screen.dart';
 import '../widgets/section_header.dart';
 
-class BeaconingSection extends StatelessWidget {
-  const BeaconingSection({super.key});
+class BeaconingSettingsContent extends StatelessWidget {
+  const BeaconingSettingsContent({super.key});
 
   @override
   Widget build(BuildContext context) {
     final beaconing = context.watch<BeaconingService>();
+    final advanced = context.watch<AdvancedModeController>();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return ListView(
       children: [
         const SectionHeader('Beaconing'),
         Padding(
@@ -61,13 +62,13 @@ class BeaconingSection extends StatelessWidget {
           ),
         ),
         if (beaconing.mode == BeaconMode.auto) ...[
-          _IntervalTile(
+          _DiscreteIntervalTile(
             intervalS: beaconing.autoIntervalS,
             onChanged: (v) =>
                 context.read<BeaconingService>().setAutoInterval(v),
           ),
         ],
-        if (beaconing.mode == BeaconMode.smart) ...[
+        if (beaconing.mode == BeaconMode.smart && advanced.isEnabled) ...[
           ListTile(
             title: const Text('SmartBeaconing™ Parameters'),
             subtitle: Text(
@@ -128,14 +129,93 @@ class BeaconingSection extends StatelessWidget {
               ],
             ),
           ),
+        const SizedBox(height: 16),
       ],
     );
   }
 }
 
-/// iOS-only widget that watches [IosBackgroundService] and shows a
-/// [CupertinoAlertDialog] when background location permission is needed.
-/// Renders nothing visible; exists only to host the listener lifecycle.
+// ---------------------------------------------------------------------------
+// Discrete interval slider — 8 preset stops
+// ---------------------------------------------------------------------------
+
+class _DiscreteIntervalTile extends StatefulWidget {
+  const _DiscreteIntervalTile({
+    required this.intervalS,
+    required this.onChanged,
+  });
+
+  final int intervalS;
+  final ValueChanged<int> onChanged;
+
+  static const _presets = [1, 2, 5, 10, 15, 20, 30, 60];
+
+  static int _snapToPreset(int minutes) => _presets.reduce(
+    (a, b) => (a - minutes).abs() <= (b - minutes).abs() ? a : b,
+  );
+
+  static String _label(int minutes) =>
+      minutes == 1 ? '1 minute' : '$minutes minutes';
+
+  @override
+  State<_DiscreteIntervalTile> createState() => _DiscreteIntervalTileState();
+}
+
+class _DiscreteIntervalTileState extends State<_DiscreteIntervalTile> {
+  bool _snapped = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_snapped) {
+      _snapped = true;
+      final minutes = (widget.intervalS / 60).round().clamp(1, 60);
+      final snapped = _DiscreteIntervalTile._snapToPreset(minutes);
+      if (snapped != minutes) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.onChanged(snapped * 60);
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final minutes = (widget.intervalS / 60).round().clamp(1, 60);
+    final snapped = _DiscreteIntervalTile._snapToPreset(minutes);
+    final index = _DiscreteIntervalTile._presets.indexOf(snapped);
+    final safeIndex = index < 0 ? 0 : index;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          title: const Text('Beacon Interval'),
+          subtitle: Text(_DiscreteIntervalTile._label(snapped)),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Slider(
+            min: 0,
+            max: 7,
+            divisions: 7,
+            value: safeIndex.toDouble(),
+            label: _DiscreteIntervalTile._label(snapped),
+            onChanged: (v) {
+              final preset = _DiscreteIntervalTile._presets[v.round()];
+              widget.onChanged(preset * 60);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// iOS-only background location prompt
+// ---------------------------------------------------------------------------
+
 class _IosBackgroundLocationPrompt extends StatefulWidget {
   const _IosBackgroundLocationPrompt();
 
@@ -195,40 +275,4 @@ class _IosBackgroundLocationPromptState
 
   @override
   Widget build(BuildContext context) => const SizedBox.shrink();
-}
-
-class _IntervalTile extends StatelessWidget {
-  const _IntervalTile({required this.intervalS, required this.onChanged});
-
-  final int intervalS;
-  final ValueChanged<int> onChanged;
-
-  static String _label(int minutes) =>
-      minutes == 1 ? '1 minute' : '$minutes minutes';
-
-  @override
-  Widget build(BuildContext context) {
-    // Snap any stored value to the nearest whole minute (1–60).
-    final minutes = (intervalS / 60).round().clamp(1, 60);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ListTile(
-          title: const Text('Beacon Interval'),
-          subtitle: Text(_label(minutes)),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Slider(
-            min: 1,
-            max: 60,
-            divisions: 59,
-            value: minutes.toDouble(),
-            label: _label(minutes),
-            onChanged: (v) => onChanged(v.round() * 60),
-          ),
-        ),
-      ],
-    );
-  }
 }

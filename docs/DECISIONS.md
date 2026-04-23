@@ -933,3 +933,25 @@ This resolves audit finding F-META-003 (#44). ADR-025's narrative is updated to 
 ### Consequences
 
 No runtime behavior change on Android < 14. On Android 14+, the foreground service now correctly declares all its capabilities to the OS. Google Play policy compliance is maintained. The `connectedDevice` type declaration does not require an additional runtime permission prompt — it is a manifest-level declaration only.
+
+## ADR-053: Settings screen reorganization — IA, master/detail, Advanced User Mode
+
+**Date:** 2026-04-22
+**Status:** Accepted
+
+### Context
+
+The Settings screen was a monolithic `ListView` with 13 sections stacked vertically, three of which were placeholder stubs. There was no category navigation, no responsive layout, and several controls used inappropriate widget types (switches for unit selectors, free-form sliders for discrete choices, cramped trailing dropdowns for retention settings).
+
+### Decision
+
+- **Information architecture**: 8 top-level categories (My Station, Beaconing, Connections, Map, Notifications, History & Storage, Appearance, About), each with its own content screen. Three stub sections (DisplaySection, AccountSection, ConnectionSection) deleted. About + Acknowledgements and Appearance + App Color merged.
+- **Responsive layout**: `LayoutBuilder` at the settings root; ≥840dp → master/detail two-pane (280dp fixed left pane + expanded detail); <840dp → hierarchical push-nav via `buildPlatformRoute`. Breakpoint aligns with the MD3 medium compact boundary.
+- **Advanced User Mode**: New `AdvancedModeController extends ChangeNotifier`, backed by SharedPreferences key `advanced_user_mode_enabled` (default false). Follows the `ThemeController` async factory pattern. Wired into `MultiProvider` in `main.dart`. Advanced toggle sits above the category list. When off, advanced-gated settings are hidden but stored values are preserved.
+- **Advanced-gated settings**: SmartBeaconing™ Parameters tile (Beaconing), APRS-IS filter Custom preset + sliders (Connections), APRS-IS server override (Connections), WX overlay search radius / temp units / data max age (Map), Clear packet log + Clear stations (History).
+- **Control-type changes**: Distance units and temperature units → `SegmentedButton`/`CupertinoSlidingSegmentedControl`; Beacon Interval → discrete 8-stop slider [1,2,5,10,15,20,30,60 min]; Station Timeout → `SwitchListTile.adaptive` + dialog picker; History retention → dialog picker (Material `SimpleDialog` / iOS `CupertinoActionSheet`); APRS-IS filter sliders moved inline (ExpansionTile removed).
+- **APRS-IS server override**: New SharedPreferences key `aprs_is_server_override` (String, optional). `AprsIsTransport.host`/`port` made mutable with `updateServer()`. `AprsIsConnection.setServerOverride(String?)` parses and applies the override; reads it in `loadPersistedSettings()`. Setting takes effect on next connection; a snackbar informs the user if currently connected.
+
+### Consequences
+
+Settings categories are individually navigable. Desktop users get a persistent master/detail view. Advanced users can expose power-user controls. All existing SharedPreferences keys are preserved — no migration needed. The `sections/` subdirectory is fully removed; content lives in `category/`.

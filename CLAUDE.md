@@ -64,7 +64,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | **v0.15** | Bug triage pass |
 | **v1.0** | Final polish + store submission |
 
-**Current status: v0.13 complete (Security & connectivity milestone). v0.14 next — Battery & performance optimization. v0.13 added: `SecureCredentialStore` abstraction backed by `flutter_secure_storage`; APRS-IS passcode migrated from SharedPreferences to platform secure storage; `ConnectionCredentials` value object (removes `StationSettingsService` from Connection Core); `LatLngBox` replaces `LatLngBounds` (removes `flutter_map` from Connection Core); `AprsIsFilterConfig` / `AprsIsFilterPreset` model with Local/Regional/Wide/Custom presets; APRS-IS Filter settings section; `SettingsScreen` split into per-section files in `lib/screens/settings/sections/`; `TxTransportPref` enum fully removed (unconditional Serial > BLE > APRS-IS routing); Android `foregroundServiceType` updated to `dataSync|location|connectedDevice`. ADRs 001–052 in `docs/DECISIONS.md`.**
+**Current status: v0.13 complete (Security & connectivity milestone). v0.14 next — Battery & performance optimization. v0.13 added: `SecureCredentialStore` abstraction backed by `flutter_secure_storage`; APRS-IS passcode migrated from SharedPreferences to platform secure storage; `ConnectionCredentials` value object (removes `StationSettingsService` from Connection Core); `LatLngBox` replaces `LatLngBounds` (removes `flutter_map` from Connection Core); `AprsIsFilterConfig` / `AprsIsFilterPreset` model with Local/Regional/Wide/Custom presets; APRS-IS Filter settings section; `SettingsScreen` split into per-section files in `lib/screens/settings/sections/`; `TxTransportPref` enum fully removed (unconditional Serial > BLE > APRS-IS routing); Android `foregroundServiceType` updated to `dataSync|location|connectedDevice`. ADRs 001–052 in `docs/DECISIONS.md`. Post-v0.13 chore: settings screen reorganized into 8 navigable categories with master/detail layout (≥840dp), Advanced User Mode toggle (`AdvancedModeController`), control-type fixes (segmented unit selectors, discrete beacon interval slider, dialog-picker retention), APRS-IS server override. ADR-053.**
 
 **Conventions added in v0.5:**
 - `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
@@ -197,7 +197,7 @@ All three tiers fully implemented. iOS pending simulator validation.
 |---|---|---|
 | `map_screen.dart` | `MapScreen` | Root screen; owns StationService lifecycle; delegates to ResponsiveLayout |
 | `packet_log_screen.dart` | `PacketLogScreen` | Real-time packet list; type filter chips; tap → PacketDetailSheet |
-| `settings_screen.dart` | `SettingsScreen` | Settings screen; Appearance (theme) functional; all others stubbed |
+| `settings_screen.dart` | `SettingsScreen` | Responsive settings shell; ≥840dp → master/detail two-pane; <840dp → push-nav; 8 categories in `settings/category/`; Advanced User Mode toggle via `AdvancedModeController` |
 | `onboarding/onboarding_screen.dart` | `OnboardingScreen` | 3-page PageView; shown on first launch; saves onboarding_complete flag |
 | `onboarding/onboarding_welcome_page.dart` | `OnboardingWelcomePage` | Page 1: logo, tagline, Get Started / skip |
 | `onboarding/onboarding_callsign_page.dart` | `OnboardingCallsignPage` | Page 2: CallsignField, SSID picker, passcode field |
