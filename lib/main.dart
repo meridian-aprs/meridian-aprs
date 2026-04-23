@@ -30,6 +30,9 @@ import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'services/background_service_manager.dart';
 import 'services/beaconing_service.dart';
+import 'services/bulletin_service.dart';
+import 'services/bulletin_subscription_service.dart';
+import 'services/group_subscription_service.dart';
 import 'services/ios_background_service.dart';
 import 'services/message_service.dart';
 import 'services/station_service.dart';
@@ -184,7 +187,25 @@ Future<void> main() async {
   );
   await beaconingService.loadPersistedSettings();
 
-  final messageService = MessageService(stationSettings, txService, service);
+  final groupSubscriptions = GroupSubscriptionService(prefs: prefs);
+  await groupSubscriptions.load();
+
+  final bulletinSubscriptions = BulletinSubscriptionService(prefs: prefs);
+  await bulletinSubscriptions.load();
+
+  final bulletinService = BulletinService(
+    subscriptions: bulletinSubscriptions,
+    prefs: prefs,
+  );
+  await bulletinService.load();
+
+  final messageService = MessageService(
+    stationSettings,
+    txService,
+    service,
+    groupSubscriptions: groupSubscriptions,
+    bulletins: bulletinService,
+  );
   await messageService.loadHistory();
 
   final bannerController = InAppBannerController();
@@ -261,6 +282,13 @@ Future<void> main() async {
         ),
         ChangeNotifierProvider<TxService>.value(value: txService),
         ChangeNotifierProvider<BeaconingService>.value(value: beaconingService),
+        ChangeNotifierProvider<GroupSubscriptionService>.value(
+          value: groupSubscriptions,
+        ),
+        ChangeNotifierProvider<BulletinSubscriptionService>.value(
+          value: bulletinSubscriptions,
+        ),
+        ChangeNotifierProvider<BulletinService>.value(value: bulletinService),
         ChangeNotifierProvider<MessageService>.value(value: messageService),
         ChangeNotifierProvider<BackgroundServiceManager>.value(
           value: bgServiceManager,
