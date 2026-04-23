@@ -10,9 +10,41 @@ import 'package:flutter/services.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../core/callsign/callsign_utils.dart';
 import '../services/message_service.dart';
 import '../services/notification_service.dart';
 import '../services/station_settings_service.dart';
+
+// ---------------------------------------------------------------------------
+// Thread display items (message bubbles interleaved with day dividers)
+// ---------------------------------------------------------------------------
+
+sealed class _ThreadItem {}
+
+final class _MessageItem extends _ThreadItem {
+  _MessageItem(this.entry);
+  final MessageEntry entry;
+}
+
+final class _DayDividerItem extends _ThreadItem {
+  _DayDividerItem(this.date);
+  final DateTime date;
+}
+
+List<_ThreadItem> _buildThreadItems(List<MessageEntry> messages) {
+  if (messages.isEmpty) return const [];
+  final items = <_ThreadItem>[];
+  DateTime? lastDate;
+  for (final m in messages) {
+    final d = DateTime(m.timestamp.year, m.timestamp.month, m.timestamp.day);
+    if (lastDate == null || d != lastDate) {
+      items.add(_DayDividerItem(d));
+      lastDate = d;
+    }
+    items.add(_MessageItem(m));
+  }
+  return items;
+}
 
 class MessageThreadScreen extends StatefulWidget {
   const MessageThreadScreen({super.key, required this.peerCallsign});
@@ -26,20 +58,22 @@ class MessageThreadScreen extends StatefulWidget {
 class _MessageThreadScreenState extends State<MessageThreadScreen> {
   final _inputCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
+  late final NotificationService _notifService;
 
   @override
   void initState() {
     super.initState();
+    _notifService = context.read<NotificationService>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       context.read<MessageService>().markRead(widget.peerCallsign);
-      context.read<NotificationService>().setActiveThread(widget.peerCallsign);
+      _notifService.setActiveThread(widget.peerCallsign);
     });
   }
 
   @override
   void dispose() {
-    context.read<NotificationService>().setActiveThread(null);
+    _notifService.setActiveThread(null);
     _inputCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
@@ -71,11 +105,33 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
     final isLicensed = context.select<StationSettingsService, bool>(
       (s) => s.isLicensed,
     );
+    final myAddr = context.select<StationSettingsService, String>(
+      (s) => normalizeCallsign(s.fullAddress),
+    );
+    final showOther = context.select<MessageService, bool>(
+      (s) => s.showOtherSsids,
+    );
+
     final conv = messageService.conversationWith(widget.peerCallsign);
-    final messages = conv?.messages ?? [];
+    final allMessages = conv?.messages ?? [];
+    final messages = allMessages
+        .where((m) => showOther || !m.isCrossSsid(myAddr))
+        .toList();
+    final items = _buildThreadItems(messages);
 
     return Scaffold(
-      appBar: AppBar(title: Text(widget.peerCallsign)),
+      appBar: AppBar(
+        titleSpacing: 0,
+        title: Row(
+          children: [
+            _PeerAvatar(callsign: widget.peerCallsign),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(widget.peerCallsign, overflow: TextOverflow.ellipsis),
+            ),
+          ],
+        ),
+      ),
       body: Column(
         children: [
           Expanded(
@@ -87,11 +143,18 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
                       vertical: 12,
                       horizontal: 8,
                     ),
-                    itemCount: messages.length,
-                    itemBuilder: (_, i) => _MessageBubble(
-                      entry: messages[i],
-                      peerCallsign: widget.peerCallsign,
-                    ),
+                    itemCount: items.length,
+                    itemBuilder: (_, i) {
+                      final item = items[i];
+                      return switch (item) {
+                        _DayDividerItem(date: final d) => _DayDivider(date: d),
+                        _MessageItem(entry: final e) => _MessageBubble(
+                          entry: e,
+                          peerCallsign: widget.peerCallsign,
+                          myAddr: myAddr,
+                        ),
+                      };
+                    },
                   ),
           ),
           if (isLicensed)
@@ -105,10 +168,24 @@ class _MessageThreadScreenState extends State<MessageThreadScreen> {
 }
 
 class _MessageBubble extends StatelessWidget {
-  const _MessageBubble({required this.entry, required this.peerCallsign});
+  const _MessageBubble({
+    required this.entry,
+    required this.peerCallsign,
+    required this.myAddr,
+  });
 
   final MessageEntry entry;
   final String peerCallsign;
+
+  /// Operator's own normalized full address (e.g. 'KM4TJO' or 'KM4TJO-9').
+  /// Used to detect cross-SSID messages and show the addressee badge.
+  final String myAddr;
+
+  String _ssidSuffix(String addressee) {
+    final upper = addressee.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? upper : upper.substring(dashIdx);
+  }
 
   String _formatTime(DateTime dt) {
     final diff = DateTime.now().difference(dt);
@@ -261,6 +338,43 @@ class _MessageBubble extends StatelessWidget {
                       color: fgColor.withAlpha(160),
                     ),
                   ),
+                  if (!isOut && entry.isCrossSsid(myAddr)) ...[
+                    const SizedBox(width: 8),
+                    Tooltip(
+                      message: 'Addressed to ${entry.addressee}',
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: fgColor.withAlpha(120),
+                            width: 0.5,
+                          ),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text.rich(
+                          TextSpan(
+                            children: [
+                              TextSpan(
+                                text: 'to ',
+                                style: TextStyle(color: fgColor.withAlpha(150)),
+                              ),
+                              TextSpan(
+                                text: _ssidSuffix(entry.addressee!),
+                                style: TextStyle(
+                                  color: fgColor.withAlpha(220),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                   if (isOut) ...[
                     const SizedBox(width: 6),
                     IconTheme(
@@ -375,6 +489,77 @@ class _ComposeBarState extends State<_ComposeBar> {
   }
 }
 
+/// Centered day marker (e.g. "Today", "Yesterday", "Mon, Apr 20") shown
+/// between message bubbles whenever the calendar date changes.
+class _DayDivider extends StatelessWidget {
+  const _DayDivider({required this.date});
+
+  final DateTime date;
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  static const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  String _label() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (date == today) return 'Today';
+    if (date == yesterday) return 'Yesterday';
+    final wd = _weekdays[date.weekday - 1];
+    final mo = _months[date.month - 1];
+    if (date.year == now.year) return '$wd, $mo ${date.day}';
+    return '$wd, $mo ${date.day}, ${date.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Divider(
+              color: theme.colorScheme.outlineVariant.withAlpha(120),
+              height: 1,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              _label(),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Divider(
+              color: theme.colorScheme.outlineVariant.withAlpha(120),
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyThread extends StatelessWidget {
   const _EmptyThread();
 
@@ -411,6 +596,40 @@ class _UnlicensedComposeBar extends StatelessWidget {
             color: theme.colorScheme.outline,
           ),
           textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+}
+
+/// Small SSID avatar shown in the thread's AppBar title, matching the
+/// conversation-list avatar style for continuity.
+class _PeerAvatar extends StatelessWidget {
+  const _PeerAvatar({required this.callsign});
+
+  final String callsign;
+
+  String _ssidLabel(String c) {
+    final upper = c.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '0' : upper.substring(dashIdx);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: theme.colorScheme.primaryContainer,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          _ssidLabel(callsign),
+          style: TextStyle(
+            color: theme.colorScheme.onPrimaryContainer,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );

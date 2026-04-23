@@ -1,7 +1,9 @@
 /// APRS messages thread list screen.
 ///
-/// Shows all conversations sorted by most recent activity. Compose button
-/// opens [ComposeMessageSheet] to start a new thread.
+/// Shows all conversations sorted by most recent activity. Each base callsign
+/// gets its own Card — single-SSID threads are a one-tile card; multi-SSID
+/// threads show a base callsign header row followed by indented sub-rows,
+/// all within the same card.
 library;
 
 import 'dart:io' show Platform;
@@ -11,11 +13,47 @@ import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
 import 'package:provider/provider.dart';
 
+import '../core/callsign/callsign_utils.dart';
 import '../services/message_service.dart';
 import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/compose_message_sheet.dart';
 import 'message_thread_screen.dart';
+
+// ---------------------------------------------------------------------------
+// Group model
+// ---------------------------------------------------------------------------
+
+final class _ConvGroup {
+  _ConvGroup({required this.baseCallsign, required this.conversations});
+  final String baseCallsign;
+  final List<Conversation> conversations;
+  bool get isMulti => conversations.length >= 2;
+  int get totalUnread => conversations.fold(0, (sum, c) => sum + c.unreadCount);
+}
+
+List<_ConvGroup> _buildGroups(List<Conversation> conversations) {
+  final byBase = <String, List<Conversation>>{};
+  for (final conv in conversations) {
+    final base = stripSsid(conv.peerCallsign);
+    byBase.putIfAbsent(base, () => []).add(conv);
+  }
+
+  final groups = <_ConvGroup>[];
+  final emitted = <String>{};
+
+  for (final conv in conversations) {
+    final base = stripSsid(conv.peerCallsign);
+    if (emitted.contains(base)) continue;
+    emitted.add(base);
+    groups.add(_ConvGroup(baseCallsign: base, conversations: byBase[base]!));
+  }
+  return groups;
+}
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
 
 class MessagesScreen extends StatelessWidget {
   const MessagesScreen({super.key});
@@ -28,6 +66,79 @@ class MessagesScreen extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       builder: (_) => const ComposeMessageSheet(),
+    );
+  }
+
+  List<Widget> _buildMultiCardChildren(
+    BuildContext context,
+    _ConvGroup group,
+    MessageService service,
+  ) {
+    final children = <Widget>[
+      _CardGroupHeader(
+        baseCallsign: group.baseCallsign,
+        totalUnread: group.totalUnread,
+      ),
+    ];
+    for (var i = 0; i < group.conversations.length; i++) {
+      if (i > 0) {
+        children.add(
+          const Divider(indent: 72, endIndent: 16, height: 1, thickness: 0.5),
+        );
+      }
+      final c = group.conversations[i];
+      children.add(
+        _ConversationTile(
+          conversation: c,
+          onTap: () {
+            service.markRead(c.peerCallsign);
+            Navigator.push(
+              context,
+              buildPlatformRoute(
+                (_) => MessageThreadScreen(peerCallsign: c.peerCallsign),
+              ),
+            );
+          },
+        ),
+      );
+    }
+    return children;
+  }
+
+  Widget _buildList(
+    BuildContext context,
+    List<Conversation> conversations,
+    MessageService service,
+  ) {
+    final groups = _buildGroups(conversations);
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      itemCount: groups.length,
+      itemBuilder: (ctx, i) {
+        final group = groups[i];
+        return Card(
+          margin: const EdgeInsets.symmetric(vertical: 6),
+          clipBehavior: Clip.antiAlias,
+          child: group.isMulti
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: _buildMultiCardChildren(context, group, service),
+                )
+              : _ConversationTile(
+                  conversation: group.conversations.first,
+                  onTap: () {
+                    final peer = group.conversations.first.peerCallsign;
+                    service.markRead(peer);
+                    Navigator.push(
+                      context,
+                      buildPlatformRoute(
+                        (_) => MessageThreadScreen(peerCallsign: peer),
+                      ),
+                    );
+                  },
+                ),
+        );
+      },
     );
   }
 
@@ -55,28 +166,7 @@ class MessagesScreen extends StatelessWidget {
           ? _EmptyState(
               onCompose: isLicensed ? () => _openCompose(context) : null,
             )
-          : ListView.separated(
-              itemCount: conversations.length,
-              separatorBuilder: (context, index) =>
-                  const Divider(indent: 72, height: 1),
-              itemBuilder: (ctx, i) {
-                final conv = conversations[i];
-                return _ConversationTile(
-                  conversation: conv,
-                  onTap: () {
-                    service.markRead(conv.peerCallsign);
-                    Navigator.push(
-                      context,
-                      buildPlatformRoute(
-                        (_) => MessageThreadScreen(
-                          peerCallsign: conv.peerCallsign,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+          : _buildList(context, conversations, service),
       floatingActionButton: (_isDesktop || !isLicensed)
           ? null
           : FloatingActionButton(
@@ -88,6 +178,46 @@ class MessagesScreen extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Card group header (shown only for multi-SSID groups)
+// ---------------------------------------------------------------------------
+
+class _CardGroupHeader extends StatelessWidget {
+  const _CardGroupHeader({
+    required this.baseCallsign,
+    required this.totalUnread,
+  });
+
+  final String baseCallsign;
+  final int totalUnread;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      child: Row(
+        children: [
+          Text(
+            baseCallsign,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.tertiary,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const Spacer(),
+          if (totalUnread > 0) Badge(label: Text('$totalUnread')),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Conversation tile
+// ---------------------------------------------------------------------------
 
 class _ConversationTile extends StatelessWidget {
   const _ConversationTile({required this.conversation, required this.onTap});
@@ -103,18 +233,37 @@ class _ConversationTile extends StatelessWidget {
     return '${diff.inDays}d ago';
   }
 
+  /// Returns the SSID portion of [callsign] for use in the avatar.
+  /// 'W1ABC-9' → '-9', 'W1ABC-15' → '-15', 'W1ABC' → '0'
+  /// (APRS spec: a callsign with no SSID is equivalent to SSID -0.)
+  String _ssidLabel(String callsign) {
+    final upper = callsign.trim().toUpperCase();
+    final dashIdx = upper.lastIndexOf('-');
+    return dashIdx == -1 ? '0' : upper.substring(dashIdx);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUnread = conversation.unreadCount > 0;
     final lastMsg = conversation.lastMessage;
 
-    return ListTile(
+    final tile = ListTile(
+      tileColor: hasUnread
+          ? theme.colorScheme.primaryContainer.withAlpha(60)
+          : null,
       leading: CircleAvatar(
         backgroundColor: theme.colorScheme.primaryContainer,
-        child: Text(
-          conversation.peerCallsign.substring(0, 1),
-          style: TextStyle(color: theme.colorScheme.onPrimaryContainer),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Text(
+            _ssidLabel(conversation.peerCallsign),
+            style: TextStyle(
+              color: theme.colorScheme.onPrimaryContainer,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ),
       ),
       title: Text(
@@ -149,8 +298,14 @@ class _ConversationTile extends StatelessWidget {
       ),
       onTap: onTap,
     );
+
+    return tile;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
   const _EmptyState({required this.onCompose});

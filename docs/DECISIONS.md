@@ -955,3 +955,40 @@ The Settings screen was a monolithic `ListView` with 13 sections stacked vertica
 ### Consequences
 
 Settings categories are individually navigable. Desktop users get a persistent master/detail view. Advanced users can expose power-user controls. All existing SharedPreferences keys are preserved — no migration needed. The `sections/` subdirectory is fully removed; content lives in `category/`.
+
+---
+
+## ADR-054: Base-callsign message matching — capture-always with filter-on-display (v0.14)
+
+**Date:** 2026-04-22
+**Status:** Accepted
+
+### Context
+
+APRS operators frequently run multiple stations under one base callsign (e.g., `-7` HT, `-9` mobile, `-5` home). Per spec, a message to `KM4TJO-7` is only for that station — but the human operator often wants visibility into messages addressed to "any version of me." APRSDroid handles this by matching on base callsign by default; Meridian offers it as a user-controlled feature with explicit UX around the mismatch.
+
+### Decision
+
+1. **Capture-always.** All messages addressed to any SSID of the operator's base callsign are ingested and persisted regardless of user preferences. Two independent preferences (`showOtherSsids`, `notifyOtherSsids`) act as pure UI filters over the captured set — they never gate ingestion. Benefits: toggling is instant and non-destructive; historical messages surface on toggle-on without data loss; future features (missed-while-away views) require no re-architecture. APRS message payloads are ≤67 bytes, so storage overhead is negligible.
+
+2. **Asymmetric matching.** Base-callsign matching applies only to the operator's own identity. The other party's SSIDs remain strictly separate threads. Rationale: (a) I know my own SSIDs are one human; I don't know that about theirs. (b) SSIDs encode network role — merging their side creates "reply to whom?" ambiguity with no safe default. (c) Reply routing stays unambiguous: replies always go to the exact sender of the specific message being replied to.
+
+3. **ACK strictness is a correctness requirement.** ACKs are sent only on exact-match addressee (with SSID `-0` normalized to no-SSID per APRS spec). Cross-SSID received messages never generate an ACK. Dual-ACKs corrupt the sender's message-ID tracking. This is non-negotiable regardless of display preferences.
+
+4. **`-0` normalization.** Per APRS spec, SSID `-0` and no SSID designate the same station. `normalizeCallsign()` strips the `-0` suffix before equality checks. `stripSsid()` returns the base callsign for all SSID forms (numeric 0–15, D-STAR letter A–Z, no suffix).
+
+5. **Conversation grouping is a presentation layer.** Threads sharing a base callsign are visually grouped in the conversation list when 2+ threads exist (single threads render flat — no visual noise). Grouping does not merge data, reply targets, or notifications. Group headers are designed to accept a contact-name override when a contacts feature is added.
+
+6. **`addressee` stored on incoming `MessageEntry`.** Null for outgoing messages. `isCrossSsid(myFullAddress)` derived at read time. Legacy serialized entries (no `addressee` key) deserialize as null and render as exact-match — safe backward compat. If the operator changes their own callsign, historical cross-SSID flags recompute at read time (acceptable; callsign changes are rare).
+
+7. **Notification copy differentiates match type.** Exact match: `W1ABC-9: <body>`. Cross-SSID: `W1ABC-9 → your -7: <body>`. Makes the mismatch explicit without being alarming. Android reply routing uses the sender's exact callsign unchanged.
+
+### Consequences
+
+- New `lib/core/callsign/callsign_utils.dart` with `stripSsid` / `normalizeCallsign`. Inline `split('-')` patterns in `ble_connection_impl.dart` and `serial_connection_impl.dart` are candidates for future consolidation (out of scope v0.14).
+- `MessageEntry.addressee` field added; existing serialized entries get `null` → backward compat.
+- `MessageService.showOtherSsids` (SharedPreferences key `msg_show_other_ssids`) gates the `conversations` getter.
+- `MessageService.allConversations` exposes the unfiltered list for `NotificationService`.
+- `NotificationPreferences.notifyOtherSsids` (key `notif_notify_other_ssids`) gates cross-SSID system notifications.
+- New Settings → Messaging category (`lib/screens/settings/category/messaging_screen.dart`).
+- Spec: `docs/specs/base-callsign-message-matching.md`

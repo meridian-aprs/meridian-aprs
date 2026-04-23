@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -227,5 +229,237 @@ void main() {
           0;
       expect(inboundCount, lessThanOrEqualTo(1));
     });
+  });
+
+  // --- Cross-SSID message capture -----------------------------------------
+
+  group('cross-SSID message capture', () {
+    test('cross-SSID message is captured, no ACK sent', () async {
+      // Station is W1AW-9; packet addressed to W1AW-7 (different SSID).
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+      final linesBefore = f.sentLines.length;
+
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{042');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.service.conversationWith('KB1XYZ');
+      expect(conv, isNotNull);
+      expect(conv!.messages.where((m) => !m.isOutgoing).length, equals(1));
+      // No ACK transmitted for cross-SSID.
+      expect(f.sentLines.length, equals(linesBefore));
+    });
+
+    test('exact-match message is captured and ACK sent', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+      final linesBefore = f.sentLines.length;
+
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :Hello{043');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.service.conversationWith('KB1XYZ');
+      expect(conv, isNotNull);
+      expect(conv!.messages.where((m) => !m.isOutgoing).length, equals(1));
+      // ACK was transmitted.
+      expect(f.sentLines.length, greaterThan(linesBefore));
+      expect(f.sentLines.last, contains('ack043'));
+    });
+
+    test('cross-SSID entry has isCrossSsid true', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{044');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.service.conversationWith('KB1XYZ');
+      expect(conv, isNotNull);
+      final entry = conv!.messages.firstWhere((m) => !m.isOutgoing);
+      expect(entry.isCrossSsid(f.service.myFullAddress), isTrue);
+    });
+
+    test('exact-match entry has isCrossSsid false', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :Hello{045');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.service.conversationWith('KB1XYZ');
+      expect(conv, isNotNull);
+      final entry = conv!.messages.firstWhere((m) => !m.isOutgoing);
+      expect(entry.isCrossSsid(f.service.myFullAddress), isFalse);
+    });
+
+    test(
+      '-0 equivalence: packet to W1AW-0 is exact match when station is W1AW',
+      () async {
+        // Station callsign W1AW, ssid 0 → fullAddress = 'W1AW' → myFullAddress = 'W1AW'.
+        final f = await _Fixture.create(callsign: 'W1AW', ssid: 0);
+        final linesBefore = f.sentLines.length;
+
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-0   :Hello{046');
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        final conv = f.service.conversationWith('KB1XYZ');
+        expect(conv, isNotNull);
+        final entry = conv!.messages.firstWhere((m) => !m.isOutgoing);
+        expect(entry.isCrossSsid(f.service.myFullAddress), isFalse);
+        // ACK must have been sent (exact match).
+        expect(f.sentLines.length, greaterThan(linesBefore));
+      },
+    );
+
+    test(
+      'no-SSID station + packet to W1AW-7 is cross-SSID capture, no ACK',
+      () async {
+        final f = await _Fixture.create(callsign: 'W1AW', ssid: 0);
+        final linesBefore = f.sentLines.length;
+
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{047');
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        final conv = f.service.conversationWith('KB1XYZ');
+        expect(conv, isNotNull);
+        final entry = conv!.messages.firstWhere((m) => !m.isOutgoing);
+        expect(entry.isCrossSsid(f.service.myFullAddress), isTrue);
+        expect(f.sentLines.length, equals(linesBefore));
+      },
+    );
+
+    test(
+      'showOtherSsids false hides cross-SSID-only thread from conversations',
+      () async {
+        final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+        // Default showOtherSsids is false.
+        expect(f.service.showOtherSsids, isFalse);
+
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{048');
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        // Cross-SSID-only thread must not appear in filtered conversations.
+        expect(
+          f.service.conversations.any((c) => c.peerCallsign == 'KB1XYZ'),
+          isFalse,
+        );
+      },
+    );
+
+    test('showOtherSsids false, mixed thread is visible', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+
+      // One cross-SSID message.
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Cross{049');
+      // One exact-match message.
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-9   :Exact{050');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      // Thread contains both — should be visible.
+      expect(
+        f.service.conversations.any((c) => c.peerCallsign == 'KB1XYZ'),
+        isTrue,
+      );
+    });
+
+    test('showOtherSsids true shows cross-SSID-only thread', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+      await f.service.setShowOtherSsids(true);
+
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{051');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(
+        f.service.conversations.any((c) => c.peerCallsign == 'KB1XYZ'),
+        isTrue,
+      );
+    });
+
+    test('ACK for wrong SSID is ignored — no conversation mutation', () async {
+      final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+
+      // Send an outgoing message so W1AW-9 has a pending entry.
+      await f.service.sendMessage('KB1XYZ', 'Hi');
+      final convBefore = f.service.conversationWith('KB1XYZ')!;
+      final statusBefore = convBefore.messages.first.status;
+
+      // Inject ACK addressed to W1AW-7 (wrong SSID).
+      f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :ack001');
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      final conv = f.service.conversationWith('KB1XYZ')!;
+      expect(conv.messages.first.status, equals(statusBefore));
+    });
+
+    test(
+      'allConversations exposes cross-SSID thread regardless of showOtherSsids',
+      () async {
+        final f = await _Fixture.create(callsign: 'W1AW', ssid: 9);
+        expect(f.service.showOtherSsids, isFalse);
+
+        f.stationService.ingestLine('KB1XYZ>APMDN0::W1AW-7   :Hello{052');
+        await Future.delayed(const Duration(milliseconds: 50));
+
+        // Hidden from conversations.
+        expect(
+          f.service.conversations.any((c) => c.peerCallsign == 'KB1XYZ'),
+          isFalse,
+        );
+        // But visible in allConversations.
+        expect(
+          f.service.allConversations.any((c) => c.peerCallsign == 'KB1XYZ'),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  // --- Legacy addressee=null deserialization ------------------------------
+
+  group('legacy serialization', () {
+    test(
+      'entry without addressee key deserializes with null, isCrossSsid false',
+      () async {
+        // Seed SharedPreferences with a persisted conversation whose message
+        // has no 'addressee' key (simulating data written before this feature).
+        final legacyEntry = {
+          'localId': 'KB1XYZ:Hello',
+          'wireId': null,
+          'text': 'Hello',
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+          'isOutgoing': false,
+          'status': 'acked',
+          'retryCount': 0,
+          // No 'addressee' key.
+        };
+        final legacyConv = {
+          'peer': 'KB1XYZ',
+          'unreadCount': 0,
+          'lastActivity': DateTime.now().millisecondsSinceEpoch,
+          'messages': [legacyEntry],
+        };
+
+        SharedPreferences.setMockInitialValues({
+          'user_callsign': 'W1AW',
+          'user_ssid': 9,
+          'message_id_counter': 0,
+          'msg_peers': jsonEncode(['KB1XYZ']),
+          'msg_conv_KB1XYZ': jsonEncode(legacyConv),
+        });
+        final prefs = await SharedPreferences.getInstance();
+        final settings = StationSettingsService(
+          prefs,
+          store: FakeSecureCredentialStore(),
+        );
+        final stationService = StationService();
+        final registry = ConnectionRegistry();
+        final sentLines = <String>[];
+        final txService = _RecordingTxService(registry, settings, sentLines);
+        final service = MessageService(settings, txService, stationService);
+        await service.loadHistory();
+
+        final conv = service.conversationWith('KB1XYZ');
+        expect(conv, isNotNull);
+        final entry = conv!.messages.first;
+        expect(entry.addressee, isNull);
+        expect(entry.isCrossSsid(service.myFullAddress), isFalse);
+      },
+    );
   });
 }
