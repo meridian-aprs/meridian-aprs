@@ -1247,3 +1247,47 @@ Group conversations are keyed by `#GROUP:<NAME>`, so the sender cannot be recove
 - `MessageService` gains `groupConversations`, `groupNameOf`, `conversationForGroup`, `totalGroupUnread` and the `fromCallsign` field on `MessageEntry`.
 - Widget tests in `test/widget/messages/messages_screen_test.dart` cover segmented-control rendering, Bulletins-tab gating, location-banner visibility, and adaptive-compose states.
 - Bulletin distance-filter logic and notification dispatch for groups/bulletins still live in PR 5. The PR 3 location-unknown banner implements the user-visible behavior (hide general APRS-IS bulletins when no station location is set) directly in `BulletinsTab` so the banner copy is truthful from day one.
+
+
+---
+
+## ADR-058: APRS-IS filter scope extension + client-side bulletin distance filter (v0.17 PR 5)
+
+**Status:** Accepted
+**Date:** 2026-04-24
+**Context:** v0.17 PR 5 closes the receive side of the bulletin + group-message stack. The server-side APRS-IS filter previously requested only a viewport-derived area clause (`a/N/W/S/E`) — bulletins addressed to `BLN0`–`BLN9` and named-bulletin groups (`BLN*WX`, etc.) were only received when the sender happened to be inside the current viewport box. Two problems follow: general bulletins are intentionally broadcast-global so operators expect to see them regardless of viewport; and named bulletin groups are explicitly subscribed-to so the server should be asked for them by name. Simultaneously, receiving every global bulletin in the feed is noisy — operators want to scope "general" bulletins to a sensible distance around their own station.
+
+### Decision
+
+1. **Filter shape.** Extract `AprsIsFilterBuilder` from the inline `updateFilter` in `AprsIsConnection` and extend the emitted `#filter` line to always include `g/BLN0/BLN1/.../BLN9` as a second clause after `a/`. For each enabled `BulletinSubscription`, append a `g/BLN*NAME` wildcard clause. The builder deduplicates and uppercases named groups, and drops malformed names (>5 chars, non-alphanumeric) rather than surfacing errors up to callers.
+
+2. **Filter rebuild trigger.** `AprsIsConnection.onSubscriptionsChanged(List<String> names)` replaces the named-group set and re-sends `#filter` using the last viewport box. `main.dart` subscribes to `BulletinSubscriptionService` and pipes change notifications into that method so the subscription set edits push through to the server within one tick.
+
+3. **Client-side distance filter.** `BulletinService` holds an optional `_operatorLat/_operatorLon` pushed in from `StationSettingsService` (manual position) and filters general APRS-IS bulletins by haversine distance against the sender's last-known station position. **RF bulletins are never distance-filtered** (short-range already). **Named-group bulletins are never distance-filtered** (explicit subscribe = intentional). The radius uses the existing `bulletins_radius_km` pref with `-1` as the "Global" sentinel that disables the filter entirely.
+
+4. **Conservative drop policy.** When either position is unknown the bulletin is kept — the operator sees it, and the already-existing "location unknown" banner in `BulletinsTab` prompts them to set their location. In GPS mode we do not feed the operator's GPS fix into `BulletinService` for now (circular-import risk with `BeaconingService`); GPS-mode operators effectively get a global feed until they enable manual positioning or a future PR wires the GPS push.
+
+5. **Notification channels.** New Android notification channels register in `NotificationService._registerAndroidChannels()`:
+   - `groups_builtin` — LOW importance, silent. Built-in groups (CQ, QST, ALL) default to notify OFF.
+   - `groups_custom` — DEFAULT importance. Custom groups the operator added themselves default to notify ON.
+   - `bulletins_general` — LOW importance, silent. General BLN0–9 bulletins default OFF.
+   - `bulletins_subscribed` — DEFAULT importance. Named-bulletin-group bulletins default ON (explicit subscribe implies the operator wants them).
+   - `bulletin_expired` — DEFAULT importance. "Your outgoing bulletin expired — repost?" prompts.
+
+### Rationale
+
+Separating built-in from custom groups lets the operator mute the broadcast-noisy built-ins without giving up their own group chatter, and keeps the per-group `notify` toggle on `GroupSubscription` meaningful. Putting the bulletin scope filter on the client rather than relying on APRS-IS server filter syntax keeps Meridian in control of the radius semantics (haversine with earthRadius=6371 km) and lets the filter stay correct when the server-side filter language inevitably ships a different edge case in a future aprsc release.
+
+### Consequences
+
+- New file: `lib/core/connection/aprs_is_filter_builder.dart`; `AprsIsConnection.updateFilter` now delegates to it. Pre-v0.17 filter line (no `g/` clauses) is not preserved; existing operators will see slightly more bulletin traffic on APRS-IS but no other behaviour change.
+- `BulletinService` gains `setOperatorLocation({lat, lon})` and haversine math. `MessageService` resolves sender position from `StationService.currentStations[source]` before calling `ingest` so the distance check has both endpoints.
+- `NotificationPreferences` gains the new channel defaults plus per-channel rows in its map; migration from pre-v0.17 state is safe because the `load` path reads with a default-per-channel fallback.
+- `NotificationService` takes optional `bulletinService` + `groupSubscriptions` constructor args so existing tests can continue to construct it without the group/bulletin pipeline.
+- Widget tests for filter + distance covered; notification-dispatch tests are Android/iOS platform-gated and deferred to the manual verification pass on device.
+
+### Out of scope (deferred)
+
+- GPS-mode operator-location push into `BulletinService`. A clean shape is for `BeaconingService` to emit `onLocationFixed(lat, lon)` and have `main.dart` fan out to `BulletinService`; filed as a v0.15 cleanup so we don't wire it hastily under the v0.17 deadline.
+- Persisting the `_lastBulletinKey` snapshot across cold starts. Currently re-seeded from `BulletinService.bulletins` on `initialize()` so the first post-restart refresh doesn't spam notifications for every persisted bulletin.
+- Android native `UNNotificationCategory` entries for iOS group/bulletin channels — channel registration here is the Dart-side `DarwinNotificationCategory` story; the richer action-based categories (like Messages) land when/if we add reply affordances to group threads from notifications.

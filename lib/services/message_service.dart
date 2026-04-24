@@ -112,13 +112,15 @@ class MessageService extends ChangeNotifier {
     StationService stations, {
     required GroupSubscriptionService groupSubscriptions,
     required BulletinService bulletins,
-  }) : _groupSubscriptions = groupSubscriptions,
+  }) : _stations = stations,
+       _groupSubscriptions = groupSubscriptions,
        _bulletins = bulletins {
     _incomingSub = stations.packetStream.listen(_onPacket);
   }
 
   final StationSettingsService _settings;
   final TxService _tx;
+  final StationService _stations;
   final GroupSubscriptionService _groupSubscriptions;
   final BulletinService _bulletins;
 
@@ -450,12 +452,19 @@ class MessageService extends ChangeNotifier {
     switch (classification) {
       case BulletinClassification(:final info):
         // Bulletins are never ACKed and never flow into Conversation threads.
+        // Look up the last-known position of the sending station so
+        // BulletinService can apply the client-side radius filter for
+        // general APRS-IS bulletins (ADR-058). Unknown position passes
+        // through — BulletinService treats null as "don't filter".
+        final senderStation = _stations.currentStations[source];
         _bulletins.ingest(
           info: info,
           sourceCallsign: source,
           body: text,
           transport: packet.transportSource,
           receivedAt: packet.receivedAt,
+          receivedLat: senderStation?.lat,
+          receivedLon: senderStation?.lon,
         );
         return;
 

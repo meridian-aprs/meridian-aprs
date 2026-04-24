@@ -21,7 +21,8 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.11 — Notifications | Background notifications, in-app banner system, notification preferences | ✅ Complete |
 | v0.12 — Onboarding | BLE pairing flow in onboarding, APRS-IS connection before map, GPS centering on first launch, symbol picker + comment + location setup | ✅ Complete |
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | ✅ Complete |
-| v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | — |
+| v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | ✅ Complete |
+| v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
 | v0.15 — Battery & Performance | Battery & performance optimization pass (background service drain, SQLite evaluation) | — |
 | v0.16 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
 | v1.0 — Launch | Final polish, all-platform store submission (iOS App Store, Google Play, macOS, Windows, Linux) | — |
@@ -125,6 +126,23 @@ Operators running multiple SSID stations can receive and display messages addres
 - New Settings → Messaging category with both toggles and live-interpolated helper text
 - `stripSsid` / `normalizeCallsign` utilities in `lib/core/callsign/` (APRS `-0` equivalence handled)
 - ADR-054 in `docs/DECISIONS.md`
+
+---
+
+### v0.17 — Groups & Bulletins
+
+Protocol-complete APRS messaging — group messages (`CQ`, `QST`, `ALL`, custom clubs) and bulletins (`BLN0`–`BLN9` general, `BLN*NAME` named), with a matcher precedence that keeps ACK correctness intact. See `docs/milestones/v0.17-groups-and-bulletins.md` for the per-PR breakdown.
+
+- Addressee matcher with load-bearing precedence order **Bulletin → Direct → Group** (ADR-055) — a direct message to a specific SSID must always resolve as direct even when the group name happens to be a prefix of that callsign
+- Group subscriptions (built-in `ALL`/`CQ`/`QST` seeded idempotently, plus custom) with per-group `notify` / `matchMode` / `replyMode` — pure client-side filter, no server protocol
+- Bulletin receive store with `(source, addressee)`-keyed upsert, retention sweeper, transport union (`RF` ∪ `APRS-IS`)
+- Outgoing bulletins with fixed-interval retransmission + initial pulse + max lifetime (ADR-057); edit body resets count; edit interval-only does not
+- `BulletinScheduler` on the main isolate with an injectable clock; parallel 30 s bulletin timer in the background isolate reads `OutgoingBulletin` list from prefs each tick
+- Messaging tab split into Direct / Groups / Bulletins via platform-adaptive segmented control (ADR-059); shared `ChatBubble` widget for visual parity across direct + group surfaces
+- APRS-IS filter extension (ADR-058): `g/BLN0..9` always, `g/BLN*NAME` per enabled subscription, filter-rebuild on subscription change
+- Client-side bulletin distance filter (haversine) against operator manual position; RF + named groups never distance-filtered
+- New notification channels (built-in groups, custom groups, general bulletins, subscribed bulletin groups, expired) with broadcast-noisy defaults muted and explicit-subscribe defaults on
+- ADRs 055 (matcher precedence), 056 (group architecture), 057 (bulletin transmission), 058 (filter + notifications), 059 (tab restructure), 060 (FGS type revert)
 
 ---
 

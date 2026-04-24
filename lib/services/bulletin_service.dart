@@ -13,6 +13,7 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -89,6 +90,23 @@ class BulletinService extends ChangeNotifier {
   bool _showBulletins = true;
   int _radiusKm = 500;
   int _retentionHours = 48;
+
+  /// Operator's current position (optional). Pushed in by the owning app
+  /// layer when station settings or beacon location change. Used as the
+  /// origin for client-side distance filtering of general APRS-IS bulletins
+  /// (ADR-058).
+  double? _operatorLat;
+  double? _operatorLon;
+
+  /// Update the operator's position used for distance filtering. Pass
+  /// `(null, null)` to clear.
+  void setOperatorLocation({double? lat, double? lon}) {
+    if (_operatorLat == lat && _operatorLon == lon) return;
+    _operatorLat = lat;
+    _operatorLon = lon;
+    // No notifyListeners — position does not affect rendered state, only
+    // future ingest decisions.
+  }
 
   /// Master toggle for bulletin display. When false, the Bulletins tab hides
   /// all received rows (ingest keeps storing — ADR-054 capture-always parity).
@@ -175,6 +193,29 @@ class BulletinService extends ChangeNotifier {
           !_subscriptions.subscribedGroupNames.contains(group)) {
         return BulletinIngestOutcome.dropped;
       }
+    }
+
+    // Client-side distance filter for general APRS-IS bulletins (ADR-058).
+    // Only applies when: category is general, transport is APRS-IS, the user
+    // has a non-sentinel radius configured, and both endpoints have known
+    // positions. If either position is unknown the bulletin is kept — the
+    // operator sees it and a banner (UI-only) prompts them to set their
+    // location. RF bulletins are never distance-filtered (short-range
+    // already). Named groups are never distance-filtered (explicit subscribe).
+    if (info.category == BulletinCategory.general &&
+        transport == PacketSource.aprsIs &&
+        _radiusKm > 0 &&
+        _operatorLat != null &&
+        _operatorLon != null &&
+        receivedLat != null &&
+        receivedLon != null) {
+      final km = _haversineKm(
+        _operatorLat!,
+        _operatorLon!,
+        receivedLat,
+        receivedLon,
+      );
+      if (km > _radiusKm) return BulletinIngestOutcome.dropped;
     }
 
     final source = sourceCallsign.trim().toUpperCase();
@@ -438,6 +479,31 @@ class BulletinService extends ChangeNotifier {
 
   String _key(String source, String addressee) =>
       '${source.toUpperCase()}|${addressee.toUpperCase()}';
+
+  /// Great-circle distance in kilometres between two lat/lon pairs. Flat-
+  /// earth approximation would have been enough at hundreds-of-km radii, but
+  /// haversine is <10 lines and avoids latitude-dependent error near the
+  /// poles or for very large radii.
+  static double _haversineKm(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const earthRadiusKm = 6371.0;
+    final dLat = _deg2rad(lat2 - lat1);
+    final dLon = _deg2rad(lon2 - lon1);
+    final a =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(_deg2rad(lat1)) *
+            math.cos(_deg2rad(lat2)) *
+            math.sin(dLon / 2) *
+            math.sin(dLon / 2);
+    final c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+    return earthRadiusKm * c;
+  }
+
+  static double _deg2rad(double d) => d * math.pi / 180.0;
 
   Future<SharedPreferences> _prefs() async =>
       _prefsOverride ?? await SharedPreferences.getInstance();

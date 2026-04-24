@@ -175,9 +175,13 @@ void main() {
     // Regional = 25% pad, 50 km min. padded south=46.75, north=48.25,
     // west=-123.25, east=-121.75. minHalf = 50/111 ≈ 0.4505, formatted
     // to 2dp = 0.45 — same as the v0.12 hardcoded value.
+    // v0.17 (ADR-058): the filter line also carries `g/BLN0..9` always so
+    // general bulletins reach the client regardless of viewport. The
+    // leading a/ clause still matches the pre-v0.17 format exactly.
     expect(
       transport.sentLines.single,
-      '#filter a/48.25/-123.25/46.75/-121.75\r\n',
+      '#filter a/48.25/-123.25/46.75/-121.75 '
+      'g/BLN0/BLN1/BLN2/BLN3/BLN4/BLN5/BLN6/BLN7/BLN8/BLN9\r\n',
     );
   });
 
@@ -213,10 +217,12 @@ void main() {
     );
     conn.setFilterConfig(tightPad);
     conn.updateFilter(box);
-    // 0% pad, small min radius → bounding box ≈ original.
+    // 0% pad, small min radius → bounding box ≈ original. v0.17: trailing
+    // g/BLN0..9 clause is appended unconditionally (ADR-058).
     expect(
       transport.sentLines.last,
-      '#filter a/48.00/-130.00/40.00/-120.00\r\n',
+      '#filter a/48.00/-130.00/40.00/-120.00 '
+      'g/BLN0/BLN1/BLN2/BLN3/BLN4/BLN5/BLN6/BLN7/BLN8/BLN9\r\n',
     );
   });
 
@@ -228,11 +234,14 @@ void main() {
 
     // Wide = 50% pad, 150 km min. For a 1°×1° box centred on 47.5°N,
     // the minimum half-extent (150/111 ≈ 1.35°) dominates the 50% pad
-    // (0.5°), so the effective north is 47.5 + 1.35 = 48.85.
-    final parts = transport.sentLines.last
+    // (0.5°), so the effective north is 47.5 + 1.35 = 48.85. Isolate the
+    // area clause from the trailing g/BLN0..9 (ADR-058) before parsing.
+    final areaClause = transport.sentLines.last
         .replaceFirst('#filter a/', '')
         .replaceAll('\r\n', '')
-        .split('/');
+        .split(' ')
+        .first;
+    final parts = areaClause.split('/');
     expect(double.parse(parts[0]), greaterThan(48.8)); // north
     expect(double.parse(parts[2]), lessThan(46.2)); // south
   });
@@ -278,10 +287,14 @@ void main() {
       expect(transport.sentLines.first, startsWith('#filter a/'));
       expect(transport.sentLines.first, endsWith('\r\n'));
       // Verify N/W/S/E order: north (48.25) appears before south (46.75).
-      final parts = transport.sentLines.first
+      // v0.17 (ADR-058): the filter line now ends with the `g/BLN0..9`
+      // clause. Strip the area clause alone for the N/W/S/E checks.
+      final areaClause = transport.sentLines.first
           .replaceFirst('#filter a/', '')
           .replaceAll('\r\n', '')
-          .split('/');
+          .split(' ')
+          .first;
+      final parts = areaClause.split('/');
       expect(
         double.parse(parts[0]),
         greaterThan(double.parse(parts[2])),
