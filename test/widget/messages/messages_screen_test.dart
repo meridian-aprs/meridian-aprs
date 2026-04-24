@@ -61,6 +61,7 @@ class _Harness {
   static Future<_Harness> create({
     bool licensed = true,
     bool manualLocation = false,
+    bool useGps = false,
     bool aprsIsConnected = false,
     bool showBulletinsEnabled = true,
   }) async {
@@ -68,6 +69,10 @@ class _Harness {
       'user_callsign': 'W1ABC',
       'user_ssid': 7,
       'user_is_licensed': licensed,
+      // Default to manual source so the `manualLocation=false` test path
+      // exercises the "location unknown" banner. GPS mode is opt-in via
+      // the `useGps` flag.
+      'user_location_source': useGps ? 0 : 1,
     });
     final prefs = await SharedPreferences.getInstance();
     final settings = StationSettingsService(
@@ -247,6 +252,22 @@ void main() {
       final h = await _Harness.create(
         aprsIsConnected: true,
         manualLocation: true,
+      );
+      await tester.pumpWidget(h.wrap(const MessagesScreen()));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bulletins'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('station location is not set'), findsNothing);
+    });
+
+    testWidgets('banner hidden when locationSource is GPS', (tester) async {
+      // GPS users have an implicit location (fix obtained on demand when
+      // bulletins transmit). The banner should never fire for them.
+      final h = await _Harness.create(
+        aprsIsConnected: true,
+        manualLocation: false,
+        useGps: true,
       );
       await tester.pumpWidget(h.wrap(const MessagesScreen()));
       await tester.pumpAndSettle();

@@ -172,7 +172,16 @@ class _BulletinComposeScreenState extends State<BulletinComposeScreen> {
             }),
           ),
           const SizedBox(height: 20),
-          Text('Line number', style: theme.textTheme.labelLarge),
+          Text('Slot', style: theme.textTheme.labelLarge),
+          const SizedBox(height: 4),
+          Text(
+            'Replaces the # in BLN#. Different slots let you run multiple '
+            'bulletins at once — receivers overwrite same-slot bulletins '
+            'from the same source.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String>(
             initialValue: _lineNumber,

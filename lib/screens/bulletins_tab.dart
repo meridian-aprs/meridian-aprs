@@ -19,8 +19,24 @@ import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
 import 'bulletin_compose_screen.dart';
 import 'bulletin_detail_screen.dart';
+import 'settings/category/my_station_screen.dart';
 
 enum _BulletinFilter { all, general, groups, mine }
+
+/// Push the Settings → My Station content as a standalone route. Used by
+/// the location-unknown banner to deep-link the operator to the place they
+/// can set a station position.
+void _openMyStationSettings(BuildContext context) {
+  Navigator.push(
+    context,
+    buildPlatformRoute(
+      (_) => Scaffold(
+        appBar: AppBar(title: const Text('My Station')),
+        body: const MyStationSettingsContent(),
+      ),
+    ),
+  );
+}
 
 class BulletinsTab extends StatefulWidget {
   const BulletinsTab({super.key});
@@ -44,8 +60,13 @@ class _BulletinsTabState extends State<BulletinsTab> {
 
     final aprsIsConn = registry.byId('aprs_is');
     final aprsIsConnected = aprsIsConn?.isConnected ?? false;
-    final hasLocation = station.hasManualPosition;
-    final showLocationBanner = aprsIsConnected && !hasLocation;
+    // "No location" = operator picked manual position but never entered one.
+    // GPS users are assumed to have a location (a fix is obtained on demand
+    // when bulletins actually transmit; we don't pre-validate it here).
+    final needsLocation =
+        station.locationSource == LocationSource.manual &&
+        !station.hasManualPosition;
+    final showLocationBanner = aprsIsConnected && needsLocation;
 
     final visible = _applyFilter(
       bulletins.bulletins,
@@ -106,16 +127,7 @@ class _BulletinsTabState extends State<BulletinsTab> {
           children: [
             if (showLocationBanner)
               _LocationUnknownBanner(
-                onSetLocation: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Open Settings → My Station to set your location. '
-                        'Direct hook lands in PR 5.',
-                      ),
-                    ),
-                  );
-                },
+                onSetLocation: () => _openMyStationSettings(context),
               ),
             _FilterChipRow(
               current: _filter,
