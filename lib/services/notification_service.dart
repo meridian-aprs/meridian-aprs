@@ -21,6 +21,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/bulletin.dart';
 import '../models/group_subscription.dart';
 import '../models/notification_preferences.dart';
+import '../screens/bulletin_detail_screen.dart';
+import '../screens/group_channel_screen.dart';
 import '../screens/message_thread_screen.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/in_app_banner_overlay.dart';
@@ -595,7 +597,7 @@ class NotificationService extends ChangeNotifier {
       title: title,
       body: msg.text,
       channelId: channel,
-      payloadCallsign: senderCallsign,
+      payload: 'group:$groupName',
     );
   }
 
@@ -620,7 +622,7 @@ class NotificationService extends ChangeNotifier {
       title: title,
       body: b.body,
       channelId: channel,
-      payloadCallsign: b.sourceCallsign,
+      payload: 'bulletin:${b.id}',
     );
   }
 
@@ -633,7 +635,7 @@ class NotificationService extends ChangeNotifier {
     required String title,
     required String body,
     required String channelId,
-    required String payloadCallsign,
+    required String payload,
   }) async {
     if (kIsWeb) return;
     final withSound = _notifPrefs.isSoundEnabled(channelId);
@@ -657,7 +659,7 @@ class NotificationService extends ChangeNotifier {
         title,
         preview,
         NotificationDetails(android: androidDetails),
-        payload: payloadCallsign,
+        payload: payload,
       );
     } else if (Platform.isIOS || Platform.isMacOS) {
       final darwinDetails = DarwinNotificationDetails(
@@ -671,7 +673,7 @@ class NotificationService extends ChangeNotifier {
         title,
         preview,
         NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
-        payload: payloadCallsign,
+        payload: payload,
       );
     } else if (Platform.isLinux || Platform.isWindows) {
       if (!_desktopNotifierReady) return;
@@ -916,6 +918,22 @@ class NotificationService extends ChangeNotifier {
     );
   }
 
+  void _navigateToGroup(String groupName) {
+    final nav = _navigatorKey.currentState;
+    if (nav == null) return;
+    nav.push(
+      buildPlatformRoute((_) => GroupChannelScreen(groupName: groupName)),
+    );
+  }
+
+  void _navigateToBulletin(int bulletinId) {
+    final nav = _navigatorKey.currentState;
+    if (nav == null) return;
+    nav.push(
+      buildPlatformRoute((_) => BulletinDetailScreen(bulletinId: bulletinId)),
+    );
+  }
+
   @visibleForTesting
   void handleNotificationResponse(NotificationResponse response) =>
       _onNotificationResponse(response);
@@ -928,14 +946,14 @@ class NotificationService extends ChangeNotifier {
       _handleNativeCall(call);
 
   void _onNotificationResponse(NotificationResponse response) {
-    final callsign = response.payload ?? '';
+    final payload = response.payload ?? '';
 
     if (response.notificationResponseType ==
         NotificationResponseType.selectedNotificationAction) {
-      if (response.actionId == _kMarkReadActionId && callsign.isNotEmpty) {
-        _messageService.markRead(callsign);
-        // cancelNotification: true on the action dismisses the notification
-        // automatically; also clear the group summary to be safe.
+      // Reply/mark-read actions only exist on direct-message notifications,
+      // whose payload is the raw peer callsign.
+      if (response.actionId == _kMarkReadActionId && payload.isNotEmpty) {
+        _messageService.markRead(payload);
         if (_initialized) {
           _plugin.cancel(_kGroupSummaryId); // ignore: unawaited_futures
         }
@@ -944,9 +962,9 @@ class NotificationService extends ChangeNotifier {
 
       if (response.actionId == _kReplyActionId) {
         final input = response.input;
-        if (input != null && input.isNotEmpty && callsign.isNotEmpty) {
+        if (input != null && input.isNotEmpty && payload.isNotEmpty) {
           _messageService.sendMessage(
-            callsign,
+            payload,
             input,
           ); // ignore: unawaited_futures
         }
@@ -956,10 +974,30 @@ class NotificationService extends ChangeNotifier {
       return;
     }
 
-    // Regular tap — navigate to thread.
-    if (callsign.isNotEmpty) {
+    // Regular tap — route by payload scheme.
+    if (payload.startsWith('group:')) {
+      final groupName = payload.substring('group:'.length);
+      if (groupName.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigateToGroup(groupName);
+        });
+      }
+      return;
+    }
+
+    if (payload.startsWith('bulletin:')) {
+      final id = int.tryParse(payload.substring('bulletin:'.length));
+      if (id != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigateToBulletin(id);
+        });
+      }
+      return;
+    }
+
+    if (payload.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _navigateToThread(callsign);
+        _navigateToThread(payload);
       });
     }
   }
