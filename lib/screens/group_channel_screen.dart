@@ -23,6 +23,7 @@ import '../services/message_service.dart';
 import '../services/messaging_settings_service.dart';
 import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
+import '../ui/widgets/chat_bubble.dart';
 import 'message_thread_screen.dart';
 
 class GroupChannelScreen extends StatefulWidget {
@@ -167,57 +168,16 @@ class _GroupBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isOutgoing = entry.isOutgoing;
-    final alignment = isOutgoing ? Alignment.centerRight : Alignment.centerLeft;
-    final bubbleColor = isOutgoing
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest;
-    final senderLabel = isOutgoing ? 'You' : (entry.fromCallsign ?? 'Unknown');
-
-    return Align(
-      alignment: alignment,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.78,
-        ),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-          padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-          decoration: BoxDecoration(
-            color: bubbleColor,
-            borderRadius: BorderRadius.circular(18),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                senderLabel,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(entry.text),
-              const SizedBox(height: 4),
-              Text(
-                _formatTime(entry.timestamp),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    // Sender attribution on incoming only — outgoing messages are already
+    // right-aligned, so adding "You" is redundant and clutters the frame
+    // (matches direct-message thread convention).
+    final topLine = entry.isOutgoing ? null : entry.fromCallsign;
+    return ChatBubble(
+      text: entry.text,
+      timestamp: entry.timestamp,
+      isOutgoing: entry.isOutgoing,
+      topLine: topLine,
     );
-  }
-
-  String _formatTime(DateTime dt) {
-    final h = dt.hour.toString().padLeft(2, '0');
-    final m = dt.minute.toString().padLeft(2, '0');
-    return '$h:$m';
   }
 }
 

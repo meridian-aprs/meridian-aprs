@@ -14,6 +14,7 @@ import '../core/callsign/callsign_utils.dart';
 import '../services/message_service.dart';
 import '../services/notification_service.dart';
 import '../services/station_settings_service.dart';
+import '../ui/widgets/chat_bubble.dart';
 
 // ---------------------------------------------------------------------------
 // Thread display items (message bubbles interleaved with day dividers)
@@ -187,14 +188,6 @@ class _MessageBubble extends StatelessWidget {
     return dashIdx == -1 ? upper : upper.substring(dashIdx);
   }
 
-  String _formatTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inSeconds < 60) return 'just now';
-    if (diff.inMinutes < 60) return '${diff.inMinutes}m';
-    if (diff.inHours < 24) return '${diff.inHours}h';
-    return '${diff.inDays}d';
-  }
-
   Widget _statusIcon(BuildContext context, MessageStatus status, int retry) {
     return switch (status) {
       MessageStatus.pending => const Icon(Symbols.hourglass_empty, size: 14),
@@ -293,105 +286,23 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isOut = entry.isOutgoing;
 
-    final bgColor = isOut
-        ? theme.colorScheme.primary
-        : theme.colorScheme.secondaryContainer;
-    final fgColor = isOut
-        ? theme.colorScheme.onPrimary
-        : theme.colorScheme.onSecondaryContainer;
+    // Direct bubbles add a trailing slot for:
+    //   - cross-SSID addressee badge (incoming only)
+    //   - ACK / retry / failure status icon (outgoing only)
+    Widget? meta;
+    if (!isOut && entry.isCrossSsid(myAddr)) {
+      meta = _CrossSsidBadge(suffix: _ssidSuffix(entry.addressee!));
+    } else if (isOut) {
+      meta = _statusIcon(context, entry.status, entry.retryCount);
+    }
 
-    final bubble = Align(
-      alignment: isOut ? Alignment.centerRight : Alignment.centerLeft,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.72,
-        ),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: bgColor,
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(isOut ? 16 : 4),
-              bottomRight: Radius.circular(isOut ? 4 : 16),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: isOut
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            children: [
-              Text(entry.text, style: TextStyle(color: fgColor)),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _formatTime(entry.timestamp),
-                    style: TextStyle(
-                      fontSize: 10,
-                      color: fgColor.withAlpha(160),
-                    ),
-                  ),
-                  if (!isOut && entry.isCrossSsid(myAddr)) ...[
-                    const SizedBox(width: 8),
-                    Tooltip(
-                      message: 'Addressed to ${entry.addressee}',
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: fgColor.withAlpha(120),
-                            width: 0.5,
-                          ),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text.rich(
-                          TextSpan(
-                            children: [
-                              TextSpan(
-                                text: 'to ',
-                                style: TextStyle(color: fgColor.withAlpha(150)),
-                              ),
-                              TextSpan(
-                                text: _ssidSuffix(entry.addressee!),
-                                style: TextStyle(
-                                  color: fgColor.withAlpha(220),
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                            style: const TextStyle(fontSize: 10),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (isOut) ...[
-                    const SizedBox(width: 6),
-                    IconTheme(
-                      data: IconThemeData(color: fgColor.withAlpha(180)),
-                      child: _statusIcon(
-                        context,
-                        entry.status,
-                        entry.retryCount,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    final bubble = ChatBubble(
+      text: entry.text,
+      timestamp: entry.timestamp,
+      isOutgoing: isOut,
+      metaTrailing: meta,
     );
 
     // Only outgoing messages in an actionable state get the context menu.
@@ -407,6 +318,48 @@ class _MessageBubble extends StatelessWidget {
       // Desktop: right click
       onSecondaryTapUp: (d) => _showContextMenu(context, d.globalPosition),
       child: bubble,
+    );
+  }
+}
+
+/// Cross-SSID addressee indicator ("to -7") shown inside the meta slot of an
+/// incoming direct-message bubble. Picks its colour from the surrounding
+/// [DefaultTextStyle] / [IconTheme] so it blends with whichever bubble
+/// colour-scheme it lands in.
+class _CrossSsidBadge extends StatelessWidget {
+  const _CrossSsidBadge({required this.suffix});
+  final String suffix;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseColor = DefaultTextStyle.of(context).style.color ?? Colors.black;
+    return Tooltip(
+      message: 'Addressed to this SSID',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          border: Border.all(color: baseColor.withAlpha(120), width: 0.5),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: 'to ',
+                style: TextStyle(color: baseColor.withAlpha(150)),
+              ),
+              TextSpan(
+                text: suffix,
+                style: TextStyle(
+                  color: baseColor.withAlpha(220),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+            style: const TextStyle(fontSize: 10),
+          ),
+        ),
+      ),
     );
   }
 }
