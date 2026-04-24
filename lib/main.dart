@@ -30,6 +30,7 @@ import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
 import 'services/background_service_manager.dart';
 import 'services/beaconing_service.dart';
+import 'services/bulletin_scheduler.dart';
 import 'services/bulletin_service.dart';
 import 'services/bulletin_subscription_service.dart';
 import 'services/group_subscription_service.dart';
@@ -203,6 +204,14 @@ Future<void> main() async {
   final messagingSettings = MessagingSettingsService(prefs: prefs);
   await messagingSettings.load();
 
+  final bulletinScheduler = BulletinScheduler(
+    bulletins: bulletinService,
+    tx: txService,
+    messagingSettings: messagingSettings,
+    stationSettings: stationSettings,
+  );
+  bulletinScheduler.start();
+
   final messageService = MessageService(
     stationSettings,
     txService,
@@ -293,6 +302,9 @@ Future<void> main() async {
           value: bulletinSubscriptions,
         ),
         ChangeNotifierProvider<BulletinService>.value(value: bulletinService),
+        ChangeNotifierProvider<BulletinScheduler>.value(
+          value: bulletinScheduler,
+        ),
         ChangeNotifierProvider<MessagingSettingsService>.value(
           value: messagingSettings,
         ),

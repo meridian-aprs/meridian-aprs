@@ -46,7 +46,7 @@ class BleConnection extends MeridianConnection {
       throw UnsupportedError('BLE not supported on this platform');
 
   @override
-  Future<void> sendLine(String aprsLine) =>
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) =>
       throw UnsupportedError('BLE not supported on this platform');
 
   @override

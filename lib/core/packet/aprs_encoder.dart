@@ -104,6 +104,52 @@ class AprsEncoder {
   }
 
   // -------------------------------------------------------------------------
+  // Bulletin (v0.17, ADR-057)
+  // -------------------------------------------------------------------------
+
+  /// Encodes an APRS bulletin. Bulletins use the same wire format as direct
+  /// messages but are never ACKed — no `{id}` suffix.
+  ///
+  /// Returns a full APRS-IS line, e.g.:
+  /// `W1ABC-7>APMDN0,TCPIP*::BLN0     :Severe wx alert`
+  ///
+  /// [addressee] is the bulletin addressee (`BLN0`..`BLN9` for general;
+  /// `BLNxNAME` for named groups where `x` is `0`–`9` or `A`–`Z`). Padded
+  /// to 9 characters per APRS spec §14.
+  static String encodeBulletin({
+    required String fromCallsign,
+    required int fromSsid,
+    required String addressee,
+    required String body,
+  }) {
+    final header = _header(fromCallsign, fromSsid);
+    final padded = _padAddressee(addressee);
+    return '$header:$padded:$body';
+  }
+
+  // -------------------------------------------------------------------------
+  // Group message (v0.17, ADR-056)
+  // -------------------------------------------------------------------------
+
+  /// Encodes an APRS group message (e.g. `CQ`, `QST`, `SRARC`). Group
+  /// messages share the direct-message wire format but omit the message-ID
+  /// suffix — per ADR-055 they are never ACKed, so the ID-suffix machinery
+  /// is intentionally absent.
+  ///
+  /// Returns a full APRS-IS line, e.g.:
+  /// `W1ABC-7>APMDN0,TCPIP*::CQ       :CQ CQ — anyone on freq?`
+  static String encodeGroupMessage({
+    required String fromCallsign,
+    required int fromSsid,
+    required String groupName,
+    required String body,
+  }) {
+    final header = _header(fromCallsign, fromSsid);
+    final addressee = _padAddressee(groupName);
+    return '$header:$addressee:$body';
+  }
+
+  // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 

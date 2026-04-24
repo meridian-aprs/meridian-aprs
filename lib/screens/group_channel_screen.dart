@@ -6,9 +6,11 @@
 ///   - `group`  → "Message to GROUPNAME"  [Send]
 ///   - `sender` → "Reply to sender callsign"  [Send]  + secondary "Send to group"
 ///
-/// PR 3 stubs the send actions behind a SnackBar. PR 4 wires TX through
-/// `TxService` with `AprsEncoder.encodeGroupMessage` + the Advanced-mode
-/// Group message path.
+/// Replies route per the group's `replyMode`:
+/// - `group`  → broadcast back to the group via `MessageService.sendGroupMessage`
+/// - `sender` → direct 1:1 reply to the last-heard sender via
+///   `MessageService.sendMessage` (direct thread opens so the operator can
+///   watch the ACK).
 library;
 
 import 'package:flutter/material.dart';
@@ -18,6 +20,7 @@ import 'package:provider/provider.dart';
 import '../models/group_subscription.dart';
 import '../services/group_subscription_service.dart';
 import '../services/message_service.dart';
+import '../services/messaging_settings_service.dart';
 import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
 import 'message_thread_screen.dart';
@@ -119,39 +122,34 @@ class _GroupChannelScreenState extends State<GroupChannelScreen> {
             _GroupComposeBar(
               subscription: sub,
               lastSenderCallsign: lastIncoming?.fromCallsign,
-              onSendToGroup: _sendToGroupStub,
-              onSendToSender: _sendToSenderStub,
+              onSendToGroup: _sendToGroup,
+              onSendToSender: _sendToSender,
             ),
         ],
       ),
     );
   }
 
-  // --- Send stubs (PR 4 wires actual TX) ------------------------------------
+  // --- Send paths -----------------------------------------------------------
 
-  void _sendToGroupStub(String text) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Group send wired in PR 4 — would send "$text" to '
-          '${widget.groupName}.',
-        ),
-      ),
-    );
+  void _sendToGroup(String text) async {
+    final messaging = context.read<MessagingSettingsService>();
+    final messages = context.read<MessageService>();
+    final rfPath = messaging.effectiveGroupMessagePath
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList(growable: false);
+    await messages.sendGroupMessage(widget.groupName, text, rfPath: rfPath);
   }
 
-  void _sendToSenderStub(String text, String toCallsign) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Reply-to-sender wired in PR 4 — would send "$text" to '
-          '$toCallsign.',
-        ),
-      ),
-      // ignore: no_logic_in_create_state
-    );
-    // Provide a useful fallback even in PR 3: open the direct thread so
-    // the user can type a reply there immediately.
+  void _sendToSender(String text, String toCallsign) async {
+    // Reply-to-sender always routes through the direct-message path so the
+    // user sees ACK status and retries. Open the direct thread too so the
+    // reply is visible immediately.
+    final messages = context.read<MessageService>();
+    await messages.sendMessage(toCallsign, text);
+    if (!mounted) return;
     Navigator.push(
       context,
       buildPlatformRoute((_) => MessageThreadScreen(peerCallsign: toCallsign)),

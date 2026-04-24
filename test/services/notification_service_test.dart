@@ -119,7 +119,11 @@ class _SilentTxService extends TxService {
   _SilentTxService(super.registry, super.settings);
 
   @override
-  Future<void> sendLine(String line, {ConnectionType? forceVia}) async {}
+  Future<void> sendLine(
+    String line, {
+    ConnectionType? forceVia,
+    List<String>? digipeaterPath,
+  }) async {}
 }
 
 // ---------------------------------------------------------------------------

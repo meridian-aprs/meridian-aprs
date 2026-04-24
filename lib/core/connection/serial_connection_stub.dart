@@ -47,7 +47,7 @@ class SerialConnection extends MeridianConnection {
       throw UnsupportedError('Serial not supported on this platform');
 
   @override
-  Future<void> sendLine(String aprsLine) =>
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) =>
       throw UnsupportedError('Serial not supported on this platform');
 
   @override

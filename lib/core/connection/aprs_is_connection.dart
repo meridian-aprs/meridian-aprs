@@ -116,7 +116,8 @@ class AprsIsConnection extends MeridianConnection {
   Stream<String> get lines => _transport.lines;
 
   @override
-  Future<void> sendLine(String aprsLine) async {
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) async {
+    // digipeaterPath is ignored — APRS-IS has no concept of a digipeater path.
     _transport.sendLine('$aprsLine\r\n');
   }
 

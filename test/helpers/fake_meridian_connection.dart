@@ -57,7 +57,14 @@ class FakeMeridianConnection extends MeridianConnection {
   Stream<String> get lines => _linesController.stream;
 
   @override
-  Future<void> sendLine(String aprsLine) async {}
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) async {
+    lastSentLine = aprsLine;
+    lastSentDigipeaterPath = digipeaterPath;
+  }
+
+  /// Test helpers: records the most recent call for assertion.
+  String? lastSentLine;
+  List<String>? lastSentDigipeaterPath;
 
   @override
   Future<void> connect() async => setStatus(ConnectionStatus.connected);

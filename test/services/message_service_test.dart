@@ -92,8 +92,11 @@ class _RecordingTxService extends TxService {
   final List<String> _log;
 
   @override
-  Future<void> sendLine(String line, {ConnectionType? forceVia}) async =>
-      _log.add(line);
+  Future<void> sendLine(
+    String line, {
+    ConnectionType? forceVia,
+    List<String>? digipeaterPath,
+  }) async => _log.add(line);
 }
 
 // ---------------------------------------------------------------------------

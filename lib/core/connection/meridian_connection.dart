@@ -93,7 +93,13 @@ abstract class MeridianConnection extends ChangeNotifier {
   /// APRS-IS connections append `\r\n` and write to the TCP socket. TNC
   /// connections encode the line as an AX.25 UI frame and send it as a KISS
   /// frame. Throws if not connected.
-  Future<void> sendLine(String aprsLine);
+  ///
+  /// [digipeaterPath] overrides the default digipeater aliases used by TNC
+  /// connections when building the AX.25 frame (default: `WIDE1-1,WIDE2-1`).
+  /// APRS-IS connections ignore this parameter (APRS-IS has no path). Used
+  /// by v0.17 bulletin/group send to route through the Advanced-mode
+  /// "Bulletin path" / "Group message path" settings (ADR-057).
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath});
 
   // ---------------------------------------------------------------------------
   // Lifecycle

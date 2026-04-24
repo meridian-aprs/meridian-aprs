@@ -1109,10 +1109,10 @@ Meridian implements the same model so it interoperates with Yaesu FT5D, Kenwood 
 
 ---
 
-## ADR-057: Bulletin transmission model — APRSIS32 fixed interval (v0.17, planned for PR 4)
+## ADR-057: Bulletin transmission model — APRSIS32 fixed interval (v0.17)
 
-**Date:** 2026-04-23
-**Status:** Proposed (finalized in PR 4)
+**Date:** 2026-04-23 (proposed) / 2026-04-24 (accepted, PR 4)
+**Status:** Accepted
 
 ### Context
 
@@ -1144,12 +1144,21 @@ Use the APRSIS32 fixed-interval model with an initial pulse and a hard expiry:
 
 Bulletins are never ACKed. The `BulletinClassification` path in `MessageService` does not call `_transmitAck` under any circumstance.
 
-### Consequences (to be realized in PR 4)
+### Consequences (realized in PR 4)
 
-- `lib/services/bulletin_scheduler.dart` — 30s tick in main isolate, sibling to `BeaconingService`.
-- Background isolate (`meridian_connection_task.dart`) gains a parallel bulletin timer that reads `OutgoingBulletin` list from SharedPreferences on each fire (same pattern as the existing beacon-settings read).
-- `AprsEncoder.encodeBulletin(addressee, body)` — 9-char space-padded addressee, `:BLN0     :Body`, no wire ID.
-- RF path sourced from Advanced-mode "Bulletin path" setting (default `WIDE2-2`); APRS-IS has no path.
+- `lib/services/bulletin_scheduler.dart` — main-isolate 30s tick, sibling to `BeaconingService`. Injectable clock for `FakeAsync`-driven tests. Emits `BulletinExpiredEvent` / `BulletinTransmittedEvent` on its `events` stream.
+- `lib/services/meridian_connection_task.dart` — background-isolate bulletin timer fires the same tick logic. APRS-IS transmission uses the existing short-lived TCP helper; RF transmission forwards a `send_tnc_bulletin` IPC message to the main-isolate `BackgroundServiceManager`, which calls `TxService.sendViaTncOnly` with the Advanced-mode "Bulletin path". Background-isolate writes updates `outgoing_bulletins_v1` prefs directly; main-isolate in-memory state is resynced on next create/edit/delete (PR 5 may add AppLifecycle-resume hook for tighter sync).
+- `AprsEncoder.encodeBulletin(addressee, body)` — 9-char space-padded addressee, `:BLN0     :Body`, no wire ID. Companion `encodeGroupMessage(groupName, body)` follows the same pattern for group sends.
+- `MeridianConnection.sendLine(aprsLine, {digipeaterPath})` — extended with optional `digipeaterPath` so BLE/Serial connections can override the default `WIDE1-1,WIDE2-1` aliases when sending bulletins (default `WIDE2-2`) or group messages (default "same as beacon path"). APRS-IS connections ignore the parameter.
+- `TxService.sendBulletin(line, {viaRf, viaAprsIs, rfPath})` — per-bulletin fan-out helper that respects the independent transport flags (unlike `sendLine`'s unconditional Serial > BLE > APRS-IS hierarchy from ADR-029).
+- `BulletinService` gains `OutgoingBulletin` CRUD: `createOutgoing`, `updateOutgoingContent` (resets state), `updateOutgoingSchedule` (preserves state), `setOutgoingEnabled`, `deleteOutgoing`, `recordOutgoingTransmission`. Addressee validation via `_bulletinAddresseePattern`.
+- Bulletin compose screen (`lib/screens/bulletin_compose_screen.dart`) — single-page form with type / line / group / body / interval / expiry / transport flags. Shared by create + edit.
+- "My bulletins" filter on `BulletinsTab` now renders `OutgoingBulletin` rows with next-tx countdown, transmission count, per-row enable toggle, Edit, and Delete (with confirm dialog).
+
+### Known limitations (addressed in later work)
+
+- Main-isolate `BulletinService`'s in-memory `_outgoing` map does not auto-refresh from prefs when the background isolate mutates state during background phase. On app resume the UI may briefly show stale `lastTransmittedAt`/`transmissionCount` until the next create/edit/delete triggers a re-render. A full resume-sync hook is deferred to the v0.15 drift/SQLite migration or a follow-up hotfix.
+- The background-isolate bulletin timer runs unconditionally whenever the foreground service is alive (vs. beacon timer which requires `start_beaconing` IPC). This is intentional: bulletins are independently scheduled per row, and the foreground service is only alive when the user has explicitly opted into background activity.
 
 ---
 

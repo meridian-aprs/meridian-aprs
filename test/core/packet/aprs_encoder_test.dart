@@ -226,4 +226,114 @@ void main() {
       );
     });
   });
+
+  group('encodeBulletin (v0.17, ADR-057)', () {
+    test('pads general BLN addressee to 9 chars and omits wire ID', () {
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        addressee: 'BLN0',
+        body: 'Severe wx alert',
+      );
+      expect(line, contains('::BLN0     :Severe wx alert'));
+      // No message-ID suffix.
+      expect(line, isNot(contains('{')));
+    });
+
+    test('pads named-group addressee to 9 chars', () {
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        addressee: 'BLN1WX',
+        body: 'Radar update',
+      );
+      expect(line, contains('::BLN1WX   :Radar update'));
+    });
+
+    test('uppercases the addressee', () {
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 0,
+        addressee: 'bln1wx',
+        body: 'foo',
+      );
+      expect(line, contains('::BLN1WX   :foo'));
+    });
+
+    test('source header respects SSID = 0 (no trailing -0)', () {
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 0,
+        addressee: 'BLN0',
+        body: 'test',
+      );
+      expect(line, startsWith('W1ABC>'));
+      expect(line, isNot(contains('W1ABC-0>')));
+    });
+
+    test('includes TCPIP* path for APRS-IS', () {
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        addressee: 'BLN0',
+        body: 'test',
+      );
+      expect(line, contains(',TCPIP*:'));
+    });
+
+    test('truncates oversize addressee to 9 chars', () {
+      // BLN9TOOLONG = 11 chars; must truncate to 9.
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: 'W1ABC',
+        fromSsid: 0,
+        addressee: 'BLN9TOOLONG',
+        body: 'x',
+      );
+      expect(line, contains('::BLN9TOOLO:x'));
+    });
+  });
+
+  group('encodeGroupMessage (v0.17, ADR-056)', () {
+    test('pads group name to 9 chars and omits wire ID', () {
+      final line = AprsEncoder.encodeGroupMessage(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        groupName: 'CQ',
+        body: 'CQ CQ — anyone on freq?',
+      );
+      expect(line, contains('::CQ       :CQ CQ — anyone on freq?'));
+      // No message-ID suffix — groups are never ACKed (ADR-055).
+      expect(line, isNot(contains('{')));
+    });
+
+    test('pads longer names (SRARC) correctly', () {
+      final line = AprsEncoder.encodeGroupMessage(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        groupName: 'SRARC',
+        body: 'club chatter',
+      );
+      expect(line, contains('::SRARC    :club chatter'));
+    });
+
+    test('uppercases group name', () {
+      final line = AprsEncoder.encodeGroupMessage(
+        fromCallsign: 'W1ABC',
+        fromSsid: 7,
+        groupName: 'cq',
+        body: 'x',
+      );
+      expect(line, contains('::CQ       :x'));
+    });
+
+    test('includes TCPIP* path', () {
+      final line = AprsEncoder.encodeGroupMessage(
+        fromCallsign: 'W1ABC',
+        fromSsid: 0,
+        groupName: 'QST',
+        body: 'x',
+      );
+      expect(line, contains(',TCPIP*:'));
+    });
+  });
 }

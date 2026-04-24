@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -8,6 +9,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/credentials/credential_key.dart';
 import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
+import '../models/outgoing_bulletin.dart';
+import 'bulletin_service.dart';
+import 'messaging_settings_service.dart';
 
 /// Entry point called by flutter_foreground_task when the foreground service
 /// starts. Runs in the background isolate.
@@ -39,12 +43,20 @@ void startMeridianConnectionTask() {
 /// independent of the main isolate's APRS-IS socket.
 class MeridianConnectionTask extends TaskHandler {
   Timer? _beaconTimer;
+  Timer? _bulletinTimer;
   int? _lastBeaconTs; // ms since epoch; null until first beacon this session
+
+  /// Bulletin scheduler tick interval in the background isolate. Matches the
+  /// main-isolate `BulletinScheduler` cadence so schedule math is consistent.
+  static const _bulletinTickSeconds = 30;
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    // Intentionally empty. Beacon timer starts only on explicit
-    // 'start_beaconing' message from the main isolate (sent on app pause).
+    // Beacon timer starts only on explicit 'start_beaconing' message from
+    // the main isolate. The bulletin timer, in contrast, runs unconditionally
+    // while the foreground service is alive — bulletins are independently
+    // scheduled per row (ADR-057) and don't need a main-isolate handshake.
+    _scheduleNextBulletinTick();
   }
 
   @override
@@ -84,6 +96,7 @@ class MeridianConnectionTask extends TaskHandler {
   @override
   Future<void> onDestroy(DateTime timestamp) async {
     _beaconTimer?.cancel();
+    _bulletinTimer?.cancel();
   }
 
   // ---------------------------------------------------------------------------
@@ -276,6 +289,147 @@ class MeridianConnectionTask extends TaskHandler {
       await socket.flush();
     } finally {
       socket?.destroy();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bulletin scheduling (v0.17, ADR-057)
+  // ---------------------------------------------------------------------------
+  //
+  // Runs while the foreground service is alive so bulletins keep transmitting
+  // after the screen locks. The loop reads `OutgoingBulletin` list from
+  // SharedPreferences on every tick (same pattern as beacon settings) and
+  // writes back state updates — the main isolate's `BulletinService` holds
+  // stale in-memory copies during background phase but re-syncs from prefs
+  // on UI refresh / app resume.
+  //
+  // RF transport requests are forwarded to the main isolate via IPC (the
+  // TNC connection lives there). APRS-IS transport uses the same short-lived
+  // TCP connection helper as the beacon path.
+
+  void _scheduleNextBulletinTick() {
+    _bulletinTimer?.cancel();
+    _bulletinTimer = Timer(
+      const Duration(seconds: _bulletinTickSeconds),
+      _onBulletinTick,
+    );
+  }
+
+  void _onBulletinTick() {
+    _processOutgoingBulletins().whenComplete(_scheduleNextBulletinTick);
+  }
+
+  Future<void> _processOutgoingBulletins() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+
+    final raw = prefs.getString(BulletinService.keyOutgoingBulletins);
+    if (raw == null || raw.isEmpty) return;
+
+    final List<OutgoingBulletin> outgoing;
+    try {
+      outgoing = (jsonDecode(raw) as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map(OutgoingBulletin.fromJson)
+          .toList();
+    } catch (_) {
+      return;
+    }
+    if (outgoing.isEmpty) return;
+
+    final callsign = (prefs.getString('user_callsign') ?? '').toUpperCase();
+    if (callsign.isEmpty) return;
+    final ssid = prefs.getInt('user_ssid') ?? 0;
+
+    final bulletinPath =
+        (prefs.getString('messaging_bulletin_path') ??
+                MessagingSettingsService.defaultBulletinPath)
+            .split(',')
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList(growable: false);
+
+    String? passcode;
+    Future<String> passcodeGetter() async {
+      if (passcode != null) return passcode!;
+      try {
+        final v = await FlutterSecureCredentialStore().read(
+          CredentialKey.aprsIsPasscode,
+        );
+        passcode = (v == null || v.isEmpty) ? '-1' : v;
+      } catch (_) {
+        passcode = '-1';
+      }
+      return passcode!;
+    }
+
+    var mutated = false;
+    final now = DateTime.now();
+    for (var i = 0; i < outgoing.length; i++) {
+      final ob = outgoing[i];
+      if (!ob.enabled) continue;
+
+      // Expiry → disable.
+      if (now.isAfter(ob.expiresAt)) {
+        outgoing[i] = ob.copyWith(enabled: false);
+        mutated = true;
+        continue;
+      }
+
+      if (ob.isOneShot && ob.transmissionCount > 0) continue;
+
+      final shouldTx =
+          ob.lastTransmittedAt == null ||
+          now.difference(ob.lastTransmittedAt!) >=
+              Duration(seconds: ob.intervalSeconds);
+      if (!shouldTx) continue;
+
+      final line = AprsEncoder.encodeBulletin(
+        fromCallsign: callsign,
+        fromSsid: ssid,
+        addressee: ob.addressee,
+        body: ob.body,
+      );
+      var transmitted = false;
+
+      if (ob.viaAprsIs) {
+        try {
+          await _sendToAprsIs(
+            callsign: callsign,
+            ssid: ssid,
+            passcode: await passcodeGetter(),
+            line: line,
+          );
+          transmitted = true;
+        } catch (_) {
+          // APRS-IS failed — fall through to RF path.
+        }
+      }
+      if (ob.viaRf) {
+        // RF goes through the main isolate's TNC connection. This IPC queues
+        // if the main isolate is suspended and delivers when it resumes.
+        FlutterForegroundTask.sendDataToMain({
+          'type': 'send_tnc_bulletin',
+          'aprs_line': line,
+          'digipeater_path': bulletinPath,
+        });
+        transmitted = true;
+      }
+
+      if (transmitted) {
+        outgoing[i] = ob.copyWith(
+          lastTransmittedAt: now,
+          transmissionCount: ob.transmissionCount + 1,
+        );
+        mutated = true;
+      }
+    }
+
+    if (mutated) {
+      await prefs.setString(
+        BulletinService.keyOutgoingBulletins,
+        jsonEncode(outgoing.map((ob) => ob.toJson()).toList()),
+      );
     }
   }
 }

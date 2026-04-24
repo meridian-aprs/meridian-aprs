@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/aprs_packet.dart';
 import '../models/bulletin.dart';
+import '../models/outgoing_bulletin.dart';
 import 'bulletin_subscription_service.dart';
 
 /// Outcome of [BulletinService.ingest], exposed for test assertions.
@@ -50,6 +51,25 @@ class BulletinService extends ChangeNotifier {
   static const _keyRadiusKm = 'bulletins_radius_km';
   static const _keyRetentionHours = 'bulletins_retention_hours';
 
+  /// SharedPreferences key holding the JSON-encoded list of
+  /// [OutgoingBulletin]s. Read directly by the background isolate's bulletin
+  /// timer (same pattern as beacon settings), so the key name is public.
+  static const keyOutgoingBulletins = 'outgoing_bulletins_v1';
+  static const _keyOutgoingNextId = 'outgoing_bulletins_next_id_v1';
+
+  /// Allowed TX-interval options (seconds). `0` = one-shot.
+  static const List<int> intervalOptionsSeconds = [
+    0,
+    300,
+    600,
+    900,
+    1800,
+    3600,
+  ];
+
+  /// Allowed expiry options (hours since creation).
+  static const List<int> expiryOptionsHours = [2, 6, 12, 24, 48];
+
   /// Allowed radius options (km). `0` is a sentinel for "Map area only" (no
   /// client-side distance filter — the APRS-IS area filter handles it).
   /// The `-1` sentinel means "Global" (no distance filter at all).
@@ -61,6 +81,10 @@ class BulletinService extends ChangeNotifier {
   // Keyed by "SOURCE|ADDRESSEE" for stable lookup.
   final Map<String, Bulletin> _bulletins = {};
   int _nextId = 1;
+
+  // Outgoing bulletins by id. Scheduler iterates this in-order per tick.
+  final Map<int, OutgoingBulletin> _outgoing = {};
+  int _outgoingNextId = 1;
 
   bool _showBulletins = true;
   int _radiusKm = 500;
@@ -87,9 +111,17 @@ class BulletinService extends ChangeNotifier {
 
   int get unreadCount => _bulletins.values.where((b) => !b.isRead).length;
 
+  /// All outgoing bulletins in insertion order (oldest first). The scheduler
+  /// iterates this list on each tick; the "My bulletins" UI renders it.
+  List<OutgoingBulletin> get outgoingBulletins =>
+      List.unmodifiable(_outgoing.values);
+
+  OutgoingBulletin? outgoingById(int id) => _outgoing[id];
+
   Future<void> load() async {
     final prefs = await _prefs();
     _nextId = prefs.getInt(_keyNextId) ?? 1;
+    _outgoingNextId = prefs.getInt(_keyOutgoingNextId) ?? 1;
     _showBulletins = prefs.getBool(_keyShowBulletins) ?? true;
     _radiusKm = prefs.getInt(_keyRadiusKm) ?? 500;
     _retentionHours = prefs.getInt(_keyRetentionHours) ?? 48;
@@ -104,7 +136,21 @@ class BulletinService extends ChangeNotifier {
           _bulletins[_key(b.sourceCallsign, b.addressee)] = b;
         }
       } catch (e) {
-        debugPrint('BulletinService: failed to decode: $e');
+        debugPrint('BulletinService: failed to decode bulletins: $e');
+      }
+    }
+    final outgoingRaw = prefs.getString(keyOutgoingBulletins);
+    if (outgoingRaw != null) {
+      try {
+        final list = (jsonDecode(outgoingRaw) as List<dynamic>)
+            .cast<Map<String, dynamic>>()
+            .map(OutgoingBulletin.fromJson);
+        _outgoing.clear();
+        for (final ob in list) {
+          _outgoing[ob.id] = ob;
+        }
+      } catch (e) {
+        debugPrint('BulletinService: failed to decode outgoing: $e');
       }
     }
     notifyListeners();
@@ -227,6 +273,157 @@ class BulletinService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------------------------------------------------------------------------
+  // OutgoingBulletin CRUD (v0.17, ADR-057)
+  // ---------------------------------------------------------------------------
+
+  /// Create a new outgoing bulletin. Starts enabled with `lastTransmittedAt`
+  /// null, so the scheduler fires an initial pulse on its next tick.
+  ///
+  /// [intervalSeconds] must be one of [intervalOptionsSeconds] (0 = one-shot).
+  /// [expiresAt] defaults to `createdAt + 24h` when not supplied.
+  /// Throws [ArgumentError] on invalid addressee or interval.
+  Future<OutgoingBulletin> createOutgoing({
+    required String addressee,
+    required String body,
+    int intervalSeconds = 1800,
+    DateTime? expiresAt,
+    bool viaRf = true,
+    bool viaAprsIs = true,
+  }) async {
+    if (!intervalOptionsSeconds.contains(intervalSeconds)) {
+      throw ArgumentError.value(
+        intervalSeconds,
+        'intervalSeconds',
+        'not a supported interval',
+      );
+    }
+    final normalized = addressee.trim().toUpperCase();
+    if (!_bulletinAddresseePattern.hasMatch(normalized)) {
+      throw ArgumentError.value(
+        addressee,
+        'addressee',
+        'invalid bulletin addressee — must be BLN[0-9A-Z][NAME]',
+      );
+    }
+    final now = DateTime.now();
+    final ob = OutgoingBulletin(
+      id: _outgoingNextId++,
+      addressee: normalized,
+      body: body,
+      intervalSeconds: intervalSeconds,
+      expiresAt: expiresAt ?? now.add(const Duration(hours: 24)),
+      createdAt: now,
+      viaRf: viaRf,
+      viaAprsIs: viaAprsIs,
+      enabled: true,
+    );
+    _outgoing[ob.id] = ob;
+    await _persist();
+    notifyListeners();
+    return ob;
+  }
+
+  /// Update the body and/or addressee of an outgoing bulletin. Per ADR-057
+  /// this resets `lastTransmittedAt` and `transmissionCount` so the scheduler
+  /// fires a fresh initial pulse on its next tick.
+  Future<void> updateOutgoingContent(
+    int id, {
+    String? addressee,
+    String? body,
+  }) async {
+    final current = _outgoing[id];
+    if (current == null) return;
+    String? nextAddressee;
+    if (addressee != null) {
+      final normalized = addressee.trim().toUpperCase();
+      if (!_bulletinAddresseePattern.hasMatch(normalized)) {
+        throw ArgumentError.value(addressee, 'addressee', 'invalid');
+      }
+      nextAddressee = normalized;
+    }
+    _outgoing[id] = current.copyWith(
+      addressee: nextAddressee,
+      body: body,
+      clearLastTransmittedAt: true,
+      transmissionCount: 0,
+    );
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Update the schedule (interval, expiry, transport flags). Does NOT reset
+  /// `lastTransmittedAt` or `transmissionCount` — this is the explicit contract
+  /// per ADR-057 (changing when/where to retransmit ≠ re-sending the body).
+  Future<void> updateOutgoingSchedule(
+    int id, {
+    int? intervalSeconds,
+    DateTime? expiresAt,
+    bool? viaRf,
+    bool? viaAprsIs,
+  }) async {
+    final current = _outgoing[id];
+    if (current == null) return;
+    if (intervalSeconds != null &&
+        !intervalOptionsSeconds.contains(intervalSeconds)) {
+      throw ArgumentError.value(
+        intervalSeconds,
+        'intervalSeconds',
+        'not a supported interval',
+      );
+    }
+    _outgoing[id] = current.copyWith(
+      intervalSeconds: intervalSeconds,
+      expiresAt: expiresAt,
+      viaRf: viaRf,
+      viaAprsIs: viaAprsIs,
+    );
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Enable or disable an outgoing bulletin without editing content/schedule.
+  Future<void> setOutgoingEnabled(int id, bool enabled) async {
+    final current = _outgoing[id];
+    if (current == null) return;
+    if (current.enabled == enabled) return;
+    _outgoing[id] = current.copyWith(enabled: enabled);
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Delete an outgoing bulletin permanently.
+  Future<void> deleteOutgoing(int id) async {
+    if (_outgoing.remove(id) == null) return;
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Called by [BulletinScheduler] after a successful transmission. Bumps the
+  /// counter and stamps `lastTransmittedAt`.
+  Future<void> recordOutgoingTransmission(int id, DateTime timestamp) async {
+    final current = _outgoing[id];
+    if (current == null) return;
+    _outgoing[id] = current.copyWith(
+      lastTransmittedAt: timestamp,
+      transmissionCount: current.transmissionCount + 1,
+    );
+    await _persist();
+    notifyListeners();
+  }
+
+  /// Matches bulletin addressees per APRS spec §3.2.16 — `BLN` + a line
+  /// number (`0`–`9` or `A`–`Z`), optionally followed by a 1–5 char group
+  /// name. Total length capped at 9 by the wire format (matcher further
+  /// enforces this via padding/truncation in [AprsEncoder]).
+  static final RegExp _bulletinAddresseePattern = RegExp(
+    r'^BLN[0-9A-Z][A-Z0-9]{0,5}$',
+  );
+
+  // ---------------------------------------------------------------------------
+  // Retention sweeper
+  // ---------------------------------------------------------------------------
+
   /// Drop all bulletins whose `lastHeardAt` is older than [retention].
   /// Call from a periodic sweeper (added in PR 5 along with the notification
   /// pipeline).
@@ -252,5 +449,10 @@ class BulletinService extends ChangeNotifier {
       jsonEncode(_bulletins.values.map((b) => b.toJson()).toList()),
     );
     await prefs.setInt(_keyNextId, _nextId);
+    await prefs.setString(
+      keyOutgoingBulletins,
+      jsonEncode(_outgoing.values.map((ob) => ob.toJson()).toList()),
+    );
+    await prefs.setInt(_keyOutgoingNextId, _outgoingNextId);
   }
 }
