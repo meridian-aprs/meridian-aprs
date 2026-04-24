@@ -10,10 +10,6 @@
         android:minSdkVersion="34" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"
         android:minSdkVersion="34" />
-    <!-- ADR-025: the foreground service also keeps a BLE TNC link alive, so
-         Android 14+ requires declaring connectedDevice in addition to location. -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"
-        android:minSdkVersion="34" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         android:minSdkVersion="33" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -43,10 +39,14 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
-        <!-- Foreground service for background APRS connection keepalive (v0.7). -->
+        <!-- Foreground service for background APRS connection keepalive (v0.7).
+             Type is `dataSync|location` — see ADR-060 for why `connectedDevice`
+             was removed (targetSDK 34+ validates runtime Bluetooth permission
+             at startForeground, crashing APRS-IS-only sessions that haven't
+             granted BT). BLE TNC background sessions ride under `dataSync`. -->
         <service
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
-            android:foregroundServiceType="dataSync|location|connectedDevice"
+            android:foregroundServiceType="dataSync|location"
             android:stopWithTask="false"
             android:exported="false" />
         <!-- Handles inline reply and mark-as-read from message notifications. -->

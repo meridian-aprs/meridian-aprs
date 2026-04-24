@@ -917,7 +917,7 @@ Simpler `TxService` with no persisted routing state. Routing is always hierarchy
 ## ADR-052: foregroundServiceType connectedDevice addition (v0.13, ADR-025 follow-up)
 
 **Date:** 2026-04-21
-**Status:** Accepted
+**Status:** Superseded by ADR-060 (2026-04-24) — the runtime-permission analysis below was incorrect; `connectedDevice` crashes targetSdk 34+ APRS-IS sessions when Bluetooth is not granted at runtime.
 
 ### Context
 
@@ -1150,3 +1150,40 @@ Bulletins are never ACKed. The `BulletinClassification` path in `MessageService`
 - Background isolate (`meridian_connection_task.dart`) gains a parallel bulletin timer that reads `OutgoingBulletin` list from SharedPreferences on each fire (same pattern as the existing beacon-settings read).
 - `AprsEncoder.encodeBulletin(addressee, body)` — 9-char space-padded addressee, `:BLN0     :Body`, no wire ID.
 - RF path sourced from Advanced-mode "Bulletin path" setting (default `WIDE2-2`); APRS-IS has no path.
+
+---
+
+## ADR-060: Revert `connectedDevice` foreground service type (supersedes ADR-052)
+
+**Date:** 2026-04-24
+**Status:** Accepted
+
+### Context
+
+ADR-052 added `connectedDevice` to the Android foreground service type mask and declared the `FOREGROUND_SERVICE_CONNECTED_DEVICE` permission, reasoning that the BLE TNC keepalive qualified as managing a connected Bluetooth peripheral. The stated consequence — "does not require an additional runtime permission prompt — it is a manifest-level declaration only" — was wrong.
+
+On `targetSdk >= 34` (Android 14+), `startForeground()` validates the type mask against *runtime-granted* permissions at dispatch time. Using `connectedDevice` requires one of `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN`, `BLUETOOTH_ADVERTISE`, or a USB permission to be granted at runtime. When a user connects only to APRS-IS (no BLE), no Bluetooth runtime grant has occurred and the type validation fails:
+
+```
+java.lang.SecurityException: Starting FGS with type connectedDevice ...
+targetSDK=36 requires permissions: all of [FOREGROUND_SERVICE_CONNECTED_DEVICE]
+and any of [BLUETOOTH_CONNECT, BLUETOOTH_SCAN, ...]
+```
+
+This crashes the process the moment the foreground service tries to start. Reproducible every time on a fresh install that connects to APRS-IS first.
+
+### Decision
+
+Drop `connectedDevice` from the declared FGS type mask. Remove the `FOREGROUND_SERVICE_CONNECTED_DEVICE` uses-permission entry. The service now declares `foregroundServiceType="dataSync|location"` only.
+
+Rationale:
+- `dataSync` legally covers the BLE TNC background session. From the OS's perspective, a TNC keepalive is an ongoing data exchange (APRS packets flowing in and out) — which is the definition of `dataSync`. `connectedDevice` is conventionally reserved for apps that actively *manage* a peripheral (car audio, fitness device sync with discovery), not for apps that merely use one as a data source.
+- `FlutterForegroundTask` uses a single manifest-declared type mask for all service starts; there is no dynamic per-connection type selection. Declaring `connectedDevice` therefore gates *every* service start — including APRS-IS-only flows where Bluetooth is never used — on a runtime Bluetooth grant that may never come.
+- If a future need for `connectedDevice` arises (e.g., stricter Play policy enforcement around BLE peripheral management), it must be introduced together with a dynamic-type plugin path that only adds `connectedDevice` when BLE permission is granted and a BLE connection is active. That work is out of scope here.
+
+### Consequences
+
+- Android 14+ APRS-IS connection flow no longer crashes on a user without BLE permission.
+- BLE TNC background sessions continue to function — they rode under `dataSync` before ADR-052 and still do now.
+- ADR-052 is superseded. Audit finding F-META-003 (#44) is reopened for the underlying concern (is `dataSync` semantically correct for BLE TNC?) but the crash is resolved.
+- Manifest comment references this ADR so future contributors don't re-add `connectedDevice` without the dynamic plugin path.
