@@ -20,6 +20,8 @@ class NotificationPreferences {
     required this.soundEnabled,
     required this.vibrationEnabled,
     this.notifyOtherSsids = false,
+    this.notifyGroups = true,
+    this.notifyBulletins = false,
   });
 
   /// Global opt-in flag — false means no notifications are dispatched even if
@@ -37,7 +39,20 @@ class NotificationPreferences {
   /// to false — opt-in only.
   final bool notifyOtherSsids;
 
+  /// Master toggle for group-message notifications (v0.17). Per-group
+  /// `notify` on [GroupSubscription] further gates individual groups.
+  /// Defaults to true so users see a group they intentionally subscribed
+  /// to, without an extra Settings visit.
+  final bool notifyGroups;
+
+  /// Master toggle for bulletin notifications (v0.17). Per-group
+  /// `notify` on [BulletinSubscription] further gates individual named
+  /// groups. Defaults to false — bulletins are broadcast-noisy by nature.
+  final bool notifyBulletins;
+
   static const _keyNotifyOtherSsids = 'notif_notify_other_ssids';
+  static const _keyNotifyGroups = 'notif_notify_groups';
+  static const _keyNotifyBulletins = 'notif_notify_bulletins';
 
   // Default sound/vibration: on for messages+alerts, off for nearby+system.
   static const _defaultSound = {
@@ -88,12 +103,16 @@ class NotificationPreferences {
           (_defaultVibration[ch] ?? false);
     }
     final notifyOtherSsids = prefs.getBool(_keyNotifyOtherSsids) ?? false;
+    final notifyGroups = prefs.getBool(_keyNotifyGroups) ?? true;
+    final notifyBulletins = prefs.getBool(_keyNotifyBulletins) ?? false;
     return NotificationPreferences(
       optedIn: optedIn,
       channelEnabled: channelEnabled,
       soundEnabled: soundEnabled,
       vibrationEnabled: vibrationEnabled,
       notifyOtherSsids: notifyOtherSsids,
+      notifyGroups: notifyGroups,
+      notifyBulletins: notifyBulletins,
     );
   }
 
@@ -109,6 +128,8 @@ class NotificationPreferences {
       await prefs.setBool('notif_vibration_${e.key}', e.value);
     }
     await prefs.setBool(_keyNotifyOtherSsids, notifyOtherSsids);
+    await prefs.setBool(_keyNotifyGroups, notifyGroups);
+    await prefs.setBool(_keyNotifyBulletins, notifyBulletins);
   }
 
   NotificationPreferences copyWithOptedIn(bool value) =>
@@ -118,6 +139,8 @@ class NotificationPreferences {
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
         notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: notifyGroups,
+        notifyBulletins: notifyBulletins,
       );
 
   NotificationPreferences copyWithChannel(String id, bool enabled) =>
@@ -127,6 +150,8 @@ class NotificationPreferences {
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
         notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: notifyGroups,
+        notifyBulletins: notifyBulletins,
       );
 
   NotificationPreferences copyWithSound(String id, bool enabled) =>
@@ -136,6 +161,8 @@ class NotificationPreferences {
         soundEnabled: Map.of(soundEnabled)..[id] = enabled,
         vibrationEnabled: Map.of(vibrationEnabled),
         notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: notifyGroups,
+        notifyBulletins: notifyBulletins,
       );
 
   NotificationPreferences copyWithVibration(String id, bool enabled) =>
@@ -145,6 +172,8 @@ class NotificationPreferences {
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled)..[id] = enabled,
         notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: notifyGroups,
+        notifyBulletins: notifyBulletins,
       );
 
   NotificationPreferences copyWithNotifyOtherSsids(bool v) =>
@@ -154,5 +183,29 @@ class NotificationPreferences {
         soundEnabled: Map.of(soundEnabled),
         vibrationEnabled: Map.of(vibrationEnabled),
         notifyOtherSsids: v,
+        notifyGroups: notifyGroups,
+        notifyBulletins: notifyBulletins,
+      );
+
+  NotificationPreferences copyWithNotifyGroups(bool v) =>
+      NotificationPreferences(
+        optedIn: optedIn,
+        channelEnabled: Map.of(channelEnabled),
+        soundEnabled: Map.of(soundEnabled),
+        vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: v,
+        notifyBulletins: notifyBulletins,
+      );
+
+  NotificationPreferences copyWithNotifyBulletins(bool v) =>
+      NotificationPreferences(
+        optedIn: optedIn,
+        channelEnabled: Map.of(channelEnabled),
+        soundEnabled: Map.of(soundEnabled),
+        vibrationEnabled: Map.of(vibrationEnabled),
+        notifyOtherSsids: notifyOtherSsids,
+        notifyGroups: notifyGroups,
+        notifyBulletins: v,
       );
 }

@@ -8,28 +8,33 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('seeder (ADR-056 built-ins)', () {
-    test('fresh install seeds ALL, CQ, QST, YAESU', () async {
-      SharedPreferences.setMockInitialValues({});
-      final prefs = await SharedPreferences.getInstance();
-      final service = GroupSubscriptionService(prefs: prefs);
-      await service.load();
+    test(
+      'fresh install seeds ALL, CQ, QST (no vendor-specific names)',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await SharedPreferences.getInstance();
+        final service = GroupSubscriptionService(prefs: prefs);
+        await service.load();
 
-      final names = service.subscriptions.map((s) => s.name).toList();
-      expect(names, containsAll(['ALL', 'CQ', 'QST', 'YAESU']));
+        final names = service.subscriptions.map((s) => s.name).toList();
+        expect(names, containsAll(['ALL', 'CQ', 'QST']));
+        // Vendor names must not be seeded by default.
+        expect(names, isNot(contains('YAESU')));
+        expect(names, isNot(contains('KENWOOD')));
 
-      final byName = {for (final s in service.subscriptions) s.name: s};
-      expect(byName['CQ']!.enabled, isTrue);
-      expect(byName['QST']!.enabled, isTrue);
-      expect(byName['ALL']!.enabled, isFalse);
-      expect(byName['YAESU']!.enabled, isFalse);
+        final byName = {for (final s in service.subscriptions) s.name: s};
+        expect(byName['CQ']!.enabled, isTrue);
+        expect(byName['QST']!.enabled, isTrue);
+        expect(byName['ALL']!.enabled, isFalse);
 
-      // All built-ins default to reply-to-sender + notify off.
-      for (final name in ['ALL', 'CQ', 'QST', 'YAESU']) {
-        expect(byName[name]!.replyMode, ReplyMode.sender);
-        expect(byName[name]!.notify, isFalse);
-        expect(byName[name]!.isBuiltin, isTrue);
-      }
-    });
+        // All built-ins default to reply-to-sender + notify off.
+        for (final name in ['ALL', 'CQ', 'QST']) {
+          expect(byName[name]!.replyMode, ReplyMode.sender);
+          expect(byName[name]!.notify, isFalse);
+          expect(byName[name]!.isBuiltin, isTrue);
+        }
+      },
+    );
 
     test(
       'seeder is idempotent — second load does not duplicate or reset',
@@ -49,11 +54,11 @@ void main() {
           (s) => s.name == 'ALL',
         );
         expect(secondAll.enabled, isTrue);
-        // Still only 4 built-ins (no duplicate seed).
+        // Still only 3 built-ins (no duplicate seed).
         final builtins = second.subscriptions
             .where((s) => s.isBuiltin)
             .toList();
-        expect(builtins.length, 4);
+        expect(builtins.length, 3);
       },
     );
   });

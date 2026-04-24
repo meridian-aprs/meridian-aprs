@@ -364,6 +364,18 @@ class NotificationService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setNotifyGroups(bool v) async {
+    _notifPrefs = _notifPrefs.copyWithNotifyGroups(v);
+    await _notifPrefs.save(_prefs);
+    notifyListeners();
+  }
+
+  Future<void> setNotifyBulletins(bool v) async {
+    _notifPrefs = _notifPrefs.copyWithNotifyBulletins(v);
+    await _notifPrefs.save(_prefs);
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------------------
   // MessageService listener
   // ---------------------------------------------------------------------------

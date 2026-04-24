@@ -158,6 +158,47 @@ void main() {
     });
   });
 
+  group('receive-scope prefs (v0.17 PR 2)', () {
+    test(
+      'defaults: showBulletins=true, radiusKm=500, retentionHours=48',
+      () async {
+        final (svc, _) = await makeServices();
+        expect(svc.showBulletins, isTrue);
+        expect(svc.radiusKm, 500);
+        expect(svc.retentionHours, 48);
+      },
+    );
+
+    test('setRadiusKm rejects unsupported values', () async {
+      final (svc, _) = await makeServices();
+      expect(() => svc.setRadiusKm(250), throwsArgumentError);
+      expect(() => svc.setRadiusKm(-2), throwsArgumentError);
+    });
+
+    test('setRetentionHours rejects unsupported values', () async {
+      final (svc, _) = await makeServices();
+      expect(() => svc.setRetentionHours(36), throwsArgumentError);
+    });
+
+    test('prefs round-trip across instances', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final subs = BulletinSubscriptionService(prefs: prefs);
+      await subs.load();
+      final first = BulletinService(subscriptions: subs, prefs: prefs);
+      await first.load();
+      await first.setShowBulletins(false);
+      await first.setRadiusKm(1000);
+      await first.setRetentionHours(72);
+
+      final reloaded = BulletinService(subscriptions: subs, prefs: prefs);
+      await reloaded.load();
+      expect(reloaded.showBulletins, isFalse);
+      expect(reloaded.radiusKm, 1000);
+      expect(reloaded.retentionHours, 72);
+    });
+  });
+
   group('persistence + retention', () {
     test('bulletins round-trip through SharedPreferences', () async {
       SharedPreferences.setMockInitialValues({});

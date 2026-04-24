@@ -1,10 +1,13 @@
 /// Manages the operator's APRS group subscriptions.
 ///
-/// Seeds the four built-ins on first run (per spec §5.1 / ADR-056):
-///   - `ALL`   disabled, notify off, reply `sender`  (broadcast discovery)
-///   - `CQ`    enabled,  notify off, reply `sender`  (contact-making)
-///   - `QST`   enabled,  notify off, reply `sender`  (broadcast discovery)
-///   - `YAESU` disabled, notify off, reply `sender`  (radio-firmware default)
+/// Seeds three protocol-neutral built-ins on first run (per ADR-056):
+///   - `ALL` disabled, notify off, reply `sender`  (broadcast discovery)
+///   - `CQ`  enabled,  notify off, reply `sender`  (contact-making)
+///   - `QST` enabled,  notify off, reply `sender`  (broadcast discovery)
+///
+/// Radio-vendor group names (e.g. `YAESU`) are intentionally omitted —
+/// Meridian is not a vendor-specific product. Users can add any custom
+/// group they want via Settings → Messaging → Groups.
 ///
 /// All state persisted as a JSON blob in SharedPreferences. The drift/SQLite
 /// migration is v0.15 scope and will absorb this table.
@@ -75,7 +78,6 @@ class GroupSubscriptionService extends ChangeNotifier {
       _BuiltinDefault('ALL', enabled: false),
       _BuiltinDefault('CQ', enabled: true),
       _BuiltinDefault('QST', enabled: true),
-      _BuiltinDefault('YAESU', enabled: false),
     ];
     for (final d in defaults) {
       if (existingNames.contains(d.name)) continue;
