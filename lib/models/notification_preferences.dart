@@ -3,13 +3,36 @@ library;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Notification channel IDs — extensible taxonomy established in v0.11.
+///
+/// v0.17 (ADR-058) added the `groups*` and `bulletins*` channels for the
+/// group-message and bulletin dispatch paths. Splitting built-in groups
+/// (`CQ`, `QST`, `ALL`) from custom clubs lets the operator keep noisy
+/// built-ins muted while still seeing their club chatter, without paying
+/// for that filtering per-group.
 abstract final class NotificationChannels {
   static const messages = 'messages';
   static const alerts = 'alerts';
   static const nearby = 'nearby';
   static const system = 'system';
 
-  static const all = [messages, alerts, nearby, system];
+  // v0.17 group + bulletin channels.
+  static const groupsBuiltin = 'groups_builtin';
+  static const groupsCustom = 'groups_custom';
+  static const bulletinsGeneral = 'bulletins_general';
+  static const bulletinsSubscribed = 'bulletins_subscribed';
+  static const bulletinExpired = 'bulletin_expired';
+
+  static const all = [
+    messages,
+    alerts,
+    nearby,
+    system,
+    groupsBuiltin,
+    groupsCustom,
+    bulletinsGeneral,
+    bulletinsSubscribed,
+    bulletinExpired,
+  ];
 }
 
 /// Per-channel notification preferences persisted to SharedPreferences.
@@ -54,12 +77,19 @@ class NotificationPreferences {
   static const _keyNotifyGroups = 'notif_notify_groups';
   static const _keyNotifyBulletins = 'notif_notify_bulletins';
 
-  // Default sound/vibration: on for messages+alerts, off for nearby+system.
+  // Default sound/vibration (v0.17 spec §9): on for messages, alerts,
+  // custom groups, subscribed bulletin groups, and expired. Off for the
+  // broadcast-noisy built-in groups + general bulletins.
   static const _defaultSound = {
     NotificationChannels.messages: true,
     NotificationChannels.alerts: true,
     NotificationChannels.nearby: false,
     NotificationChannels.system: false,
+    NotificationChannels.groupsBuiltin: false,
+    NotificationChannels.groupsCustom: true,
+    NotificationChannels.bulletinsGeneral: false,
+    NotificationChannels.bulletinsSubscribed: true,
+    NotificationChannels.bulletinExpired: true,
   };
 
   static const _defaultVibration = {
@@ -67,6 +97,25 @@ class NotificationPreferences {
     NotificationChannels.alerts: true,
     NotificationChannels.nearby: false,
     NotificationChannels.system: false,
+    NotificationChannels.groupsBuiltin: false,
+    NotificationChannels.groupsCustom: true,
+    NotificationChannels.bulletinsGeneral: false,
+    NotificationChannels.bulletinsSubscribed: true,
+    NotificationChannels.bulletinExpired: true,
+  };
+
+  /// Per-channel default enabled/disabled (v0.17 spec §9). Built-in groups
+  /// and general bulletins default off — the operator opts in per-channel.
+  static const _defaultChannelEnabled = {
+    NotificationChannels.messages: true,
+    NotificationChannels.alerts: true,
+    NotificationChannels.nearby: true,
+    NotificationChannels.system: true,
+    NotificationChannels.groupsBuiltin: false,
+    NotificationChannels.groupsCustom: true,
+    NotificationChannels.bulletinsGeneral: false,
+    NotificationChannels.bulletinsSubscribed: true,
+    NotificationChannels.bulletinExpired: true,
   };
 
   // notifyOtherSsids uses its constructor default (false) and is not passed
@@ -74,12 +123,13 @@ class NotificationPreferences {
   static NotificationPreferences defaults({bool optedIn = false}) =>
       NotificationPreferences(
         optedIn: optedIn,
-        channelEnabled: {for (final c in NotificationChannels.all) c: true},
+        channelEnabled: Map.of(_defaultChannelEnabled),
         soundEnabled: Map.of(_defaultSound),
         vibrationEnabled: Map.of(_defaultVibration),
       );
 
-  bool isChannelEnabled(String id) => channelEnabled[id] ?? true;
+  bool isChannelEnabled(String id) =>
+      channelEnabled[id] ?? (_defaultChannelEnabled[id] ?? true);
 
   bool isSoundEnabled(String id) =>
       soundEnabled[id] ?? (_defaultSound[id] ?? false);
@@ -95,7 +145,9 @@ class NotificationPreferences {
     final soundEnabled = <String, bool>{};
     final vibrationEnabled = <String, bool>{};
     for (final ch in NotificationChannels.all) {
-      channelEnabled[ch] = prefs.getBool('notif_channel_$ch') ?? true;
+      channelEnabled[ch] =
+          prefs.getBool('notif_channel_$ch') ??
+          (_defaultChannelEnabled[ch] ?? true);
       soundEnabled[ch] =
           prefs.getBool('notif_sound_$ch') ?? (_defaultSound[ch] ?? false);
       vibrationEnabled[ch] =

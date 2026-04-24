@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'dart:math' show min, max;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../transport/aprs_is_transport.dart';
+import 'aprs_is_filter_builder.dart';
 import 'aprs_is_filter_config.dart';
 import 'connection_credentials.dart';
 import 'lat_lng_box.dart';
@@ -46,6 +46,17 @@ class AprsIsConnection extends MeridianConnection {
   /// .defaultConfig] (Regional — the v0.12-equivalent values) so callers that
   /// don't set a config explicitly still get the old behaviour.
   AprsIsFilterConfig _filterConfig = AprsIsFilterConfig.defaultConfig;
+
+  /// Most recent viewport box sent through [updateFilter]. Null until the
+  /// first viewport update fires. Used by [onSubscriptionsChanged] so a
+  /// subscription change can rebuild and re-send the filter without waiting
+  /// for the next map move.
+  LatLngBox? _lastBox;
+
+  /// Latest named-bulletin-group names to include in the filter. Pushed in
+  /// by [ConnectionRegistry.loadAllSettings] + a listener on
+  /// [BulletinSubscriptionService] (v0.17 PR 5, ADR-058).
+  List<String> _namedBulletinGroups = const [];
 
   /// Current filter config used by [updateFilter] and [defaultFilterLine].
   AprsIsFilterConfig get filterConfig => _filterConfig;
@@ -254,48 +265,36 @@ class AprsIsConnection extends MeridianConnection {
     if (p != null) _transport.updateServer(host: h, port: p);
   }
 
-  /// Kilometres per degree of latitude — the flat-earth approximation used
-  /// throughout the filter math. Matches the pre-Phase-3 hardcoded value
-  /// (0.45° ≈ 50 km) so Regional remains bit-identical to v0.12.
-  static const double _kmPerDegree = 111.0;
-
-  /// Send a `#filter a/` bounding-box command derived from the current map
-  /// viewport.
+  /// Send a `#filter` command composed from the current viewport, active
+  /// [AprsIsFilterConfig], and the operator's subscribed named-bulletin
+  /// groups.
   ///
-  /// The filter is padded by [AprsIsFilterConfig.padPct] on each edge to
-  /// pre-fetch stations just outside the visible area, and a minimum half-
-  /// extent of [AprsIsFilterConfig.minRadiusKm] is enforced on each axis so
-  /// very close zooms still receive a useful feed. Uses [_filterConfig] by
-  /// default; pass [config] explicitly to override for a single call.
-  ///
-  /// No-op if the transport is not connected.
+  /// Delegates to [AprsIsFilterBuilder] for the actual string composition
+  /// so the filter shape is testable in isolation (ADR-058). No-op if the
+  /// transport is not connected.
   void updateFilter(LatLngBox box, {AprsIsFilterConfig? config}) {
     final cfg = config ?? _filterConfig;
-    final latPad = (box.north - box.south) * cfg.padPct;
-    final lonPad = (box.east - box.west) * cfg.padPct;
-
-    final paddedS = box.south - latPad;
-    final paddedN = box.north + latPad;
-    final paddedW = box.west - lonPad;
-    final paddedE = box.east + lonPad;
-
-    // Enforce minimum radius as a degree half-extent. Uses the same
-    // approximation (no cos(lat) correction) as the pre-Phase-3 code so
-    // Regional values match v0.12 byte-for-byte.
-    final minHalf = cfg.minRadiusKm / _kmPerDegree;
-    final midLat = (paddedS + paddedN) / 2;
-    final midLon = (paddedW + paddedE) / 2;
-    final effectiveS = min(paddedS, midLat - minHalf).clamp(-90.0, 90.0);
-    final effectiveN = max(paddedN, midLat + minHalf).clamp(-90.0, 90.0);
-    final effectiveW = min(paddedW, midLon - minHalf);
-    final effectiveE = max(paddedE, midLon + minHalf);
-
-    // a/ is the APRS-IS area (bounding-box) filter: a/latN/lonW/latS/lonE.
-    // b/ is the budget (callsign) filter — do not use it for geographic filtering.
-    final line =
-        '#filter a/${effectiveN.toStringAsFixed(2)}/${effectiveW.toStringAsFixed(2)}'
-        '/${effectiveS.toStringAsFixed(2)}/${effectiveE.toStringAsFixed(2)}\r\n';
+    _lastBox = box;
+    final line = AprsIsFilterBuilder.buildFilterLine(
+      box: box,
+      config: cfg,
+      namedBulletinGroups: _namedBulletinGroups,
+    );
     _transport.sendLine(line);
+  }
+
+  /// Replace the named-bulletin-group list used in the filter and re-send
+  /// `#filter` with the same viewport so the server begins delivering
+  /// bulletins for the new subscription set immediately. If no viewport is
+  /// known yet (first connect with no map moves), stores the new set and
+  /// defers the filter update to the next [updateFilter] call.
+  ///
+  /// Called from `ConnectionRegistry.loadAllSettings` and from a listener on
+  /// [BulletinSubscriptionService] (ADR-058).
+  void onSubscriptionsChanged(List<String> namedBulletinGroups) {
+    _namedBulletinGroups = List.unmodifiable(namedBulletinGroups);
+    final box = _lastBox;
+    if (box != null && isConnected) updateFilter(box);
   }
 
   /// Build a default bounding-box filter string centred on [lat]/[lon] with a
@@ -307,17 +306,13 @@ class AprsIsConnection extends MeridianConnection {
     double lat,
     double lon, {
     AprsIsFilterConfig? config,
+    List<String> namedBulletinGroups = const [],
   }) {
-    final cfg = config ?? AprsIsFilterConfig.defaultConfig;
-    // Use the preset's minimum radius as a floor but never less than ~167 km
-    // so "Local" doesn't collapse the first-connect window to 25 km.
-    final km = cfg.minRadiusKm < 167.0 ? 167.0 : cfg.minRadiusKm;
-    final half = km / _kmPerDegree;
-    final s = (lat - half).clamp(-90.0, 90.0);
-    final n = (lat + half).clamp(-90.0, 90.0);
-    final w = lon - half;
-    final e = lon + half;
-    return '#filter a/${n.toStringAsFixed(2)}/${w.toStringAsFixed(2)}'
-        '/${s.toStringAsFixed(2)}/${e.toStringAsFixed(2)}\r\n';
+    return AprsIsFilterBuilder.buildDefaultFilterLine(
+      lat: lat,
+      lon: lon,
+      config: config ?? AprsIsFilterConfig.defaultConfig,
+      namedBulletinGroups: namedBulletinGroups,
+    );
   }
 }

@@ -5,11 +5,38 @@ import 'package:meridian_aprs/models/notification_preferences.dart';
 
 void main() {
   group('NotificationPreferences', () {
-    test('defaults — all channels enabled', () {
+    test('defaults — pre-v0.17 channels enabled; broadcast-noisy off', () {
       final prefs = NotificationPreferences.defaults();
-      for (final ch in NotificationChannels.all) {
+      // v0.11 channels stay enabled by default.
+      for (final ch in [
+        NotificationChannels.messages,
+        NotificationChannels.alerts,
+        NotificationChannels.nearby,
+        NotificationChannels.system,
+      ]) {
         expect(prefs.isChannelEnabled(ch), isTrue, reason: 'channel $ch');
       }
+      // v0.17 (ADR-058): built-in groups and general bulletins default OFF
+      // — they're broadcast-noisy, so the operator opts in explicitly.
+      expect(
+        prefs.isChannelEnabled(NotificationChannels.groupsBuiltin),
+        isFalse,
+      );
+      expect(
+        prefs.isChannelEnabled(NotificationChannels.bulletinsGeneral),
+        isFalse,
+      );
+      // Custom groups + subscribed bulletins default ON — explicit subscribe
+      // implies the user wants to see these.
+      expect(prefs.isChannelEnabled(NotificationChannels.groupsCustom), isTrue);
+      expect(
+        prefs.isChannelEnabled(NotificationChannels.bulletinsSubscribed),
+        isTrue,
+      );
+      expect(
+        prefs.isChannelEnabled(NotificationChannels.bulletinExpired),
+        isTrue,
+      );
     });
 
     test('defaults — sound on for messages and alerts, off elsewhere', () {

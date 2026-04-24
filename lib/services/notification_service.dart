@@ -18,10 +18,14 @@ import 'package:local_notifier/local_notifier.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/bulletin.dart';
+import '../models/group_subscription.dart';
 import '../models/notification_preferences.dart';
 import '../screens/message_thread_screen.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/in_app_banner_overlay.dart';
+import 'bulletin_service.dart';
+import 'group_subscription_service.dart';
 import 'message_service.dart';
 
 /// Notification IDs.
@@ -46,15 +50,21 @@ class NotificationService extends ChangeNotifier {
     required SharedPreferences prefs,
     required GlobalKey<NavigatorState> navigatorKey,
     required InAppBannerController bannerController,
+    BulletinService? bulletinService,
+    GroupSubscriptionService? groupSubscriptions,
   }) : _messageService = messageService,
        _prefs = prefs,
        _navigatorKey = navigatorKey,
-       _bannerController = bannerController;
+       _bannerController = bannerController,
+       _bulletinService = bulletinService,
+       _groupSubscriptions = groupSubscriptions;
 
   final MessageService _messageService;
   final SharedPreferences _prefs;
   final GlobalKey<NavigatorState> _navigatorKey;
   final InAppBannerController _bannerController;
+  final BulletinService? _bulletinService;
+  final GroupSubscriptionService? _groupSubscriptions;
 
   final _plugin = FlutterLocalNotificationsPlugin();
 
@@ -66,6 +76,14 @@ class NotificationService extends ChangeNotifier {
 
   /// Snapshot of per-callsign unread counts used to detect new messages.
   final _lastUnread = <String, int>{};
+
+  /// Snapshot of per-group-key unread counts used to detect new group
+  /// messages (v0.17). Keyed by the `#GROUP:<NAME>` conversation key.
+  final _lastGroupUnread = <String, int>{};
+
+  /// Snapshot of "bulletin-key → lastHeardAt" used to detect new / retx'd
+  /// bulletins (v0.17). We fire a notification when lastHeardAt advances.
+  final _lastBulletinKey = <String, DateTime>{};
 
   /// Per-callsign index into the messages list marking where the current
   /// notification session started. Only messages at or after this index are
@@ -139,6 +157,20 @@ class NotificationService extends ChangeNotifier {
     for (final conv in _messageService.allConversations) {
       _lastUnread[conv.peerCallsign] = conv.unreadCount;
     }
+
+    // Seed group-conversation snapshot the same way.
+    for (final conv in _messageService.groupConversations) {
+      _lastGroupUnread[conv.peerCallsign] = conv.unreadCount;
+    }
+
+    // v0.17: bulletin receive-side dispatch.
+    final bs = _bulletinService;
+    if (bs != null) {
+      for (final b in bs.bulletins) {
+        _lastBulletinKey[_bulletinKey(b)] = b.lastHeardAt;
+      }
+      bs.addListener(_onBulletinServiceChange);
+    }
   }
 
   Future<void> _initMobileNotifications() async {
@@ -194,11 +226,56 @@ class NotificationService extends ChangeNotifier {
         >();
     if (androidPlugin == null) return;
 
+    // Channel set per v0.17 ADR-058 §9. Built-in groups and general
+    // bulletins use LOW importance (visible but silent by default); custom
+    // groups and subscribed bulletin groups use DEFAULT importance to match
+    // user intent (explicit subscribe = "tell me"). The bulletin-expired
+    // channel is DEFAULT so the "repost?" prompt isn't easy to miss.
     const channels = [
       AndroidNotificationChannel(
         NotificationChannels.messages,
         'Messages',
         description: 'Incoming APRS messages addressed to you.',
+        importance: Importance.defaultImportance,
+        playSound: true,
+        enableVibration: true,
+      ),
+      AndroidNotificationChannel(
+        NotificationChannels.groupsBuiltin,
+        'Built-in groups (CQ, QST, ALL)',
+        description: 'Messages to the built-in APRS groups.',
+        importance: Importance.low,
+        playSound: false,
+        enableVibration: false,
+      ),
+      AndroidNotificationChannel(
+        NotificationChannels.groupsCustom,
+        'Custom groups',
+        description: 'Messages to your custom groups (clubs, nets).',
+        importance: Importance.defaultImportance,
+        playSound: true,
+        enableVibration: true,
+      ),
+      AndroidNotificationChannel(
+        NotificationChannels.bulletinsGeneral,
+        'General bulletins',
+        description: 'General APRS bulletins (BLN0–BLN9).',
+        importance: Importance.low,
+        playSound: false,
+        enableVibration: false,
+      ),
+      AndroidNotificationChannel(
+        NotificationChannels.bulletinsSubscribed,
+        'Subscribed bulletin groups',
+        description: 'Bulletins from groups you subscribe to (e.g. WX).',
+        importance: Importance.defaultImportance,
+        playSound: true,
+        enableVibration: true,
+      ),
+      AndroidNotificationChannel(
+        NotificationChannels.bulletinExpired,
+        'Bulletin expired',
+        description: 'Your outgoing bulletins have expired — repost?',
         importance: Importance.defaultImportance,
         playSound: true,
         enableVibration: true,
@@ -404,6 +481,37 @@ class NotificationService extends ChangeNotifier {
       }
       _lastUnread[peer] = conv.unreadCount;
     }
+
+    // Group conversations — separate unread table so "Other SSID" toggles
+    // never suppress a group notification, and vice versa.
+    for (final conv in _messageService.groupConversations) {
+      final key = conv.peerCallsign;
+      final prevUnread = _lastGroupUnread[key] ?? 0;
+      if (conv.unreadCount > prevUnread) {
+        final lastMsg = conv.lastMessage;
+        if (lastMsg != null && !lastMsg.isOutgoing) {
+          _dispatchGroupMessage(conv, lastMsg);
+        }
+      }
+      _lastGroupUnread[key] = conv.unreadCount;
+    }
+  }
+
+  void _onBulletinServiceChange() {
+    final bs = _bulletinService;
+    if (bs == null) return;
+    for (final b in bs.bulletins) {
+      final key = _bulletinKey(b);
+      final prev = _lastBulletinKey[key];
+      // Fire on first receipt OR when lastHeardAt advances AND heardCount
+      // == 1 (first appearance; retransmissions bump lastHeardAt but the
+      // body is unchanged — no re-notify). If the body changes, ingest
+      // re-marks as unread and heardCount keeps climbing; re-notify anyway
+      // so the operator sees the edit.
+      final isFresh = prev == null;
+      if (isFresh) _dispatchBulletin(b);
+      _lastBulletinKey[key] = b.lastHeardAt;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -446,6 +554,162 @@ class NotificationService extends ChangeNotifier {
       );
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Group & bulletin dispatch (v0.17)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _dispatchGroupMessage(
+    Conversation conv,
+    MessageEntry msg,
+  ) async {
+    if (!_notifPrefs.optedIn) return;
+    if (!_notifPrefs.notifyGroups) return;
+
+    // Resolve the bare group name from `#GROUP:<NAME>` key and look up the
+    // subscription so per-group `notify` + `isBuiltin` gate correctly.
+    final groupName = MessageService.groupNameOf(conv.peerCallsign);
+    if (groupName == null) return;
+
+    GroupSubscription? sub;
+    for (final s in _groupSubscriptions?.subscriptions ?? const []) {
+      if (s.name == groupName) {
+        sub = s;
+        break;
+      }
+    }
+    if (sub != null && !sub.notify) return;
+
+    final channel = (sub?.isBuiltin ?? false)
+        ? NotificationChannels.groupsBuiltin
+        : NotificationChannels.groupsCustom;
+    if (!_notifPrefs.isChannelEnabled(channel)) return;
+
+    final senderCallsign = msg.fromCallsign ?? '';
+    final title = senderCallsign.isEmpty
+        ? groupName
+        : '$groupName · $senderCallsign';
+    _bannerController.show(title, msg.text);
+    await _dispatchSimpleNotification(
+      id: 'group:$groupName'.hashCode.abs() % 100000 + 2000,
+      title: title,
+      body: msg.text,
+      channelId: channel,
+      payloadCallsign: senderCallsign,
+    );
+  }
+
+  Future<void> _dispatchBulletin(Bulletin b) async {
+    if (!_notifPrefs.optedIn) return;
+    if (!_notifPrefs.notifyBulletins) return;
+
+    // Named-group bulletins always route to the Subscribed channel (they
+    // only land in the store at all if the user opted in via subscription).
+    final channel = b.category == BulletinCategory.groupNamed
+        ? NotificationChannels.bulletinsSubscribed
+        : NotificationChannels.bulletinsGeneral;
+    if (!_notifPrefs.isChannelEnabled(channel)) return;
+
+    final title = '${b.addressee} · ${b.sourceCallsign}';
+    _bannerController.show(title, b.body);
+    await _dispatchSimpleNotification(
+      id:
+          'bulletin:${b.sourceCallsign}|${b.addressee}'.hashCode.abs() %
+              100000 +
+          3000,
+      title: title,
+      body: b.body,
+      channelId: channel,
+      payloadCallsign: b.sourceCallsign,
+    );
+  }
+
+  /// Low-ceremony dispatch for group/bulletin notifications. Mirrors the
+  /// mobile/desktop split used by [_dispatchMessage] but without the Android
+  /// native-reply path (groups + bulletins have no reply affordance in the
+  /// notification itself — tap opens the relevant screen).
+  Future<void> _dispatchSimpleNotification({
+    required int id,
+    required String title,
+    required String body,
+    required String channelId,
+    required String payloadCallsign,
+  }) async {
+    if (kIsWeb) return;
+    final withSound = _notifPrefs.isSoundEnabled(channelId);
+    final withVibration = _notifPrefs.isVibrationEnabled(channelId);
+    final preview = body.length > 80 ? '${body.substring(0, 80)}…' : body;
+
+    if (Platform.isAndroid) {
+      final importance = _importanceFor(channelId);
+      final androidDetails = AndroidNotificationDetails(
+        channelId,
+        _channelName(channelId),
+        importance: importance,
+        priority: importance == Importance.low
+            ? Priority.low
+            : Priority.defaultPriority,
+        playSound: withSound,
+        enableVibration: withVibration,
+      );
+      await _plugin.show(
+        id,
+        title,
+        preview,
+        NotificationDetails(android: androidDetails),
+        payload: payloadCallsign,
+      );
+    } else if (Platform.isIOS || Platform.isMacOS) {
+      final darwinDetails = DarwinNotificationDetails(
+        categoryIdentifier: channelId,
+        presentAlert: true,
+        presentSound: withSound,
+        presentBadge: true,
+      );
+      await _plugin.show(
+        id,
+        title,
+        preview,
+        NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
+        payload: payloadCallsign,
+      );
+    } else if (Platform.isLinux || Platform.isWindows) {
+      if (!_desktopNotifierReady) return;
+      final n = LocalNotification(title: title, body: preview);
+      await n.show();
+    }
+  }
+
+  Importance _importanceFor(String channelId) {
+    switch (channelId) {
+      case NotificationChannels.groupsBuiltin:
+      case NotificationChannels.bulletinsGeneral:
+        return Importance.low;
+      default:
+        return Importance.defaultImportance;
+    }
+  }
+
+  String _channelName(String channelId) {
+    switch (channelId) {
+      case NotificationChannels.messages:
+        return 'Messages';
+      case NotificationChannels.groupsBuiltin:
+        return 'Built-in groups';
+      case NotificationChannels.groupsCustom:
+        return 'Custom groups';
+      case NotificationChannels.bulletinsGeneral:
+        return 'General bulletins';
+      case NotificationChannels.bulletinsSubscribed:
+        return 'Subscribed bulletin groups';
+      case NotificationChannels.bulletinExpired:
+        return 'Bulletin expired';
+      default:
+        return channelId;
+    }
+  }
+
+  String _bulletinKey(Bulletin b) => '${b.sourceCallsign}|${b.addressee}';
 
   /// Extracts the SSID suffix from a full callsign string for use in
   /// cross-SSID notification titles.
@@ -721,6 +985,7 @@ class NotificationService extends ChangeNotifier {
   @override
   void dispose() {
     _messageService.removeListener(_onMessageServiceChange);
+    _bulletinService?.removeListener(_onBulletinServiceChange);
     super.dispose();
   }
 }

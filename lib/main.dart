@@ -195,11 +195,40 @@ Future<void> main() async {
   final bulletinSubscriptions = BulletinSubscriptionService(prefs: prefs);
   await bulletinSubscriptions.load();
 
+  // Push the loaded subscription set into the APRS-IS connection so the
+  // initial filter (composed before the first viewport update) includes the
+  // operator's named-bulletin groups. Subsequent changes re-fire via the
+  // listener registered below.
+  aprsIsConn.onSubscriptionsChanged(
+    bulletinSubscriptions.subscribedGroupNames.toList(),
+  );
+  bulletinSubscriptions.addListener(() {
+    aprsIsConn.onSubscriptionsChanged(
+      bulletinSubscriptions.subscribedGroupNames.toList(),
+    );
+  });
+
   final bulletinService = BulletinService(
     subscriptions: bulletinSubscriptions,
     prefs: prefs,
   );
   await bulletinService.load();
+
+  // Push the operator's known-good position into BulletinService so the
+  // client-side distance filter for general APRS-IS bulletins has an origin.
+  // GPS positions are not pushed here — beaconing's location fix would be the
+  // clean source, but wiring that adds a circular import. For v0.17 we use
+  // the manual position only; GPS-mode operators simply don't get distance
+  // filtering applied (bulletins pass through).
+  void pushOperatorLocation() {
+    bulletinService.setOperatorLocation(
+      lat: stationSettings.hasManualPosition ? stationSettings.manualLat : null,
+      lon: stationSettings.hasManualPosition ? stationSettings.manualLon : null,
+    );
+  }
+
+  pushOperatorLocation();
+  stationSettings.addListener(pushOperatorLocation);
 
   final messagingSettings = MessagingSettingsService(prefs: prefs);
   await messagingSettings.load();
@@ -227,6 +256,8 @@ Future<void> main() async {
     prefs: prefs,
     navigatorKey: navigatorKey,
     bannerController: bannerController,
+    bulletinService: bulletinService,
+    groupSubscriptions: groupSubscriptions,
   );
   await notificationService.initialize();
 

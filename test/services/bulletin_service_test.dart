@@ -247,4 +247,148 @@ void main() {
       expect(svc.bulletins.first.body, 'Fresh');
     });
   });
+
+  // -------------------------------------------------------------------------
+  // v0.17 PR 5 — client-side distance filter for general APRS-IS bulletins
+  // (ADR-058). RF bulletins and named groups are never distance-filtered.
+  // -------------------------------------------------------------------------
+
+  group('client-side distance filter (ADR-058)', () {
+    test(
+      'drops general APRS-IS bulletin outside radius when both positions known',
+      () async {
+        final (svc, _) = await makeServices();
+        await svc.setRadiusKm(500);
+        svc.setOperatorLocation(lat: 47.6, lon: -122.3); // Seattle
+
+        // Sender ~4000 km away (Miami-ish).
+        final outcome = svc.ingest(
+          info: generalInfo('0'),
+          sourceCallsign: 'K4MIA',
+          body: 'Severe wx',
+          transport: PacketSource.aprsIs,
+          receivedAt: DateTime(2026, 4, 23, 12, 0),
+          receivedLat: 25.8,
+          receivedLon: -80.2,
+        );
+        expect(outcome, BulletinIngestOutcome.dropped);
+        expect(svc.bulletins, isEmpty);
+      },
+    );
+
+    test(
+      'keeps general APRS-IS bulletin inside radius when both positions known',
+      () async {
+        final (svc, _) = await makeServices();
+        await svc.setRadiusKm(500);
+        svc.setOperatorLocation(lat: 47.6, lon: -122.3);
+
+        // ~230 km away (Portland-ish).
+        final outcome = svc.ingest(
+          info: generalInfo('1'),
+          sourceCallsign: 'K7PDX',
+          body: 'Local nets',
+          transport: PacketSource.aprsIs,
+          receivedAt: DateTime(2026, 4, 23, 12, 0),
+          receivedLat: 45.5,
+          receivedLon: -122.7,
+        );
+        expect(outcome, BulletinIngestOutcome.inserted);
+        expect(svc.bulletins, hasLength(1));
+      },
+    );
+
+    test(
+      'keeps general bulletin when sender position unknown (conservative)',
+      () async {
+        final (svc, _) = await makeServices();
+        await svc.setRadiusKm(500);
+        svc.setOperatorLocation(lat: 47.6, lon: -122.3);
+
+        final outcome = svc.ingest(
+          info: generalInfo('2'),
+          sourceCallsign: 'K4MIA',
+          body: 'No lat/lon',
+          transport: PacketSource.aprsIs,
+          receivedAt: DateTime(2026, 4, 23, 12, 0),
+        );
+        expect(outcome, BulletinIngestOutcome.inserted);
+      },
+    );
+
+    test('keeps general bulletin when operator position unknown', () async {
+      final (svc, _) = await makeServices();
+      await svc.setRadiusKm(500);
+      // Operator location intentionally not set.
+
+      final outcome = svc.ingest(
+        info: generalInfo('3'),
+        sourceCallsign: 'K4MIA',
+        body: 'Far away',
+        transport: PacketSource.aprsIs,
+        receivedAt: DateTime(2026, 4, 23, 12, 0),
+        receivedLat: 25.8,
+        receivedLon: -80.2,
+      );
+      expect(outcome, BulletinIngestOutcome.inserted);
+    });
+
+    test(
+      'never filters RF bulletins by distance (short-range already)',
+      () async {
+        final (svc, _) = await makeServices();
+        await svc.setRadiusKm(100);
+        svc.setOperatorLocation(lat: 47.6, lon: -122.3);
+
+        final outcome = svc.ingest(
+          info: generalInfo('4'),
+          sourceCallsign: 'K7LOCAL',
+          body: 'RF bulletin',
+          transport: PacketSource.bleTnc,
+          receivedAt: DateTime(2026, 4, 23, 12, 0),
+          // Far away — but RF means ignore the filter.
+          receivedLat: 25.8,
+          receivedLon: -80.2,
+        );
+        expect(outcome, BulletinIngestOutcome.inserted);
+      },
+    );
+
+    test(
+      'never filters named-group bulletins by distance (explicit subscribe)',
+      () async {
+        final (svc, _) = await makeServices(subscribedGroups: ['WX']);
+        await svc.setRadiusKm(100);
+        svc.setOperatorLocation(lat: 47.6, lon: -122.3);
+
+        final outcome = svc.ingest(
+          info: namedInfo('0', 'WX'),
+          sourceCallsign: 'K4MIA',
+          body: 'Severe weather',
+          transport: PacketSource.aprsIs,
+          receivedAt: DateTime(2026, 4, 23, 12, 0),
+          receivedLat: 25.8,
+          receivedLon: -80.2,
+        );
+        expect(outcome, BulletinIngestOutcome.inserted);
+      },
+    );
+
+    test('radius sentinel -1 (Global) disables distance filter', () async {
+      final (svc, _) = await makeServices();
+      await svc.setRadiusKm(-1);
+      svc.setOperatorLocation(lat: 47.6, lon: -122.3);
+
+      final outcome = svc.ingest(
+        info: generalInfo('5'),
+        sourceCallsign: 'K4MIA',
+        body: 'Global pass-through',
+        transport: PacketSource.aprsIs,
+        receivedAt: DateTime(2026, 4, 23, 12, 0),
+        receivedLat: 25.8,
+        receivedLon: -80.2,
+      );
+      expect(outcome, BulletinIngestOutcome.inserted);
+    });
+  });
 }
