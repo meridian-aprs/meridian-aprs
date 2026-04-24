@@ -992,3 +992,161 @@ APRS operators frequently run multiple stations under one base callsign (e.g., `
 - `NotificationPreferences.notifyOtherSsids` (key `notif_notify_other_ssids`) gates cross-SSID system notifications.
 - New Settings → Messaging category (`lib/screens/settings/category/messaging_screen.dart`).
 - Spec: `docs/specs/base-callsign-message-matching.md`
+
+---
+
+## ADR-055: Addressee matcher precedence — Bulletin → Direct → Group (v0.17)
+
+**Date:** 2026-04-23
+**Status:** Accepted
+
+### Context
+
+v0.17 adds two new APRS message categories (group messages, bulletins) alongside the existing direct path from v0.5 and base-callsign matching from v0.14 (ADR-054). Every incoming `MessagePacket` must be classified into exactly one of {Direct, Group, Bulletin, None} before storage, display, or ACK generation. The classification determines whether an ACK is sent.
+
+The ordering of the classification rules is load-bearing — a seemingly cosmetic refactor (collapsing them into a single matcher list, or reordering for "clarity") can silently break ACK correctness in ways that don't surface until a user in a specific configuration experiences an "unreachable" operator.
+
+### Decision
+
+The addressee matcher applies three rules in a **fixed first-match-wins order**:
+
+1. **Bulletin** — addressee matches `^BLN[0-9A-Z]`
+2. **Direct** — addressee matches the operator's own callsign per ADR-054 (exact or cross-SSID)
+3. **Group** — addressee matches any enabled `GroupSubscription` per its `matchMode`
+
+Implementation details that are part of the contract:
+
+- The classifier function is named `classifyWithPrecedence()` — not `classify()` or a generic matcher loop. The name signals intent and surfaces the ordering rule at every call site.
+- A doc comment on the method states the rule and references this ADR. The library-level doc comment on `lib/core/callsign/addressee_matcher.dart` includes a "do not reorder / do not rename / do not collapse" warning.
+- The sealed `MessageClassification` type (`BulletinClassification` | `DirectClassification` | `GroupClassification` | `NoneClassification`) forces handlers to switch on the concrete variant — there is no boolean "isBulletin" that could be mishandled in isolation.
+- `DirectClassification` carries `isExactMatch` so the downstream ACK gate (exact match only, per ADR-054) is preserved.
+- Group precedence within rule 3 is first-subscription-wins in user-defined order, so the Settings "reorder" UX maps directly to matcher behavior.
+
+### Why this exact order
+
+- **Bulletin first.** Syntactically unambiguous — no legitimate callsign starts with `BLN[0-9A-Z]`. Prevents pathological groups (e.g., user creates a group named `B` with prefix match) from capturing bulletins.
+- **Direct before Group.** Guarantees messages addressed to the operator's own callsign classify as direct and get ACKed when exact. If Group came first, a permissive custom group (e.g., `W1` with prefix match when operator is `W1ABC`) would capture direct messages to `W1ABC-7`, skip the ACK, and the sender's retry loop would never terminate — the operator would appear unreachable despite receiving. This is a silent protocol violation with no obvious log signature.
+- **Group last.** User-configurable and potentially broad. More specific rules are handled first; group is the fallback for addressees that aren't bulletins and aren't for me.
+
+### Required test cases
+
+The following table is copied into `test/core/callsign/addressee_matcher_test.dart`. These cases must pass at all times — they protect the precedence rule from silent regression.
+
+| Case | Addressee | Setup | Expected |
+|---|---|---|---|
+| Bulletin beats pathological group | `BLN0` | Group `B` prefix | Bulletin |
+| Bulletin beats named-overlap group | `BLN1SRARC` | Group `SRARC` | Bulletin |
+| Direct beats group prefix conflict | `W1ABC-7` | Operator `W1ABC`; group `W1` prefix | Direct, ACKs |
+| Direct beats group exact conflict | `W1ABC` | Operator `W1ABC`; group `W1ABC` exact | Direct, ACKs |
+| Group when no direct/bulletin | `CQ` | Group `CQ` | Group, no ACK |
+| First subscription wins | `CQFOO` | Groups `CQ`, `CQFOO` both prefix | First in list |
+| Disabled subscriptions don't match | `CQ` | Group `CQ` disabled | None |
+| Exact mode rejects longer addressee | `CQRS` | Group `CQ` exact | None |
+| Prefix mode accepts longer | `CQRS` | Group `CQ` prefix | Group |
+
+### ACK policy
+
+| Classification | ACK? |
+|---|---|
+| Direct, exact match | Yes (ADR-054) |
+| Direct, cross-SSID | No (ADR-054) |
+| Group | Never |
+| Bulletin | Never |
+
+### If a future refactor wants to reorder these rules
+
+**Stop.** Re-read this ADR. Reordering is a protocol correctness change, not a style change. Any PR that touches the ordering must update this ADR and justify why the required test cases above remain correct under the new order. If the cases can't be preserved, the refactor is not a refactor — it is a behavior change that needs explicit product review.
+
+### Consequences
+
+- New `lib/core/callsign/addressee_matcher.dart` (the classifier) + `lib/core/callsign/message_classification.dart` (sealed result type) + `lib/core/callsign/operator_identity.dart` (identity snapshot value object).
+- `MessageService._onPacket` replaces its inline exact-vs-cross-SSID block with a single call to `AddresseeMatcher.classifyWithPrecedence` and switches on the sealed result.
+- Existing v0.14 ACK behavior preserved: exact-match direct ACKs; cross-SSID direct does not; group and bulletin never ACK.
+
+---
+
+## ADR-056: Group messaging architecture (v0.17)
+
+**Date:** 2026-04-23
+**Status:** Accepted
+
+### Context
+
+APRS group messages (`CQ`, `ALL`, `QST`, club-defined names like `SRARC`) are a protocol-level feature inherited from Yaesu/Kenwood radios and the APRS spec §14. They are one-to-many: a sender addresses any group name and every listener whose radio is configured to match that name receives the message. There is no server-side group mechanism — "subscription" is entirely a local receiver filter.
+
+Meridian implements the same model so it interoperates with Yaesu FT5D, Kenwood TH-D74, and modern software clients (APRSIS32, Xastir). Group messages are distinct from direct messages (different addressee shape) and distinct from bulletins (message-format DTI, ACK semantics differ).
+
+### Decision
+
+1. **Subscription model.** `GroupSubscription` is a local-only value object persisted to SharedPreferences. No network subscription step exists. Four built-ins are seeded on first run (`ALL`, `CQ`, `QST`, `YAESU`) — the Yaesu radio-firmware defaults plus two hobby conventions. Users may add custom groups (club names, event nets).
+
+2. **Wildcards = prefix match, not regex/glob.** APRS wire addressees are 9 characters, right-space-padded. Yaesu radios emit `ALL******` as a prefix match, so the matcher trims padding and applies `addressee.startsWith(name)`. Users can opt a group into `exact` mode for strict equality (no false positives), but `prefix` is the default because it matches the ecosystem.
+
+3. **Default reply modes are opinionated.**
+   - Built-ins `ALL`, `CQ`, `QST`, `YAESU` default to `replyMode = sender` — these are broadcast/discovery conventions where the right reply is 1:1 to whoever spoke up.
+   - Custom groups default to `replyMode = group` — clubs want chat-room semantics.
+   - The UI surfaces the reply-mode icon (`campaign` for sender, `forum` for group) on every group tile so the mental model is visible.
+
+4. **ACK policy: never.** Group messages are one-to-many; per APRS convention they are not acknowledged. Even when the wire carries a message-ID suffix, the matcher never emits an ACK for a `GroupClassification`. See ADR-055 for the full matrix.
+
+5. **Name validation: `[A-Z0-9]{1,9}`.** 9 characters is the wire addressee limit. Upper-cased on set; the settings editor normalizes input. No punctuation — the wire field is ASCII alphanumeric only.
+
+6. **Built-ins may be disabled, not deleted or renamed.** This preserves the "quiet by default" opt-in for `ALL` and `YAESU` while keeping the defaults discoverable. `isBuiltin: true` is set on the seeded rows and enforced by the service.
+
+7. **First-match-wins within user-defined order.** Groups `CQ` and `CQFOO` both in prefix mode for addressee `CQFOO` → whichever appears earlier in the subscription list wins. Settings provides a reorderable list so operators can place narrow before broad when they care.
+
+8. **Group conversations keyed in the existing `_conversations` map** under `#GROUP:<NAME>` prefix (no callsign starts with `#`, so no collision). Keeps the v0.14 persistence layer intact — no separate storage schema for PR 1. v0.15's drift migration will consolidate both direct and group threads into the same message table.
+
+9. **Own-SSID echo.** When the user sends a group message, the service also captures it as a received group message from the operator's own callsign — so it appears in the group channel view alongside replies. This is receive-side behavior only; send wiring completes in PR 4.
+
+### Consequences
+
+- New `lib/models/group_subscription.dart` — `GroupSubscription`, `MatchMode`, `ReplyMode`, `matches()` helper.
+- New `lib/services/group_subscription_service.dart` — CRUD + seeder (`group_subscriptions_v1` SharedPreferences key, `group_subscriptions_seeded_v1` idempotence flag).
+- `MessageEntry.category: MessageCategory` + `MessageEntry.groupName: String?` — legacy-safe JSON deserialization (missing keys default to `direct` + null).
+- `MessageCategory` enum in `lib/models/message_category.dart`.
+- Send path, adaptive compose, group channel view, reply-mode routing — PR 3 / PR 4 of v0.17.
+
+---
+
+## ADR-057: Bulletin transmission model — APRSIS32 fixed interval (v0.17, planned for PR 4)
+
+**Date:** 2026-04-23
+**Status:** Proposed (finalized in PR 4)
+
+### Context
+
+Two APRS bulletin transmission conventions exist in the wild:
+
+1. **WB4APR exponential decay** — send at 1m, 2m, 4m, 8m, …, up to some cap. Reduces channel load over time. Originally designed for AX.25 RF bulletin boards where bulletins lived for days.
+2. **APRSIS32 fixed-interval** — send at a user-chosen interval (typically 30 min) for a bounded lifetime (typically 24h). Simpler mental model, easier UX, matches what modern mobile-first APRS clients do.
+
+### Decision
+
+Use the APRSIS32 fixed-interval model with an initial pulse and a hard expiry:
+
+- `intervalSeconds` — 0 (one-shot) or 300 / 600 / 900 / 1800 / 3600
+- `expiresAt` — defaults to `createdAt + 24h`; user picks 2h / 6h / 12h / 24h / 48h
+- Scheduler fires an initial pulse on creation, then retransmits every `intervalSeconds` until expiry
+- Expired bulletins are disabled and fire a "repost?" notification
+- Edit body or addressee → reset `lastTransmittedAt = null`, `transmissionCount = 0`; initial pulse on next tick
+- Edit interval or expiry only → no reset
+- Retransmission history stored as aggregate counters (`transmissionCount`, `lastTransmittedAt`) — no per-receipt array (sufficient for aging + UI, scales to the drift migration without data loss).
+
+### Rationale
+
+- Operators do not need minute-level tuning of channel-load; the fixed interval is well-understood.
+- A bounded lifetime forces the operator to consciously re-post rather than letting stale bulletins linger.
+- The decay curve in WB4APR's model assumes a low-activity mailbox paradigm that doesn't match how modern clients consume bulletins (scrolling feed + notifications).
+- Fixed interval is easier to schedule in a background isolate alongside the beacon timer without dynamic recomputation.
+
+### ACK policy
+
+Bulletins are never ACKed. The `BulletinClassification` path in `MessageService` does not call `_transmitAck` under any circumstance.
+
+### Consequences (to be realized in PR 4)
+
+- `lib/services/bulletin_scheduler.dart` — 30s tick in main isolate, sibling to `BeaconingService`.
+- Background isolate (`meridian_connection_task.dart`) gains a parallel bulletin timer that reads `OutgoingBulletin` list from SharedPreferences on each fire (same pattern as the existing beacon-settings read).
+- `AprsEncoder.encodeBulletin(addressee, body)` — 9-char space-padded addressee, `:BLN0     :Body`, no wire ID.
+- RF path sourced from Advanced-mode "Bulletin path" setting (default `WIDE2-2`); APRS-IS has no path.

@@ -7,6 +7,9 @@ import 'package:meridian_aprs/theme/theme_controller.dart';
 import 'package:meridian_aprs/screens/map_screen.dart';
 import 'package:meridian_aprs/services/background_service_manager.dart';
 import 'package:meridian_aprs/services/beaconing_service.dart';
+import 'package:meridian_aprs/services/bulletin_service.dart';
+import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
+import 'package:meridian_aprs/services/group_subscription_service.dart';
 import 'package:meridian_aprs/services/message_service.dart';
 import 'package:meridian_aprs/services/station_service.dart';
 import 'package:meridian_aprs/services/station_settings_service.dart';
@@ -39,7 +42,22 @@ void main() {
     );
     final txService = TxService(registry, stationSettings);
     final beaconingService = BeaconingService(stationSettings, txService);
-    final messageService = MessageService(stationSettings, txService, service);
+    final groupSubs = GroupSubscriptionService(prefs: prefs);
+    await groupSubs.load();
+    final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+    await bulletinSubs.load();
+    final bulletins = BulletinService(
+      subscriptions: bulletinSubs,
+      prefs: prefs,
+    );
+    await bulletins.load();
+    final messageService = MessageService(
+      stationSettings,
+      txService,
+      service,
+      groupSubscriptions: groupSubs,
+      bulletins: bulletins,
+    );
     final bgServiceManager = BackgroundServiceManager(
       registry: registry,
       beaconing: beaconingService,

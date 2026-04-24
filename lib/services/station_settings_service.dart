@@ -15,6 +15,7 @@ library;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/callsign/operator_identity.dart';
 import '../core/connection/aprs_is_filter_config.dart';
 import '../core/connection/connection_credentials.dart';
 import '../core/credentials/credential_key.dart';
@@ -116,6 +117,14 @@ class StationSettingsService extends ChangeNotifier {
     passcode: _passcode,
     isLicensed: _isLicensed,
   );
+
+  /// Identity snapshot for the addressee matcher (ADR-055).
+  ///
+  /// Composes the callsign + SSID fields into the form the matcher needs. Does
+  /// not include passcode or licensing state — those belong to
+  /// [ConnectionCredentials] only.
+  OperatorIdentity get operatorIdentity =>
+      OperatorIdentity(callsign: _callsign, ssid: _ssid);
 
   /// Prime async-backed fields (currently just [passcode]) from their
   /// underlying stores. Call once at startup — and from onboarding — before

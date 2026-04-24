@@ -4,6 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
+import 'package:meridian_aprs/services/bulletin_service.dart';
+import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
+import 'package:meridian_aprs/services/group_subscription_service.dart';
 import 'package:meridian_aprs/services/message_service.dart';
 import 'package:meridian_aprs/services/station_service.dart';
 import 'package:meridian_aprs/services/station_settings_service.dart';
@@ -25,11 +28,17 @@ class _Fixture {
     required this.service,
     required this.stationService,
     required this.sentLines,
+    required this.groupSubscriptions,
+    required this.bulletinSubscriptions,
+    required this.bulletins,
   });
 
   final MessageService service;
   final StationService stationService;
   final List<String> sentLines;
+  final GroupSubscriptionService groupSubscriptions;
+  final BulletinSubscriptionService bulletinSubscriptions;
+  final BulletinService bulletins;
 
   static Future<_Fixture> create({
     String callsign = 'W1AW',
@@ -50,11 +59,29 @@ class _Fixture {
     final registry = ConnectionRegistry();
     final sentLines = <String>[];
     final txService = _RecordingTxService(registry, settings, sentLines);
-    final messageService = MessageService(settings, txService, stationService);
+    final groupSubs = GroupSubscriptionService(prefs: prefs);
+    await groupSubs.load();
+    final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+    await bulletinSubs.load();
+    final bulletins = BulletinService(
+      subscriptions: bulletinSubs,
+      prefs: prefs,
+    );
+    await bulletins.load();
+    final messageService = MessageService(
+      settings,
+      txService,
+      stationService,
+      groupSubscriptions: groupSubs,
+      bulletins: bulletins,
+    );
     return _Fixture._(
       service: messageService,
       stationService: stationService,
       sentLines: sentLines,
+      groupSubscriptions: groupSubs,
+      bulletinSubscriptions: bulletinSubs,
+      bulletins: bulletins,
     );
   }
 }
@@ -451,7 +478,22 @@ void main() {
         final registry = ConnectionRegistry();
         final sentLines = <String>[];
         final txService = _RecordingTxService(registry, settings, sentLines);
-        final service = MessageService(settings, txService, stationService);
+        final groupSubs = GroupSubscriptionService(prefs: prefs);
+        await groupSubs.load();
+        final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+        await bulletinSubs.load();
+        final bulletins = BulletinService(
+          subscriptions: bulletinSubs,
+          prefs: prefs,
+        );
+        await bulletins.load();
+        final service = MessageService(
+          settings,
+          txService,
+          stationService,
+          groupSubscriptions: groupSubs,
+          bulletins: bulletins,
+        );
         await service.loadHistory();
 
         final conv = service.conversationWith('KB1XYZ');

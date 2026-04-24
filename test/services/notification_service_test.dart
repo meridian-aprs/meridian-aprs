@@ -6,6 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
 import 'package:meridian_aprs/models/notification_preferences.dart';
+import 'package:meridian_aprs/services/bulletin_service.dart';
+import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
+import 'package:meridian_aprs/services/group_subscription_service.dart';
 import 'package:meridian_aprs/services/message_service.dart';
 import 'package:meridian_aprs/services/notification_service.dart';
 import 'package:meridian_aprs/services/station_service.dart';
@@ -54,7 +57,22 @@ class _Fixture {
     final stationService = StationService();
     final registry = ConnectionRegistry();
     final txService = _SilentTxService(registry, settings);
-    final messageService = MessageService(settings, txService, stationService);
+    final groupSubs = GroupSubscriptionService(prefs: prefs);
+    await groupSubs.load();
+    final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+    await bulletinSubs.load();
+    final bulletins = BulletinService(
+      subscriptions: bulletinSubs,
+      prefs: prefs,
+    );
+    await bulletins.load();
+    final messageService = MessageService(
+      settings,
+      txService,
+      stationService,
+      groupSubscriptions: groupSubs,
+      bulletins: bulletins,
+    );
     final bannerController = InAppBannerController();
 
     // Construct NotificationService WITHOUT calling initialize() so we avoid

@@ -15,11 +15,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/callsign/addressee_matcher.dart';
 import '../core/callsign/callsign_utils.dart';
-import '../core/packet/aprs_packet.dart';
+import '../core/callsign/message_classification.dart';
 import '../core/packet/aprs_encoder.dart';
-import 'station_settings_service.dart';
+import '../core/packet/aprs_packet.dart';
+import '../models/group_subscription.dart';
+import '../models/message_category.dart';
+import 'bulletin_service.dart';
+import 'group_subscription_service.dart';
 import 'station_service.dart';
+import 'station_settings_service.dart';
 import 'tx_service.dart';
 
 /// Delivery state of an outgoing message.
@@ -34,6 +40,8 @@ class MessageEntry {
     required this.timestamp,
     required this.isOutgoing,
     this.addressee,
+    this.category = MessageCategory.direct,
+    this.groupName,
     this.status = MessageStatus.pending,
     this.retryCount = 0,
   });
@@ -50,6 +58,15 @@ class MessageEntry {
 
   /// Full callsign the message was addressed to (incoming only).
   final String? addressee;
+
+  /// Classification category from [AddresseeMatcher.classifyWithPrecedence].
+  /// Defaults to [MessageCategory.direct] for legacy-safe deserialization —
+  /// older entries without this key were all direct messages (v0.14-era).
+  final MessageCategory category;
+
+  /// The matched group subscription name when [category] is
+  /// [MessageCategory.group]; null otherwise.
+  final String? groupName;
 
   MessageStatus status;
   int retryCount;
@@ -81,12 +98,21 @@ class Conversation {
 }
 
 class MessageService extends ChangeNotifier {
-  MessageService(this._settings, this._tx, StationService stations) {
+  MessageService(
+    this._settings,
+    this._tx,
+    StationService stations, {
+    required GroupSubscriptionService groupSubscriptions,
+    required BulletinService bulletins,
+  }) : _groupSubscriptions = groupSubscriptions,
+       _bulletins = bulletins {
     _incomingSub = stations.packetStream.listen(_onPacket);
   }
 
   final StationSettingsService _settings;
   final TxService _tx;
+  final GroupSubscriptionService _groupSubscriptions;
+  final BulletinService _bulletins;
 
   static const _keyCounter = 'message_id_counter';
   static const _keyPeers = 'msg_peers';
@@ -311,26 +337,70 @@ class MessageService extends ChangeNotifier {
 
   void _onPacket(AprsPacket packet) {
     if (packet is! MessagePacket) return;
-    final myAddress = myFullAddress;
-    final addresseeNorm = normalizeCallsign(packet.addressee.toUpperCase());
 
-    final isExactMatch = addresseeNorm == myAddress;
-    final isCrossSsidMatch =
-        !isExactMatch && stripSsid(addresseeNorm) == stripSsid(myAddress);
-
-    if (!isExactMatch && !isCrossSsidMatch) {
-      debugPrint(
-        'MessageService: dropped packet — addressee="${packet.addressee.toUpperCase()}" '
-        'myAddress="$myAddress"',
-      );
-      return;
-    }
+    // Classify the addressee via the load-bearing precedence order (ADR-055):
+    // Bulletin → Direct → Group. Do not inline or reorder this call.
+    final classification = AddresseeMatcher.classifyWithPrecedence(
+      packet.addressee,
+      _settings.operatorIdentity,
+      _groupSubscriptions.enabledSubscriptions,
+    );
 
     final source = packet.source.trim().toUpperCase();
     final text = packet.message;
     final wireId = packet.messageId;
 
-    // ACK/REJ: process only for exact-match addressee.
+    switch (classification) {
+      case BulletinClassification(:final info):
+        // Bulletins are never ACKed and never flow into Conversation threads.
+        _bulletins.ingest(
+          info: info,
+          sourceCallsign: source,
+          body: text,
+          transport: packet.transportSource,
+          receivedAt: packet.receivedAt,
+        );
+        return;
+
+      case DirectClassification(:final isExactMatch):
+        _handleDirect(
+          packet: packet,
+          source: source,
+          text: text,
+          wireId: wireId,
+          isExactMatch: isExactMatch,
+        );
+        return;
+
+      case GroupClassification(:final subscription):
+        _handleGroup(
+          packet: packet,
+          source: source,
+          text: text,
+          wireId: wireId,
+          subscription: subscription,
+        );
+        return;
+
+      case NoneClassification():
+        debugPrint(
+          'MessageService: dropped packet — addressee="${packet.addressee.toUpperCase()}" '
+          'myAddress="$myFullAddress"',
+        );
+        return;
+    }
+  }
+
+  void _handleDirect({
+    required MessagePacket packet,
+    required String source,
+    required String text,
+    required String? wireId,
+    required bool isExactMatch,
+  }) {
+    // ACK/REJ routing mirrors v0.14: only ACKs to our exact SSID resolve the
+    // outgoing retry loop. Cross-SSID ACKs are logged but never applied to
+    // our message table.
     if (packet.isAck) {
       debugPrint('MessageService: inbound ACK from=$source id=$wireId');
       if (isExactMatch) _handleAck(source, wireId ?? '');
@@ -341,7 +411,6 @@ class MessageService extends ChangeNotifier {
       return;
     }
 
-    // Inbound message — deduplicate.
     final dedupeKey = '$source:${wireId ?? text}';
     if (_seenInbound.contains(dedupeKey)) return;
     _seenInbound.add(dedupeKey);
@@ -353,6 +422,7 @@ class MessageService extends ChangeNotifier {
       timestamp: packet.receivedAt,
       isOutgoing: false,
       addressee: packet.addressee.trim(),
+      category: MessageCategory.direct,
     );
 
     final conv = _getOrCreateConversation(source);
@@ -360,7 +430,7 @@ class MessageService extends ChangeNotifier {
     conv.lastActivity = packet.receivedAt;
     conv.unreadCount++;
 
-    // Send ACK immediately — exact match only. Never ACK cross-SSID messages.
+    // ACK exact match only. Never ACK cross-SSID, group, or bulletin.
     if (isExactMatch && wireId != null && wireId.isNotEmpty) {
       _transmitAck(source, wireId); // ignore: unawaited_futures
     }
@@ -368,6 +438,52 @@ class MessageService extends ChangeNotifier {
     notifyListeners();
     _persist(); // ignore: unawaited_futures
   }
+
+  void _handleGroup({
+    required MessagePacket packet,
+    required String source,
+    required String text,
+    required String? wireId,
+    required GroupSubscription subscription,
+  }) {
+    // Group messages are never ACKed — even if the wire carries a message-ID.
+    // Discard ACK/REJ payloads addressed to a group (nonsense protocol-wise,
+    // but we defensively ignore them to avoid corrupting any threading).
+    if (packet.isAck || packet.isRej) return;
+
+    // Dedupe on source+id+groupName — a retransmission within the same
+    // conversation shouldn't double-post.
+    final dedupeKey = 'group:${subscription.name}:$source:${wireId ?? text}';
+    if (_seenInbound.contains(dedupeKey)) return;
+    _seenInbound.add(dedupeKey);
+
+    // PR 3 adds the Groups tab UI. For now, receive-side storage uses the
+    // group name as the conversation key so all incoming messages for a
+    // group land in a single thread the UI can pick up later.
+    final entry = MessageEntry(
+      localId: dedupeKey,
+      wireId: wireId,
+      text: text,
+      timestamp: packet.receivedAt,
+      isOutgoing: false,
+      addressee: packet.addressee.trim(),
+      category: MessageCategory.group,
+      groupName: subscription.name,
+    );
+
+    final conv = _getOrCreateConversation(_groupConvKey(subscription.name));
+    conv.messages.add(entry);
+    conv.lastActivity = packet.receivedAt;
+    conv.unreadCount++;
+
+    notifyListeners();
+    _persist(); // ignore: unawaited_futures
+  }
+
+  /// Conversation-key prefix for group threads. Keeps group conversations in
+  /// the same `_conversations` map as direct threads without colliding with
+  /// real callsigns (no callsign starts with `#`).
+  static String _groupConvKey(String groupName) => '#GROUP:$groupName';
 
   void _handleAck(String peer, String ackId) {
     final ackKey = '$peer:$ackId';
@@ -547,6 +663,8 @@ class MessageService extends ChangeNotifier {
     'timestamp': e.timestamp.millisecondsSinceEpoch,
     'isOutgoing': e.isOutgoing,
     'addressee': e.addressee,
+    'category': e.category.name,
+    'groupName': e.groupName,
     'status': e.status.name,
     'retryCount': e.retryCount,
   };
@@ -578,6 +696,15 @@ class MessageService extends ChangeNotifier {
     if (status == MessageStatus.pending || status == MessageStatus.retrying) {
       status = MessageStatus.failed;
     }
+    // Legacy-safe: entries saved before v0.17 lack `category`/`groupName`.
+    // They are all direct messages (cross-SSID handled via `addressee`).
+    final categoryName = json['category'] as String?;
+    final category = categoryName == null
+        ? MessageCategory.direct
+        : MessageCategory.values.firstWhere(
+            (c) => c.name == categoryName,
+            orElse: () => MessageCategory.direct,
+          );
     return MessageEntry(
       localId: json['localId'] as String,
       wireId: json['wireId'] as String?,
@@ -585,6 +712,8 @@ class MessageService extends ChangeNotifier {
       timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
       isOutgoing: (json['isOutgoing'] as bool?) ?? false,
       addressee: json['addressee'] as String?,
+      category: category,
+      groupName: json['groupName'] as String?,
       status: status,
       retryCount: (json['retryCount'] as int?) ?? 0,
     );
