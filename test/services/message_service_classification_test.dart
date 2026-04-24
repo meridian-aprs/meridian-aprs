@@ -194,14 +194,23 @@ void main() {
       _ingestLine(f, 'K2ABC>APMDN0,TCPIP*::CQ       :CQ CQ CQ');
       await Future<void>.delayed(Duration.zero);
 
-      // Group thread keyed by `#GROUP:CQ`. Internal key is not public API
-      // but we can verify via allConversations that a thread was created.
-      final matched = f.service.allConversations
-          .where((c) => c.peerCallsign.contains('CQ'))
+      // Group thread keyed by `#GROUP:CQ`. PR 3 added `groupConversations`
+      // as the public accessor — `allConversations` now returns direct
+      // threads only.
+      final matched = f.service.groupConversations
+          .where((c) => c.peerCallsign == '#GROUP:CQ')
           .toList();
       expect(matched, isNotEmpty);
       expect(matched.first.messages.first.category, MessageCategory.group);
       expect(matched.first.messages.first.groupName, 'CQ');
+      // Sender was captured on the MessageEntry (PR 3 addition).
+      expect(matched.first.messages.first.fromCallsign, 'K2ABC');
+
+      // Groups never leak into the direct accessors.
+      expect(
+        f.service.allConversations.any((c) => c.peerCallsign.contains('CQ')),
+        isFalse,
+      );
 
       // No ACK even though the wire carries a messageId (groups never ACK).
       expect(f.sentLines, isEmpty);
@@ -218,11 +227,8 @@ void main() {
       _ingestLine(f, 'K2ABC>APMDN0,TCPIP*::CQ       :CQ CQ CQ');
       await Future<void>.delayed(Duration.zero);
 
-      // No conversation, no bulletin, no ACK.
-      expect(
-        f.service.allConversations.any((c) => c.peerCallsign.contains('CQ')),
-        isFalse,
-      );
+      // No group thread, no bulletin, no ACK.
+      expect(f.service.groupConversations, isEmpty);
       expect(f.bulletins.bulletins, isEmpty);
       expect(f.sentLines, isEmpty);
     });

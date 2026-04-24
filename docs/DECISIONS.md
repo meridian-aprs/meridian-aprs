@@ -1187,3 +1187,54 @@ Rationale:
 - BLE TNC background sessions continue to function — they rode under `dataSync` before ADR-052 and still do now.
 - ADR-052 is superseded. Audit finding F-META-003 (#44) is reopened for the underlying concern (is `dataSync` semantically correct for BLE TNC?) but the crash is resolved.
 - Manifest comment references this ADR so future contributors don't re-add `connectedDevice` without the dynamic plugin path.
+
+---
+
+## ADR-059: Messaging tab restructure — segmented Direct / Groups / Bulletins (v0.17)
+
+**Date:** 2026-04-24
+**Status:** Accepted
+
+### Context
+
+v0.17 adds two new top-level message surfaces (Groups and Bulletins) alongside the existing Direct thread list. All three share the same conceptual home — the "Messages" destination — but they diverge on UX semantics: Direct is 1:1 with ACK chrome, Groups is a broadcast chat room with reply-mode adaptation, Bulletins is a read-only feed with age-out. We needed to decide how the user switches between them.
+
+Options considered:
+
+1. **New top-level bottom-nav destinations.** Adds two icons to the mobile scaffold. Rejected — the bottom nav already holds Map / Packets / Messages / Connection / Settings, and adding two more crowds it past the Material-recommended limit (5) and would require a second "More" sheet on smaller devices.
+2. **Separate subscreens pushed from Direct.** User enters Messages → taps a button → lands on Groups. Rejected — makes Groups and Bulletins feel like subordinate features rather than peers, and the back-button gesture would become the primary "switch tab" affordance.
+3. **Segmented control at the top of the Messages screen.** Three peers, platform-adaptive, one tap to switch. Accepted.
+
+### Decision
+
+- **Segmented control** at the top of `MessagesScreen` with three values: Direct / Groups / Bulletins. Direct is the default.
+- **Platform adaptivity:** Material 3 `SegmentedButton` on Android + desktop; `CupertinoSlidingSegmentedControl` on iOS. Both are platform-native idioms for 3-option toggles.
+- **Unread badges** on the Direct and Groups segments (Material side only — Cupertino's sliding control doesn't support per-segment trailing content; iOS users see unread counts in the tab content itself).
+- **Compose FAB** is gated to the Direct tab. Group send UI lives on the Group channel screen; Bulletin compose gets its own FAB on the Bulletins tab in PR 4.
+- **Direct tab preserves v0.14 behavior byte-for-byte.** The existing conversation-grouping logic, ACK retry surface, cross-SSID filter, and compose sheet are all unchanged — only the ambient chrome (segmented control) is new.
+- **Groups tab** lists `GroupSubscription` entries in user-defined order (matcher-semantics mirror: first match wins). Tapping a tile opens `GroupChannelScreen`. Empty state routes the user to Settings → Messaging → Groups.
+- **Group channel screen** is a separate screen (not a reuse of `MessageThreadScreen`) because the bubble shape (sender callsign on every message), the absence of ACK/retry chrome, and the adaptive compose bar differ materially from direct threads.
+- **Bulletins tab** is a flat feed with filter chips (All / General / Groups / My bulletins) and a location-unknown banner. Tapping a row opens `BulletinDetailScreen`, which is explicitly read-only — no compose affordance.
+
+### Why a separate `GroupChannelScreen` instead of reusing `MessageThreadScreen`
+
+- The group channel renders sender attribution on every bubble (`MessageEntry.fromCallsign`), while direct threads rely on "all messages in this thread are from the peer" and never need per-message sender labels.
+- Direct threads carry ACK/retry status indicators on outgoing bubbles. Group messages have no ACK chrome (ADR-055 forbids ACKing groups), so the same bubble widget would need a toggle to suppress status — unneeded complexity.
+- Direct compose is a single text field + send. Group compose must adapt to `replyMode` (sender vs. group) with a secondary action in sender mode. The compose bar branch point is non-trivial.
+- Reuse would force both screens to carry the other's edge cases in its codepaths. Separate screens are cleaner and independently testable.
+
+### Data-model addition: `MessageEntry.fromCallsign`
+
+Group conversations are keyed by `#GROUP:<NAME>`, so the sender cannot be recovered from the parent `Conversation.peerCallsign`. We added `fromCallsign: String?` to `MessageEntry`, populated by both the direct and group incoming handlers. Null for outgoing entries and for v0.14-era legacy-deserialized entries — direct threads can still infer sender from the parent conversation key when `fromCallsign` is null.
+
+### `allConversations` scope change
+
+`MessageService.allConversations` now excludes group threads. Callers that need them use the new `groupConversations` accessor. The only existing caller of `allConversations` is `NotificationService`, which was designed for direct-message dispatch and should not accidentally fan out notifications to group threads (group notification dispatch lands in PR 5 via its own pipeline). The test suite was updated in lockstep.
+
+### Consequences
+
+- New screens: `lib/screens/group_channel_screen.dart`, `lib/screens/groups_tab.dart`, `lib/screens/bulletins_tab.dart`, `lib/screens/bulletin_detail_screen.dart`.
+- `lib/screens/messages_screen.dart` rewritten from `StatelessWidget` to `StatefulWidget` with a `_tab` field; the Direct body path is lifted out unchanged.
+- `MessageService` gains `groupConversations`, `groupNameOf`, `conversationForGroup`, `totalGroupUnread` and the `fromCallsign` field on `MessageEntry`.
+- Widget tests in `test/widget/messages/messages_screen_test.dart` cover segmented-control rendering, Bulletins-tab gating, location-banner visibility, and adaptive-compose states.
+- Bulletin distance-filter logic and notification dispatch for groups/bulletins still live in PR 5. The PR 3 location-unknown banner implements the user-visible behavior (hide general APRS-IS bulletins when no station location is set) directly in `BulletinsTab` so the banner copy is truthful from day one.

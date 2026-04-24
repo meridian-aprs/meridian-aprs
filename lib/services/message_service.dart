@@ -40,6 +40,7 @@ class MessageEntry {
     required this.timestamp,
     required this.isOutgoing,
     this.addressee,
+    this.fromCallsign,
     this.category = MessageCategory.direct,
     this.groupName,
     this.status = MessageStatus.pending,
@@ -58,6 +59,13 @@ class MessageEntry {
 
   /// Full callsign the message was addressed to (incoming only).
   final String? addressee;
+
+  /// Full callsign of the packet source (incoming only). For direct
+  /// conversations this equals the parent `Conversation.peerCallsign`; for
+  /// group conversations (where the parent key is `#GROUP:<NAME>`) it is
+  /// the only place the actual sender is preserved. Null for outgoing or
+  /// for legacy-deserialized entries that predate this field (v0.14).
+  final String? fromCallsign;
 
   /// Classification category from [AddresseeMatcher.classifyWithPrecedence].
   /// Defaults to [MessageCategory.direct] for legacy-safe deserialization —
@@ -150,35 +158,77 @@ class MessageService extends ChangeNotifier {
 
   bool get showOtherSsids => _showOtherSsids;
 
-  /// All conversations sorted by most recent activity (newest first).
-  /// When [showOtherSsids] is false, hides threads that contain only cross-SSID
-  /// messages (no outgoing messages and no exact-match incoming messages).
+  /// True if [peerCallsign] is a group-conversation key (`#GROUP:<NAME>`).
+  /// Group threads are stored in the same `_conversations` map as direct
+  /// threads but are filtered out of the direct accessors below.
+  static bool _isGroupKey(String peerCallsign) =>
+      peerCallsign.startsWith('#GROUP:');
+
+  /// Direct conversations, sorted by most recent activity (newest first).
+  ///
+  /// Excludes group threads. When [showOtherSsids] is false, also hides
+  /// threads that contain only cross-SSID messages.
   List<Conversation> get conversations {
     final myAddr = myFullAddress;
     final list = _conversations.values.where((conv) {
+      if (_isGroupKey(conv.peerCallsign)) return false;
       if (_showOtherSsids) return true;
       return conv.messages.any((m) => m.isOutgoing || !m.isCrossSsid(myAddr));
     }).toList()..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
     return list;
   }
 
-  /// All conversations sorted by most recent activity — unfiltered.
-  /// Used by NotificationService to dispatch notifications for cross-SSID messages
-  /// regardless of the display preference.
+  /// All *direct* conversations sorted by most recent activity — unfiltered
+  /// by cross-SSID preference. Used by NotificationService to dispatch
+  /// notifications regardless of the display preference. Group threads are
+  /// excluded (group-message notifications route via a separate channel
+  /// added in PR 5).
   List<Conversation> get allConversations {
-    final list = _conversations.values.toList()
-      ..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
+    final list =
+        _conversations.values
+            .where((c) => !_isGroupKey(c.peerCallsign))
+            .toList()
+          ..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
     return list;
   }
+
+  /// Group conversations sorted by most recent activity. Each entry's
+  /// [Conversation.peerCallsign] starts with the `#GROUP:` prefix; use
+  /// [groupNameOf] to extract the bare group name.
+  List<Conversation> get groupConversations {
+    final list =
+        _conversations.values.where((c) => _isGroupKey(c.peerCallsign)).toList()
+          ..sort((a, b) => b.lastActivity.compareTo(a.lastActivity));
+    return list;
+  }
+
+  /// Extract the group name from a `#GROUP:<NAME>` conversation key.
+  /// Returns null if [peerCallsign] is not a group key.
+  static String? groupNameOf(String peerCallsign) {
+    if (!_isGroupKey(peerCallsign)) return null;
+    return peerCallsign.substring('#GROUP:'.length);
+  }
+
+  /// Returns the conversation for a given group [name], or null if empty.
+  Conversation? conversationForGroup(String name) =>
+      _conversations[_groupConvKey(name.toUpperCase())];
 
   /// Max age of persisted messages in days. [forever] (0) means no age limit.
   int get messageHistoryDays => _messageHistoryDays;
 
-  /// Total unread message count across all conversations.
-  int get totalUnread =>
-      _conversations.values.fold(0, (sum, c) => sum + c.unreadCount);
+  /// Total unread count across *direct* conversations only. Groups have
+  /// their own counter.
+  int get totalUnread => _conversations.values
+      .where((c) => !_isGroupKey(c.peerCallsign))
+      .fold(0, (sum, c) => sum + c.unreadCount);
+
+  /// Total unread count across group conversations.
+  int get totalGroupUnread => _conversations.values
+      .where((c) => _isGroupKey(c.peerCallsign))
+      .fold(0, (sum, c) => sum + c.unreadCount);
 
   /// Returns the conversation for [peerCallsign], or null if none exists.
+  /// Accepts either a direct callsign or a `#GROUP:<NAME>` key.
   Conversation? conversationWith(String peerCallsign) =>
       _conversations[peerCallsign.toUpperCase()];
 
@@ -422,6 +472,7 @@ class MessageService extends ChangeNotifier {
       timestamp: packet.receivedAt,
       isOutgoing: false,
       addressee: packet.addressee.trim(),
+      fromCallsign: source,
       category: MessageCategory.direct,
     );
 
@@ -467,6 +518,7 @@ class MessageService extends ChangeNotifier {
       timestamp: packet.receivedAt,
       isOutgoing: false,
       addressee: packet.addressee.trim(),
+      fromCallsign: source,
       category: MessageCategory.group,
       groupName: subscription.name,
     );
@@ -663,6 +715,7 @@ class MessageService extends ChangeNotifier {
     'timestamp': e.timestamp.millisecondsSinceEpoch,
     'isOutgoing': e.isOutgoing,
     'addressee': e.addressee,
+    'fromCallsign': e.fromCallsign,
     'category': e.category.name,
     'groupName': e.groupName,
     'status': e.status.name,
@@ -712,6 +765,7 @@ class MessageService extends ChangeNotifier {
       timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
       isOutgoing: (json['isOutgoing'] as bool?) ?? false,
       addressee: json['addressee'] as String?,
+      fromCallsign: json['fromCallsign'] as String?,
       category: category,
       groupName: json['groupName'] as String?,
       status: status,
