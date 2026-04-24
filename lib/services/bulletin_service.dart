@@ -46,10 +46,37 @@ class BulletinService extends ChangeNotifier {
 
   static const _keyBulletins = 'bulletins_v1';
   static const _keyNextId = 'bulletins_next_id_v1';
+  static const _keyShowBulletins = 'bulletins_show';
+  static const _keyRadiusKm = 'bulletins_radius_km';
+  static const _keyRetentionHours = 'bulletins_retention_hours';
+
+  /// Allowed radius options (km). `0` is a sentinel for "Map area only" (no
+  /// client-side distance filter — the APRS-IS area filter handles it).
+  /// The `-1` sentinel means "Global" (no distance filter at all).
+  static const List<int> radiusOptionsKm = [0, 100, 500, 1000, -1];
+
+  /// Allowed retention options (hours). Default is 48h (APRSIS32 convention).
+  static const List<int> retentionOptionsHours = [24, 48, 72];
 
   // Keyed by "SOURCE|ADDRESSEE" for stable lookup.
   final Map<String, Bulletin> _bulletins = {};
   int _nextId = 1;
+
+  bool _showBulletins = true;
+  int _radiusKm = 500;
+  int _retentionHours = 48;
+
+  /// Master toggle for bulletin display. When false, the Bulletins tab hides
+  /// all received rows (ingest keeps storing — ADR-054 capture-always parity).
+  bool get showBulletins => _showBulletins;
+
+  /// Distance-filter radius in km for APRS-IS-received general bulletins.
+  /// `0` = "map area only" (area filter alone); `-1` = "global" (no filter).
+  /// Actual distance-filtering logic lands in PR 5 along with the filter
+  /// builder; this getter only stores the user preference for now.
+  int get radiusKm => _radiusKm;
+
+  int get retentionHours => _retentionHours;
 
   /// All stored bulletins, newest `lastHeardAt` first.
   List<Bulletin> get bulletins {
@@ -63,6 +90,9 @@ class BulletinService extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await _prefs();
     _nextId = prefs.getInt(_keyNextId) ?? 1;
+    _showBulletins = prefs.getBool(_keyShowBulletins) ?? true;
+    _radiusKm = prefs.getInt(_keyRadiusKm) ?? 500;
+    _retentionHours = prefs.getInt(_keyRetentionHours) ?? 48;
     final raw = prefs.getString(_keyBulletins);
     if (raw != null) {
       try {
@@ -160,6 +190,40 @@ class BulletinService extends ChangeNotifier {
     if (current.isRead) return;
     _bulletins[matchKey] = current.copyWith(isRead: true);
     await _persist();
+    notifyListeners();
+  }
+
+  Future<void> setShowBulletins(bool v) async {
+    if (_showBulletins == v) return;
+    _showBulletins = v;
+    final prefs = await _prefs();
+    await prefs.setBool(_keyShowBulletins, v);
+    notifyListeners();
+  }
+
+  Future<void> setRadiusKm(int v) async {
+    if (_radiusKm == v) return;
+    if (!radiusOptionsKm.contains(v)) {
+      throw ArgumentError.value(v, 'radiusKm', 'not a supported radius');
+    }
+    _radiusKm = v;
+    final prefs = await _prefs();
+    await prefs.setInt(_keyRadiusKm, v);
+    notifyListeners();
+  }
+
+  Future<void> setRetentionHours(int v) async {
+    if (_retentionHours == v) return;
+    if (!retentionOptionsHours.contains(v)) {
+      throw ArgumentError.value(
+        v,
+        'retentionHours',
+        'not a supported retention',
+      );
+    }
+    _retentionHours = v;
+    final prefs = await _prefs();
+    await prefs.setInt(_keyRetentionHours, v);
     notifyListeners();
   }
 

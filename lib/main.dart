@@ -35,6 +35,7 @@ import 'services/bulletin_subscription_service.dart';
 import 'services/group_subscription_service.dart';
 import 'services/ios_background_service.dart';
 import 'services/message_service.dart';
+import 'services/messaging_settings_service.dart';
 import 'services/station_service.dart';
 import 'services/station_settings_service.dart';
 import 'services/tx_service.dart';
@@ -199,6 +200,9 @@ Future<void> main() async {
   );
   await bulletinService.load();
 
+  final messagingSettings = MessagingSettingsService(prefs: prefs);
+  await messagingSettings.load();
+
   final messageService = MessageService(
     stationSettings,
     txService,
@@ -289,6 +293,9 @@ Future<void> main() async {
           value: bulletinSubscriptions,
         ),
         ChangeNotifierProvider<BulletinService>.value(value: bulletinService),
+        ChangeNotifierProvider<MessagingSettingsService>.value(
+          value: messagingSettings,
+        ),
         ChangeNotifierProvider<MessageService>.value(value: messageService),
         ChangeNotifierProvider<BackgroundServiceManager>.value(
           value: bgServiceManager,

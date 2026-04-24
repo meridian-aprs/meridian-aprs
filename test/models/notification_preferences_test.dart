@@ -85,6 +85,39 @@ void main() {
         expect(loaded.isSoundEnabled(NotificationChannels.alerts), isTrue);
       });
 
+      test('v0.17 defaults: notifyGroups=true, notifyBulletins=false', () {
+        final prefs = NotificationPreferences.defaults();
+        expect(prefs.notifyGroups, isTrue);
+        expect(prefs.notifyBulletins, isFalse);
+      });
+
+      test('copyWithNotifyGroups isolates the field', () {
+        final original = NotificationPreferences.defaults();
+        final toggled = original.copyWithNotifyGroups(false);
+        expect(toggled.notifyGroups, isFalse);
+        expect(toggled.notifyBulletins, original.notifyBulletins);
+        expect(toggled.notifyOtherSsids, original.notifyOtherSsids);
+      });
+
+      test('copyWithNotifyBulletins isolates the field', () {
+        final original = NotificationPreferences.defaults();
+        final toggled = original.copyWithNotifyBulletins(true);
+        expect(toggled.notifyBulletins, isTrue);
+        expect(toggled.notifyGroups, original.notifyGroups);
+      });
+
+      test('notifyGroups/notifyBulletins round-trip', () async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await SharedPreferences.getInstance();
+        final original = NotificationPreferences.defaults()
+            .copyWithNotifyGroups(false)
+            .copyWithNotifyBulletins(true);
+        await original.save(prefs);
+        final loaded = await NotificationPreferences.load(prefs);
+        expect(loaded.notifyGroups, isFalse);
+        expect(loaded.notifyBulletins, isTrue);
+      });
+
       test('load with no stored values returns defaults', () async {
         SharedPreferences.setMockInitialValues({});
         final prefs = await SharedPreferences.getInstance();
