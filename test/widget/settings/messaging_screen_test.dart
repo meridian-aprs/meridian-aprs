@@ -183,10 +183,7 @@ void main() {
     await tester.pumpWidget(h.widget);
     await tester.pumpAndSettle();
     // Scroll to the bottom in case the section existed — then assert none.
-    await tester.drag(
-      find.byType(Scrollable).first,
-      const Offset(0, -3000),
-    );
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -3000));
     await tester.pumpAndSettle();
     expect(find.text('Group message path'), findsNothing);
     expect(find.text('Bulletin path'), findsNothing);

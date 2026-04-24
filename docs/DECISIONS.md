@@ -1078,12 +1078,12 @@ Meridian implements the same model so it interoperates with Yaesu FT5D, Kenwood 
 
 ### Decision
 
-1. **Subscription model.** `GroupSubscription` is a local-only value object persisted to SharedPreferences. No network subscription step exists. Four built-ins are seeded on first run (`ALL`, `CQ`, `QST`, `YAESU`) — the Yaesu radio-firmware defaults plus two hobby conventions. Users may add custom groups (club names, event nets).
+1. **Subscription model.** `GroupSubscription` is a local-only value object persisted to SharedPreferences. No network subscription step exists. Three protocol-neutral built-ins are seeded on first run (`ALL`, `CQ`, `QST`) — all enabled-or-not per the defaults table below. Vendor-specific group names (e.g. `YAESU`, `KENWOOD`) are intentionally *not* seeded: Meridian is not a vendor-specific product, and users who want them can add them via Settings in two taps. Users may add any custom group (club names, event nets, vendor names).
 
 2. **Wildcards = prefix match, not regex/glob.** APRS wire addressees are 9 characters, right-space-padded. Yaesu radios emit `ALL******` as a prefix match, so the matcher trims padding and applies `addressee.startsWith(name)`. Users can opt a group into `exact` mode for strict equality (no false positives), but `prefix` is the default because it matches the ecosystem.
 
 3. **Default reply modes are opinionated.**
-   - Built-ins `ALL`, `CQ`, `QST`, `YAESU` default to `replyMode = sender` — these are broadcast/discovery conventions where the right reply is 1:1 to whoever spoke up.
+   - Built-ins `ALL`, `CQ`, `QST` default to `replyMode = sender` — these are broadcast/discovery conventions where the right reply is 1:1 to whoever spoke up.
    - Custom groups default to `replyMode = group` — clubs want chat-room semantics.
    - The UI surfaces the reply-mode icon (`campaign` for sender, `forum` for group) on every group tile so the mental model is visible.
 
@@ -1091,7 +1091,7 @@ Meridian implements the same model so it interoperates with Yaesu FT5D, Kenwood 
 
 5. **Name validation: `[A-Z0-9]{1,9}`.** 9 characters is the wire addressee limit. Upper-cased on set; the settings editor normalizes input. No punctuation — the wire field is ASCII alphanumeric only.
 
-6. **Built-ins may be disabled, not deleted or renamed.** This preserves the "quiet by default" opt-in for `ALL` and `YAESU` while keeping the defaults discoverable. `isBuiltin: true` is set on the seeded rows and enforced by the service.
+6. **Built-ins may be disabled, not deleted or renamed.** This preserves the "quiet by default" opt-in for `ALL` while keeping the defaults discoverable. `isBuiltin: true` is set on the seeded rows and enforced by the service.
 
 7. **First-match-wins within user-defined order.** Groups `CQ` and `CQFOO` both in prefix mode for addressee `CQFOO` → whichever appears earlier in the subscription list wins. Settings provides a reorderable list so operators can place narrow before broad when they care.
 
