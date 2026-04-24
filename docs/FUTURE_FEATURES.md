@@ -57,8 +57,20 @@ Group messages by callsign into conversation threads with full history. (Basic o
 ### Message Read Receipts / ACK Display
 Surface ACK packets as delivery confirmation in the message UI. Status indicators: sent, acked, failed.
 
-### Group / Bulletin Messages
-Send and receive APRS bulletin and group messages (`BLN`, `NWS`, etc.). Explicitly deferred from v0.5 scope.
+### CQSRVR / ANSRVR group server integration
+Server-side group messaging via `CQSRVR` (registered group subscriptions with confirmations) and `ANSRVR` (announcement-only broadcast). Orthogonal to the client-side group filter shipped in v0.17 — these enable cross-region group chatter without each station having to be heard by everyone else's iGate.
+
+### Sorted bulletin board view
+APRSIS32-style sorted bulletin board (by source, slot, or group) in addition to the chronological feed. Would complement the v0.17 bulletins tab for operators who primarily use bulletins as a document store rather than a notification stream.
+
+### Per-bulletin digipeater path overrides
+Let outgoing bulletins choose a path different from the advanced-mode `bulletin_path` default. Needed when a club bulletin should go `WIDE1-1,WIDE2-2` but a high-rate status bulletin should go RF-only with no WIDEs.
+
+### Group message search
+Full-text search across received group messages (`CQ`, `QST`, custom clubs). Requires SQLite migration (v0.15) to be efficient at scale.
+
+### Announcement messages (distinct from bulletins)
+APRS announcement messages share the bulletin wire format but differ in semantic intent (one-shot rather than retransmitted). Low priority — handling them as first-class distinct from bulletins is a nuance most clients skip.
 
 ### Heard-By / Path Analysis
 Visual breakdown of which digipeaters and iGates heard a given packet. Useful for path optimization.
