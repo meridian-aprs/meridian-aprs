@@ -67,15 +67,73 @@ class TxService extends ChangeNotifier {
   /// When [forceVia] is provided, the first connected connection of that type
   /// is used; otherwise the hierarchy (Serial > BLE > APRS-IS) is applied.
   ///
+  /// [digipeaterPath] overrides the default digipeater aliases when the
+  /// effective connection is RF (BLE or Serial). APRS-IS connections ignore
+  /// this. Used by v0.17 group-message / bulletin send.
+  ///
   /// No-op when the user is unlicensed — TX is unconditionally blocked.
-  Future<void> sendLine(String aprsLine, {ConnectionType? forceVia}) async {
+  Future<void> sendLine(
+    String aprsLine, {
+    ConnectionType? forceVia,
+    List<String>? digipeaterPath,
+  }) async {
     if (!_settings.isLicensed) {
       debugPrint('[TxService] TX rejected: unlicensed mode');
       return;
     }
     final conn = _effectiveConnection(forceVia: forceVia);
     if (conn == null) return;
-    await conn.sendLine(aprsLine);
+    await conn.sendLine(aprsLine, digipeaterPath: digipeaterPath);
+  }
+
+  /// Send a bulletin packet honoring the per-bulletin transport flags. Unlike
+  /// [sendLine], this does *not* use the Serial > BLE > APRS-IS hierarchy —
+  /// bulletins can independently go via RF, APRS-IS, or both, per the user's
+  /// `viaRf` / `viaAprsIs` settings on each `OutgoingBulletin` (ADR-057).
+  ///
+  /// When [viaRf] is true, the first live TNC (Serial preferred over BLE)
+  /// receives the line with [rfPath] as the digipeater path. When [viaAprsIs]
+  /// is true, the APRS-IS connection receives the line (paths ignored). If
+  /// both are true and both are connected, the line goes to both.
+  Future<void> sendBulletin(
+    String aprsLine, {
+    required bool viaRf,
+    required bool viaAprsIs,
+    List<String>? rfPath,
+  }) async {
+    if (!_settings.isLicensed) {
+      debugPrint('[TxService] bulletin TX rejected: unlicensed mode');
+      return;
+    }
+    if (viaAprsIs) {
+      final conn = _registry.all
+          .where((c) => c.type == ConnectionType.aprsIs && c.isConnected)
+          .firstOrNull;
+      if (conn != null) {
+        try {
+          await conn.sendLine(aprsLine);
+        } catch (e) {
+          debugPrint('TxService: bulletin via APRS-IS failed: $e');
+        }
+      }
+    }
+    if (viaRf) {
+      final conn = _registry.all
+          .where(
+            (c) =>
+                (c.type == ConnectionType.serialTnc ||
+                    c.type == ConnectionType.bleTnc) &&
+                c.isConnected,
+          )
+          .firstOrNull;
+      if (conn != null) {
+        try {
+          await conn.sendLine(aprsLine, digipeaterPath: rfPath);
+        } catch (e) {
+          debugPrint('TxService: bulletin via RF (${conn.id}) failed: $e');
+        }
+      }
+    }
   }
 
   /// Fan out [aprsLine] to every connection where
@@ -104,8 +162,12 @@ class TxService extends ChangeNotifier {
   /// Send [aprsLine] to the first connected TNC (Serial takes priority over BLE).
   ///
   /// Used by [BackgroundServiceManager] to forward background-isolate IPC
-  /// beacon requests to the live TNC connection.
-  Future<void> sendViaTncOnly(String aprsLine) async {
+  /// beacon/bulletin requests to the live TNC connection. [digipeaterPath]
+  /// overrides the default digipeater aliases (bulletins use WIDE2-2).
+  Future<void> sendViaTncOnly(
+    String aprsLine, {
+    List<String>? digipeaterPath,
+  }) async {
     final conn = _registry.all
         .where(
           (c) =>
@@ -115,7 +177,7 @@ class TxService extends ChangeNotifier {
         )
         .firstOrNull;
     if (conn != null) {
-      await conn.sendLine(aprsLine);
+      await conn.sendLine(aprsLine, digipeaterPath: digipeaterPath);
     }
   }
 

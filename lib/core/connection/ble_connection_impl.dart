@@ -138,12 +138,12 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   Stream<String> get lines => _linesController.stream;
 
   @override
-  Future<void> sendLine(String aprsLine) async {
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) async {
     final transport = _transport;
     if (transport == null || !transport.isConnected) {
       throw StateError('BleConnection: not connected');
     }
-    final ax25Bytes = _buildAx25Bytes(aprsLine);
+    final ax25Bytes = _buildAx25Bytes(aprsLine, digipeaterPath: digipeaterPath);
     if (ax25Bytes != null) {
       await transport.sendFrame(ax25Bytes);
     }
@@ -310,7 +310,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // Internal — AX.25 encoding
   // ---------------------------------------------------------------------------
 
-  Uint8List? _buildAx25Bytes(String aprsLine) {
+  Uint8List? _buildAx25Bytes(String aprsLine, {List<String>? digipeaterPath}) {
     final gtIdx = aprsLine.indexOf('>');
     final colonIdx = aprsLine.indexOf(':');
     if (gtIdx < 0 || colonIdx < 0 || colonIdx <= gtIdx) return null;
@@ -322,11 +322,18 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     final callsign = sourceParts[0].toUpperCase();
     final ssid = sourceParts.length > 1 ? int.tryParse(sourceParts[1]) ?? 0 : 0;
 
-    final frame = Ax25Encoder.buildAprsFrame(
-      sourceCallsign: callsign,
-      sourceSsid: ssid,
-      infoField: infoField,
-    );
+    final frame = digipeaterPath != null && digipeaterPath.isNotEmpty
+        ? Ax25Encoder.buildAprsFrame(
+            sourceCallsign: callsign,
+            sourceSsid: ssid,
+            digipeaterAliases: digipeaterPath,
+            infoField: infoField,
+          )
+        : Ax25Encoder.buildAprsFrame(
+            sourceCallsign: callsign,
+            sourceSsid: ssid,
+            infoField: infoField,
+          );
     return Ax25Encoder.encodeUiFrame(frame);
   }
 }

@@ -116,7 +116,7 @@ class MessagingSettingsContent extends StatelessWidget {
         ListTile(
           leading: const Icon(Symbols.add),
           title: const Text('Add named group subscription'),
-          subtitle: const Text('e.g. WX, SRARC — up to 5 chars'),
+          subtitle: const Text('e.g. WX, CLUB — up to 5 chars'),
           onTap: () => _showBulletinSubscriptionAdder(context, bulletinSubs),
         ),
         if (advanced.isEnabled)
@@ -329,7 +329,7 @@ class _GroupEditorDialogState extends State<_GroupEditorDialog> {
               maxLength: 9,
               decoration: InputDecoration(
                 labelText: 'Name',
-                hintText: 'e.g. CQ, SRARC',
+                hintText: 'e.g. CQ, CLUB',
                 helperText: _isBuiltin
                     ? 'Built-in groups cannot be renamed'
                     : '1–9 uppercase letters / digits',
@@ -526,7 +526,7 @@ class _BulletinSubscriptionsList extends StatelessWidget {
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
           'No named-group subscriptions. Add one below to receive '
-          'bulletins like BLN1WX or BLN2SRARC.',
+          'bulletins like BLN1WX or BLN2CLUB.',
         ),
       );
     }
@@ -563,7 +563,7 @@ Future<void> _showBulletinSubscriptionAdder(
         maxLength: 5,
         decoration: const InputDecoration(
           labelText: 'Group name',
-          hintText: 'e.g. WX, SRARC',
+          hintText: 'e.g. WX, CLUB',
           helperText: '1–5 uppercase letters / digits',
         ),
       ),

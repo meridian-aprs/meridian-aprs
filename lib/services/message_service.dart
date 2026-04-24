@@ -289,6 +289,53 @@ class MessageService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Send a group message to [groupName]. Group messages are never ACKed
+  /// (ADR-055) — no retry scheduler, no wire ID. The outgoing entry is
+  /// appended to the group's conversation thread so the user sees it echoed
+  /// in the channel view (spec §6.6).
+  ///
+  /// [rfPath] overrides the default digipeater path for RF dispatch; null
+  /// uses the encoder's hardcoded default. Callers (the group compose bar)
+  /// pass `MessagingSettingsService.effectiveGroupMessagePath` split into a
+  /// list.
+  Future<void> sendGroupMessage(
+    String groupName,
+    String text, {
+    List<String>? rfPath,
+  }) async {
+    final normalized = groupName.trim().toUpperCase();
+    if (normalized.isEmpty) return;
+
+    final line = AprsEncoder.encodeGroupMessage(
+      fromCallsign: _settings.callsign.isEmpty ? 'NOCALL' : _settings.callsign,
+      fromSsid: _settings.ssid,
+      groupName: normalized,
+      body: text,
+    );
+    await _tx.sendLine(line, digipeaterPath: rfPath);
+
+    // Own-SSID echo — append to group conversation so the operator sees
+    // their own send in the channel view. No wireId, no retry loop.
+    final localId =
+        'group_${normalized}_'
+        '${DateTime.now().millisecondsSinceEpoch}';
+    final entry = MessageEntry(
+      localId: localId,
+      wireId: null,
+      text: text,
+      timestamp: DateTime.now(),
+      isOutgoing: true,
+      category: MessageCategory.group,
+      groupName: normalized,
+      status: MessageStatus.acked, // groups have no ACK; mark as "delivered".
+    );
+    final conv = _getOrCreateConversation(_groupConvKey(normalized));
+    conv.messages.add(entry);
+    conv.lastActivity = entry.timestamp;
+    notifyListeners();
+    await _persist();
+  }
+
   /// Send a message to [toCallsign].
   ///
   /// Creates a conversation if one doesn't exist. Starts the retry scheduler.

@@ -397,6 +397,18 @@ class BackgroundServiceManager extends ChangeNotifier
         if (aprsLine != null) {
           _tx.sendViaTncOnly(aprsLine); // ignore: unawaited_futures
         }
+      case 'send_tnc_bulletin':
+        final aprsLine = msg['aprs_line'] as String?;
+        if (aprsLine != null) {
+          final pathRaw = msg['digipeater_path'];
+          final path = pathRaw is List
+              ? pathRaw.whereType<String>().toList(growable: false)
+              : null;
+          _tx.sendViaTncOnly(
+            aprsLine,
+            digipeaterPath: path,
+          ); // ignore: unawaited_futures
+        }
       case 'beacon_sent':
         break;
     }

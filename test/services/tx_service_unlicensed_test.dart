@@ -231,7 +231,7 @@ class _TrackingFakeConnection extends FakeMeridianConnection {
   final List<String> sentLines;
 
   @override
-  Future<void> sendLine(String aprsLine) async {
+  Future<void> sendLine(String aprsLine, {List<String>? digipeaterPath}) async {
     sentLines.add(aprsLine);
   }
 }

@@ -93,6 +93,27 @@ class _GroupTile extends StatelessWidget {
       preview = last.text;
     }
 
+    final statusIcons = <Widget>[
+      if (!sub.enabled)
+        Tooltip(
+          message: 'Group disabled — incoming messages are not matched',
+          child: Icon(
+            Symbols.pause_circle,
+            size: 16,
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      if (!sub.notify)
+        Tooltip(
+          message: 'Notifications off for this group',
+          child: Icon(
+            Symbols.notifications_off,
+            size: 16,
+            color: theme.colorScheme.outline,
+          ),
+        ),
+    ];
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
       clipBehavior: Clip.antiAlias,
@@ -116,13 +137,7 @@ class _GroupTile extends StatelessWidget {
                 ),
               ),
             ),
-            if (!sub.enabled)
-              Text(
-                'disabled',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
+            for (final w in statusIcons) ...[const SizedBox(width: 6), w],
           ],
         ),
         subtitle: preview == null

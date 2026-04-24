@@ -1,4 +1,4 @@
-/// Subscription to an APRS message group (e.g. `CQ`, `QST`, `ALL`, `SRARC`).
+/// Subscription to an APRS message group (e.g. `CQ`, `QST`, `ALL`, `CLUB`).
 ///
 /// Groups are a pure client-side receiver filter — APRS has no server-side
 /// group mechanism, so "subscription" just means "include packets whose

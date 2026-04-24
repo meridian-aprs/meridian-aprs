@@ -70,8 +70,8 @@ void main() {
       final service = GroupSubscriptionService(prefs: prefs);
       await service.load();
 
-      final srarc = await service.add(name: 'SRARC');
-      expect(srarc.name, 'SRARC');
+      final srarc = await service.add(name: 'CLUB');
+      expect(srarc.name, 'CLUB');
       expect(srarc.isBuiltin, isFalse);
       // Custom default is reply-to-group.
       expect(srarc.replyMode, ReplyMode.group);
@@ -79,13 +79,13 @@ void main() {
       // Persist across service instance.
       final reloaded = GroupSubscriptionService(prefs: prefs);
       await reloaded.load();
-      expect(reloaded.subscriptions.any((s) => s.name == 'SRARC'), isTrue);
+      expect(reloaded.subscriptions.any((s) => s.name == 'CLUB'), isTrue);
 
       // Delete.
       await reloaded.delete(srarc.id);
       final after = GroupSubscriptionService(prefs: prefs);
       await after.load();
-      expect(after.subscriptions.any((s) => s.name == 'SRARC'), isFalse);
+      expect(after.subscriptions.any((s) => s.name == 'CLUB'), isFalse);
     });
 
     test('rejects invalid name', () async {

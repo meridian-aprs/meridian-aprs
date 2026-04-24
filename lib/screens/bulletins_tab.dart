@@ -13,12 +13,30 @@ import 'package:provider/provider.dart';
 
 import '../core/connection/connection_registry.dart';
 import '../models/bulletin.dart';
+import '../models/outgoing_bulletin.dart';
 import '../services/bulletin_service.dart';
 import '../services/station_settings_service.dart';
 import '../ui/utils/platform_route.dart';
+import 'bulletin_compose_screen.dart';
 import 'bulletin_detail_screen.dart';
+import 'settings/category/my_station_screen.dart';
 
 enum _BulletinFilter { all, general, groups, mine }
+
+/// Push the Settings → My Station content as a standalone route. Used by
+/// the location-unknown banner to deep-link the operator to the place they
+/// can set a station position.
+void _openMyStationSettings(BuildContext context) {
+  Navigator.push(
+    context,
+    buildPlatformRoute(
+      (_) => Scaffold(
+        appBar: AppBar(title: const Text('My Station')),
+        body: const MyStationSettingsContent(),
+      ),
+    ),
+  );
+}
 
 class BulletinsTab extends StatefulWidget {
   const BulletinsTab({super.key});
@@ -42,8 +60,13 @@ class _BulletinsTabState extends State<BulletinsTab> {
 
     final aprsIsConn = registry.byId('aprs_is');
     final aprsIsConnected = aprsIsConn?.isConnected ?? false;
-    final hasLocation = station.hasManualPosition;
-    final showLocationBanner = aprsIsConnected && !hasLocation;
+    // "No location" = operator picked manual position but never entered one.
+    // GPS users are assumed to have a location (a fix is obtained on demand
+    // when bulletins actually transmit; we don't pre-validate it here).
+    final needsLocation =
+        station.locationSource == LocationSource.manual &&
+        !station.hasManualPosition;
+    final showLocationBanner = aprsIsConnected && needsLocation;
 
     final visible = _applyFilter(
       bulletins.bulletins,
@@ -51,57 +74,91 @@ class _BulletinsTabState extends State<BulletinsTab> {
       showLocationBanner,
     );
 
-    return Column(
-      children: [
-        if (showLocationBanner)
-          _LocationUnknownBanner(
-            onSetLocation: () {
-              // v0.12 onboarding handles initial location entry. Keep this
-              // hook here; the routing target is introduced in PR 5 when the
-              // Settings → My Station "Set location" action is added.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Open Settings → My Station to set your location. '
-                    'Direct hook lands in PR 5.',
-                  ),
-                ),
-              );
-            },
-          ),
-        _FilterChipRow(
-          current: _filter,
-          onChanged: (f) => setState(() => _filter = f),
-        ),
-        Expanded(
-          child: visible.isEmpty
-              ? _EmptyForFilter(filter: _filter)
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  itemCount: visible.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 2),
-                  itemBuilder: (ctx, i) {
-                    final b = visible[i];
-                    return _BulletinRow(
-                      bulletin: b,
-                      onTap: () {
-                        if (!b.isRead) bulletins.markRead(b.id);
-                        Navigator.push(
-                          ctx,
-                          buildPlatformRoute(
-                            (_) => BulletinDetailScreen(bulletinId: b.id),
-                          ),
-                        );
-                      },
+    final isLicensed = station.isLicensed;
+
+    // When the user is on the "My bulletins" filter, render outgoing bulletins
+    // (maintained by BulletinScheduler) instead of received ones. Other
+    // filters show the received feed.
+    final Widget feed;
+    if (_filter == _BulletinFilter.mine) {
+      final outgoing = bulletins.outgoingBulletins;
+      feed = outgoing.isEmpty
+          ? _EmptyForFilter(filter: _filter, isLicensed: isLicensed)
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              itemCount: outgoing.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
+              itemBuilder: (ctx, i) => _OutgoingBulletinRow(
+                bulletin: outgoing[i],
+                onEdit: () => _openCompose(existing: outgoing[i]),
+                onDelete: () => bulletins.deleteOutgoing(outgoing[i].id),
+                onToggleEnabled: (v) =>
+                    bulletins.setOutgoingEnabled(outgoing[i].id, v),
+              ),
+            );
+    } else {
+      feed = visible.isEmpty
+          ? _EmptyForFilter(filter: _filter, isLicensed: isLicensed)
+          : ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              itemCount: visible.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 2),
+              itemBuilder: (ctx, i) {
+                final b = visible[i];
+                return _BulletinRow(
+                  bulletin: b,
+                  onTap: () {
+                    if (!b.isRead) bulletins.markRead(b.id);
+                    Navigator.push(
+                      ctx,
+                      buildPlatformRoute(
+                        (_) => BulletinDetailScreen(bulletinId: b.id),
+                      ),
                     );
                   },
-                ),
+                );
+              },
+            );
+    }
+
+    return Stack(
+      children: [
+        Column(
+          children: [
+            if (showLocationBanner)
+              _LocationUnknownBanner(
+                onSetLocation: () => _openMyStationSettings(context),
+              ),
+            _FilterChipRow(
+              current: _filter,
+              onChanged: (f) => setState(() => _filter = f),
+            ),
+            Expanded(child: feed),
+          ],
         ),
+        if (isLicensed)
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton.extended(
+              heroTag: 'bulletin_compose_fab',
+              icon: const Icon(Symbols.add),
+              label: const Text('New bulletin'),
+              onPressed: () => _openCompose(),
+            ),
+          ),
       ],
     );
+  }
+
+  Future<void> _openCompose({OutgoingBulletin? existing}) async {
+    await Navigator.push(
+      context,
+      buildPlatformRoute((_) => BulletinComposeScreen(existing: existing)),
+    );
+    // After returning, if user is viewing "My bulletins" the list should
+    // refresh — BulletinService notifies listeners on create/update so this
+    // is automatic via context.watch above.
   }
 
   /// Apply both the filter-chip choice and the location-aware scope gate.
@@ -332,6 +389,146 @@ class _LocationUnknownBanner extends StatelessWidget {
 // Empty states
 // ---------------------------------------------------------------------------
 
+class _OutgoingBulletinRow extends StatelessWidget {
+  const _OutgoingBulletinRow({
+    required this.bulletin,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onToggleEnabled,
+  });
+
+  final OutgoingBulletin bulletin;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final ValueChanged<bool> onToggleEnabled;
+
+  String _countdown(Duration d) {
+    if (d.isNegative) return 'now';
+    if (d.inSeconds < 60) return '${d.inSeconds}s';
+    if (d.inMinutes < 60) return '${d.inMinutes}m';
+    return '${d.inHours}h${d.inMinutes.remainder(60)}m';
+  }
+
+  String _intervalLabel() {
+    if (bulletin.isOneShot) return 'one-shot';
+    final s = bulletin.intervalSeconds;
+    if (s < 3600) return 'every ${s ~/ 60} min';
+    return 'every ${s ~/ 3600} hr';
+  }
+
+  String _nextTxLabel() {
+    if (!bulletin.enabled) return 'disabled';
+    final now = DateTime.now();
+    if (now.isAfter(bulletin.expiresAt)) return 'expired';
+    if (bulletin.isOneShot && bulletin.transmissionCount > 0) return 'sent';
+    final last = bulletin.lastTransmittedAt;
+    if (last == null) return 'next pulse: now';
+    final due = last.add(Duration(seconds: bulletin.intervalSeconds));
+    return 'next pulse in ${_countdown(due.difference(now))}';
+  }
+
+  String _transportsLabel() {
+    if (bulletin.viaRf && bulletin.viaAprsIs) return 'RF + IS';
+    if (bulletin.viaRf) return 'RF only';
+    return 'IS only';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final expired = DateTime.now().isAfter(bulletin.expiresAt);
+    final color = !bulletin.enabled || expired
+        ? theme.colorScheme.outline
+        : theme.colorScheme.primary;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 6, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Symbols.campaign, size: 18, color: color),
+                const SizedBox(width: 8),
+                Text(
+                  bulletin.addressee,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '· ${_intervalLabel()}',
+                  style: theme.textTheme.labelSmall,
+                ),
+                const Spacer(),
+                Text(_transportsLabel(), style: theme.textTheme.labelSmall),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(bulletin.body, maxLines: 2, overflow: TextOverflow.ellipsis),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(
+                  '${bulletin.transmissionCount} sent · ${_nextTxLabel()}',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const Spacer(),
+                Switch.adaptive(
+                  value: bulletin.enabled,
+                  onChanged: expired ? null : onToggleEnabled,
+                ),
+                IconButton(
+                  icon: const Icon(Symbols.edit, size: 20),
+                  tooltip: 'Edit',
+                  onPressed: onEdit,
+                ),
+                IconButton(
+                  icon: const Icon(Symbols.delete, size: 20),
+                  tooltip: 'Delete',
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Delete bulletin?'),
+                        content: Text(
+                          'Stop transmitting ${bulletin.addressee} and remove '
+                          'it from your list.',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(ctx).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(ctx).pop(true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: theme.colorScheme.error,
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true) onDelete();
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BulletinsDisabledState extends StatelessWidget {
   const _BulletinsDisabledState();
 
@@ -366,8 +563,9 @@ class _BulletinsDisabledState extends StatelessWidget {
 }
 
 class _EmptyForFilter extends StatelessWidget {
-  const _EmptyForFilter({required this.filter});
+  const _EmptyForFilter({required this.filter, required this.isLicensed});
   final _BulletinFilter filter;
+  final bool isLicensed;
 
   @override
   Widget build(BuildContext context) {
@@ -386,13 +584,14 @@ class _EmptyForFilter extends StatelessWidget {
       case _BulletinFilter.groups:
         title = 'No group bulletins';
         body =
-            'Subscribe to named bulletin groups like WX or SRARC in '
+            'Subscribe to named bulletin groups like WX or CLUB in '
             'Settings → Messaging → Bulletins.';
       case _BulletinFilter.mine:
         title = 'No bulletins from you';
-        body =
-            'Bulletins you transmit will appear here. Bulletin composition '
-            'ships in the next release.';
+        body = isLicensed
+            ? 'Tap "New bulletin" to compose one. Active bulletins will '
+                  'appear here with a retransmission countdown and a toggle.'
+            : 'An amateur radio license is required to transmit bulletins.';
     }
     return Center(
       child: Padding(
