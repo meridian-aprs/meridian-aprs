@@ -202,7 +202,7 @@ class _BulletinComposeScreenState extends State<BulletinComposeScreen> {
               maxLength: 5,
               textCapitalization: TextCapitalization.characters,
               decoration: const InputDecoration(
-                hintText: 'e.g. WX, SRARC',
+                hintText: 'e.g. WX, CLUB',
                 helperText: '1–5 uppercase letters / digits',
                 border: OutlineInputBorder(),
               ),

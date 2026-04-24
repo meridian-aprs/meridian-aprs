@@ -584,7 +584,7 @@ class _EmptyForFilter extends StatelessWidget {
       case _BulletinFilter.groups:
         title = 'No group bulletins';
         body =
-            'Subscribe to named bulletin groups like WX or SRARC in '
+            'Subscribe to named bulletin groups like WX or CLUB in '
             'Settings → Messaging → Bulletins.';
       case _BulletinFilter.mine:
         title = 'No bulletins from you';

@@ -331,12 +331,12 @@ void main() {
       tester,
     ) async {
       final h = await _Harness.create();
-      await h.groupSubs.add(name: 'SRARC'); // defaults to replyMode.group
+      await h.groupSubs.add(name: 'CLUB'); // defaults to replyMode.group
       await tester.pumpWidget(
-        h.wrap(const GroupChannelScreen(groupName: 'SRARC')),
+        h.wrap(const GroupChannelScreen(groupName: 'CLUB')),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Message to SRARC'), findsWidgets);
+      expect(find.text('Message to CLUB'), findsWidgets);
     });
 
     testWidgets('missing subscription renders the fallback bar', (

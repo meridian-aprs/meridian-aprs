@@ -1,4 +1,4 @@
-/// Subscription to a named bulletin group (e.g. `BLNxWX`, `BLNxSRARC`).
+/// Subscription to a named bulletin group (e.g. `BLNxWX`, `BLNxCLUB`).
 ///
 /// Governs whether `BLNxNAME`-form bulletins for that group are kept on
 /// receive. General `BLN0`–`BLN9` bulletins are not governed by subscriptions

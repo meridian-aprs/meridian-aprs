@@ -75,7 +75,7 @@ class AddresseeMatcher {
   ///
   /// `BLN0`      → line=`"0"`, general
   /// `BLN1WX`    → line=`"1"`, groupNamed, group=`"WX"`
-  /// `BLNASRARC` → line=`"A"`, groupNamed, group=`"SRARC"`
+  /// `BLNACLUB` → line=`"A"`, groupNamed, group=`"CLUB"`
   static BulletinAddresseeInfo _parseBulletinAddressee(String addressee) {
     // Guaranteed: length >= 4, matches `^BLN[0-9A-Z]`.
     final line = addressee.substring(3, 4);

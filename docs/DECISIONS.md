@@ -1035,7 +1035,7 @@ The following table is copied into `test/core/callsign/addressee_matcher_test.da
 | Case | Addressee | Setup | Expected |
 |---|---|---|---|
 | Bulletin beats pathological group | `BLN0` | Group `B` prefix | Bulletin |
-| Bulletin beats named-overlap group | `BLN1SRARC` | Group `SRARC` | Bulletin |
+| Bulletin beats named-overlap group | `BLN1CLUB` | Group `CLUB` | Bulletin |
 | Direct beats group prefix conflict | `W1ABC-7` | Operator `W1ABC`; group `W1` prefix | Direct, ACKs |
 | Direct beats group exact conflict | `W1ABC` | Operator `W1ABC`; group `W1ABC` exact | Direct, ACKs |
 | Group when no direct/bulletin | `CQ` | Group `CQ` | Group, no ACK |
@@ -1072,7 +1072,7 @@ The following table is copied into `test/core/callsign/addressee_matcher_test.da
 
 ### Context
 
-APRS group messages (`CQ`, `ALL`, `QST`, club-defined names like `SRARC`) are a protocol-level feature inherited from Yaesu/Kenwood radios and the APRS spec §14. They are one-to-many: a sender addresses any group name and every listener whose radio is configured to match that name receives the message. There is no server-side group mechanism — "subscription" is entirely a local receiver filter.
+APRS group messages (`CQ`, `ALL`, `QST`, club-defined names like `CLUB`) are a protocol-level feature inherited from Yaesu/Kenwood radios and the APRS spec §14. They are one-to-many: a sender addresses any group name and every listener whose radio is configured to match that name receives the message. There is no server-side group mechanism — "subscription" is entirely a local receiver filter.
 
 Meridian implements the same model so it interoperates with Yaesu FT5D, Kenwood TH-D74, and modern software clients (APRSIS32, Xastir). Group messages are distinct from direct messages (different addressee shape) and distinct from bulletins (message-format DTI, ACK semantics differ).
 

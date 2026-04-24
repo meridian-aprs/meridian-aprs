@@ -306,14 +306,15 @@ void main() {
       expect(line, isNot(contains('{')));
     });
 
-    test('pads longer names (SRARC) correctly', () {
+    test('pads longer names (CLUB) correctly', () {
       final line = AprsEncoder.encodeGroupMessage(
         fromCallsign: 'W1ABC',
         fromSsid: 7,
-        groupName: 'SRARC',
+        groupName: 'CLUB',
         body: 'club chatter',
       );
-      expect(line, contains('::SRARC    :club chatter'));
+      // CLUB is 4 chars → 5 trailing spaces to reach the 9-char pad.
+      expect(line, contains('::CLUB     :club chatter'));
     });
 
     test('uppercases group name', () {

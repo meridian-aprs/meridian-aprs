@@ -157,7 +157,7 @@ class Bulletin {
 ///
 /// `BLN0`        → line=`"0"`, category=[BulletinCategory.general],      groupName=null
 /// `BLN1WX`      → line=`"1"`, category=[BulletinCategory.groupNamed],   groupName=`"WX"`
-/// `BLNASRARC`   → line=`"A"`, category=[BulletinCategory.groupNamed],   groupName=`"SRARC"`
+/// `BLNACLUB`   → line=`"A"`, category=[BulletinCategory.groupNamed],   groupName=`"CLUB"`
 class BulletinAddresseeInfo {
   const BulletinAddresseeInfo({
     required this.addressee,

@@ -58,15 +58,15 @@ void main() {
       expect(info.groupName, isNull);
     });
 
-    test('bulletin beats named-overlap group (BLN1SRARC + SRARC group)', () {
+    test('bulletin beats named-overlap group (BLN1CLUB + CLUB group)', () {
       final identity = _operator('W1ABC', 7);
-      final subs = [_group(1, 'SRARC')];
-      final result = _classify('BLN1SRARC', identity, subs);
+      final subs = [_group(1, 'CLUB')];
+      final result = _classify('BLN1CLUB', identity, subs);
       expect(result, isA<BulletinClassification>());
       final info = (result as BulletinClassification).info;
       expect(info.category, BulletinCategory.groupNamed);
       expect(info.lineNumber, '1');
-      expect(info.groupName, 'SRARC');
+      expect(info.groupName, 'CLUB');
     });
 
     test('direct beats group prefix conflict (W1ABC-7 + group W1 prefix)', () {
@@ -197,13 +197,13 @@ void main() {
       expect(info.groupName, isNull);
     });
 
-    test('named bulletin with letter line parses correctly (BLNASRARC)', () {
-      final result = _classify('BLNASRARC', _operator('W1ABC', 7), []);
+    test('named bulletin with letter line parses correctly (BLNACLUB)', () {
+      final result = _classify('BLNACLUB', _operator('W1ABC', 7), []);
       expect(result, isA<BulletinClassification>());
       final info = (result as BulletinClassification).info;
       expect(info.category, BulletinCategory.groupNamed);
       expect(info.lineNumber, 'A');
-      expect(info.groupName, 'SRARC');
+      expect(info.groupName, 'CLUB');
     });
   });
 }

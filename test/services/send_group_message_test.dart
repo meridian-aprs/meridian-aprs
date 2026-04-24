@@ -91,7 +91,7 @@ void main() {
     final sends = <_SendCapture>[];
     final service = await _buildService(sends: sends);
     await service.sendGroupMessage(
-      'SRARC',
+      'CLUB',
       'Net starting',
       rfPath: const ['WIDE1-1', 'WIDE2-1'],
     );

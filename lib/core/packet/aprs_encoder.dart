@@ -131,7 +131,7 @@ class AprsEncoder {
   // Group message (v0.17, ADR-056)
   // -------------------------------------------------------------------------
 
-  /// Encodes an APRS group message (e.g. `CQ`, `QST`, `SRARC`). Group
+  /// Encodes an APRS group message (e.g. `CQ`, `QST`, `CLUB`). Group
   /// messages share the direct-message wire format but omit the message-ID
   /// suffix — per ADR-055 they are never ACKed, so the ID-suffix machinery
   /// is intentionally absent.
