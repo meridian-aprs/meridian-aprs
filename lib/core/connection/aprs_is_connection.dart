@@ -144,6 +144,12 @@ class AprsIsConnection extends MeridianConnection {
     SharedPreferences.getInstance().then(
       (p) => p.setBool(_kAutoConnectKey, true),
     );
+    // Re-apply the last known viewport filter so a fresh connection (manual
+    // reconnect, watchdog recycle, resume) immediately starts receiving the
+    // correct slice of the feed instead of waiting for the next map pan.
+    // updateFilter is a sendLine call — safe to invoke right after connect.
+    final box = _lastBox;
+    if (box != null) updateFilter(box);
     notifyListeners();
   }
 

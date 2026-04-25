@@ -361,10 +361,13 @@ class BackgroundServiceManager extends ChangeNotifier
         FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
         _resumeBeaconingFromBackground();
 
-        // Recycle every tracked connection — not only the ones we observed
-        // dropping. Under Doze the socket may be silently wedged while the
-        // status still reads `connected` (Issue #76); the only safe move on
-        // resume is to force a reset and reconnect.
+        // Reconnect anything that fully dropped while backgrounded. For
+        // connections that still report connected, only force a recycle when
+        // the FGS-driven liveness check would already have flagged them as
+        // stale — otherwise we'd flash "Disconnected" on every resume even
+        // though the FGS heartbeat kept the link healthy through the lock
+        // period (Issue #76).
+        final now = DateTime.now();
         for (final id in _reconnectIds) {
           final conn = _registry.byId(id);
           if (conn == null) continue;
@@ -374,10 +377,10 @@ class BackgroundServiceManager extends ChangeNotifier
               '$id',
             );
             conn.connect(); // ignore: unawaited_futures
-          } else {
+          } else if (conn is AprsIsConnection && _aprsIsLooksStale(conn, now)) {
             debugPrint(
-              'BackgroundServiceManager: resume — recycling $id (status was '
-              '${conn.status})',
+              'BackgroundServiceManager: resume — recycling stale APRS-IS '
+              '($id) lastLineAt=${conn.lastLineAt}',
             );
             conn.recycle(); // ignore: unawaited_futures
           }
@@ -464,6 +467,15 @@ class BackgroundServiceManager extends ChangeNotifier
   /// server keepalive comment cadence (~20 s on aprsc / javAPRSSrvr) plus
   /// some Doze slack on the heartbeat itself (Issue #76).
   static const _kAprsIsStaleAfter = Duration(seconds: 150);
+
+  /// True when the APRS-IS feed looks too stale to trust on resume. Mirrors
+  /// the staleness threshold used by [_checkAprsIsLiveness] so the resume
+  /// path and the heartbeat path agree on what "wedged" means.
+  bool _aprsIsLooksStale(AprsIsConnection conn, DateTime now) {
+    final last = conn.lastLineAt;
+    if (last == null) return true;
+    return now.difference(last) >= _kAprsIsStaleAfter;
+  }
 
   // ---------------------------------------------------------------------------
   // Auto-start / auto-stop
