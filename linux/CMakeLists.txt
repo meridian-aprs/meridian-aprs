@@ -42,6 +42,12 @@ endif()
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
   target_compile_options(${TARGET} PRIVATE -Wall -Werror)
+  # flutter_secure_storage_linux bundles an older nlohmann/json.hpp that
+  # uses pre-C++23 user-defined literal operator syntax (operator"" _json
+  # with whitespace). Clang >= 16 errors on this under -Wall + -Werror
+  # via -Wdeprecated-literal-operator. Suppress narrowly so the rest of
+  # -Wall stays effective for our own code.
+  target_compile_options(${TARGET} PRIVATE -Wno-deprecated-literal-operator)
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()
