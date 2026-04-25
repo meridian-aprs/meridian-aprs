@@ -267,8 +267,14 @@ class MeridianConnectionTask extends TaskHandler {
     await prefs.setInt('bg_last_beacon_ts', tsMs);
 
     // Notify main isolate. This queues if the main isolate is suspended and
-    // delivers when it resumes.
-    FlutterForegroundTask.sendDataToMain({'type': 'beacon_sent', 'ts': tsMs});
+    // delivers when it resumes. The aprs_line is included so the main isolate
+    // can self-ingest into StationService — same loopback semantics as the
+    // foreground BeaconingService.onBeaconSent callback.
+    FlutterForegroundTask.sendDataToMain({
+      'type': 'beacon_sent',
+      'ts': tsMs,
+      'aprs_line': line,
+    });
 
     // Update notification body only — title is managed by BackgroundServiceManager
     // on the main isolate and reflects the actual connection state.
@@ -433,6 +439,14 @@ class MeridianConnectionTask extends TaskHandler {
           transmissionCount: ob.transmissionCount + 1,
         );
         mutated = true;
+
+        // Notify main isolate so the line is self-ingested into StationService —
+        // mirrors the beacon_sent loopback so background-fired bulletins appear
+        // in the local packet log.
+        FlutterForegroundTask.sendDataToMain({
+          'type': 'bulletin_sent',
+          'aprs_line': line,
+        });
       }
     }
 

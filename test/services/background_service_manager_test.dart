@@ -314,6 +314,92 @@ void main() {
     });
   });
 
+  group('BackgroundServiceManager — IPC packet ingest', () {
+    test('beacon_sent IPC with aprs_line invokes onPacketLogged', () async {
+      final deps = await _buildDeps();
+      final logged = <String>[];
+      final manager = BackgroundServiceManager(
+        registry: deps.registry,
+        beaconing: deps.beaconing,
+        tx: deps.tx,
+        taskApi: FakeForegroundServiceApi(),
+        onPacketLogged: logged.add,
+      );
+
+      manager.debugDispatchTaskData({
+        'type': 'beacon_sent',
+        'ts': 123,
+        'aprs_line': 'NOCALL-7>APMDN0:=4012.34N/07412.34W>test',
+      });
+
+      expect(logged, ['NOCALL-7>APMDN0:=4012.34N/07412.34W>test']);
+      manager.dispose();
+    });
+
+    test('bulletin_sent IPC with aprs_line invokes onPacketLogged', () async {
+      final deps = await _buildDeps();
+      final logged = <String>[];
+      final manager = BackgroundServiceManager(
+        registry: deps.registry,
+        beaconing: deps.beaconing,
+        tx: deps.tx,
+        taskApi: FakeForegroundServiceApi(),
+        onPacketLogged: logged.add,
+      );
+
+      manager.debugDispatchTaskData({
+        'type': 'bulletin_sent',
+        'aprs_line': 'NOCALL-7>APMDN0::BLN0     :Net at 8pm',
+      });
+
+      expect(logged, ['NOCALL-7>APMDN0::BLN0     :Net at 8pm']);
+      manager.dispose();
+    });
+
+    test(
+      'beacon_sent IPC without aprs_line is a no-op (legacy payload safety)',
+      () async {
+        final deps = await _buildDeps();
+        final logged = <String>[];
+        final manager = BackgroundServiceManager(
+          registry: deps.registry,
+          beaconing: deps.beaconing,
+          tx: deps.tx,
+          taskApi: FakeForegroundServiceApi(),
+          onPacketLogged: logged.add,
+        );
+
+        manager.debugDispatchTaskData({'type': 'beacon_sent', 'ts': 123});
+
+        expect(logged, isEmpty);
+        manager.dispose();
+      },
+    );
+
+    test(
+      'IPC dispatch without onPacketLogged callback does not throw',
+      () async {
+        final deps = await _buildDeps();
+        final manager = BackgroundServiceManager(
+          registry: deps.registry,
+          beaconing: deps.beaconing,
+          tx: deps.tx,
+          taskApi: FakeForegroundServiceApi(),
+        );
+
+        expect(
+          () => manager.debugDispatchTaskData({
+            'type': 'beacon_sent',
+            'ts': 123,
+            'aprs_line': 'X>Y:=test',
+          }),
+          returnsNormally,
+        );
+        manager.dispose();
+      },
+    );
+  });
+
   group('BackgroundServiceManager — non-Android platform', () {
     testWidgets(
       'requestStartService returns false on non-Android (test runs on Linux)',

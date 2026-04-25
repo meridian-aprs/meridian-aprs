@@ -278,6 +278,8 @@ Future<void> main() async {
     registry: registry,
     beaconing: beaconingService,
     tx: txService,
+    onPacketLogged: (line) =>
+        service.ingestLine(line, source: PacketSource.aprsIs),
   );
 
   // ---------------------------------------------------------------------------
