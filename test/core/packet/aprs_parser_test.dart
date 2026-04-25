@@ -790,51 +790,121 @@ void main() {
 
     // Backtick 2-channel telemetry: flag + exactly 4 hex digits → strip 5 bytes.
     // Per APRS 1.0.1 ch.10: 2 channels × 2 hex digits = "a1b2" here.
+    // The trailing `]` is NOT a Kenwood model marker — per
+    // aprs.org/aprs12/mic-e-types.txt, `]` is a *leading* prefix, never
+    // a suffix. Without a `]` prefix at info[9] this is just user text
+    // and must be left intact.
     test(
-      'strips backtick 2-channel telemetry (4 hex digits) and detects ] suffix',
+      'strips backtick 2-channel telemetry (4 hex digits); bare trailing ] is left as user text',
       () {
         // comment field: \x60 + "a1b2" (valid hex) + "comment]"
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2comment]';
         final packet = parser.parse(rawLine);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
-          expect(packet.comment, equals('comment'));
-          expect(packet.device, equals('Kenwood (TH-D7x/TM-D7x)'));
+          expect(packet.comment, equals('comment]'));
+          expect(packet.device, isNull);
         }
       },
     );
 
-    // Apostrophe 5-channel telemetry: flag + exactly 10 hex digits → strip 11 bytes.
-    // Per APRS 1.0.1 ch.10: 5 channels × 2 hex digits = "a1b2c3d4e5" here.
-    // Followed by ]" (Kenwood TM-D710 suffix).
+    // Real Kenwood TM-D710 signature (per APRS 1.0.1 ch.10 +
+    // aprs.org/aprs12/mic-e-types.txt): leading `]` manufacturer prefix at
+    // info[9], optional base-91 altitude, optional user comment, trailing `=`
+    // model byte.
     test(
-      'strips apostrophe 5-channel telemetry (10 hex digits) and detects ]" suffix (TM-D710)',
+      'TM-D710 (`]` prefix + altitude + `=` suffix): altitude parses, suffix stripped',
       () {
-        final rawLine =
-            'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x27a1b2c3d4e5comment]\x22';
+        // After the 9-byte fixed Mic-E block, the comment field is:
+        // ']' + '"4"}' (altitude) + 'hello' + '='
+        final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/]\x224\x22}hello=';
         final packet = parser.parse(rawLine);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
-          expect(packet.comment, equals('comment'));
+          expect(packet.comment, equals('hello'));
           expect(packet.device, equals('Kenwood TM-D710'));
+          // altitude = (0x22-33)*91² + (0x34-33)*91 + (0x22-33) - 10000
+          //          = 8281 + 1729 + 1 - 10000 = 11
+          expect(packet.altitude, closeTo(11.0, 1.0));
         }
       },
     );
 
-    // Apostrophe 5-channel telemetry + ]= suffix (Kenwood TH-D72A).
+    // Real Kenwood TM-D700 signature: leading `]` prefix, no trailing model byte.
     test(
-      'strips apostrophe 5-channel telemetry (10 hex digits) and detects ]= suffix',
+      'TM-D700 (`]` prefix, no suffix): altitude parses, no suffix to strip',
       () {
-        final rawLine =
-            'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x27a1b2c3d4e5comment]=';
+        final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/]\x224\x22}hello';
         final packet = parser.parse(rawLine);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
-          expect(packet.comment, equals('comment'));
-          expect(packet.device, equals('Kenwood TH-D72A'));
+          expect(packet.comment, equals('hello'));
+          expect(packet.device, equals('Kenwood TM-D700'));
+          expect(packet.altitude, closeTo(11.0, 1.0));
         }
       },
     );
+
+    // Real Kenwood TH-D72A signature: leading `>` prefix, trailing `=` suffix.
+    test('TH-D72A (`>` prefix + `=` suffix)', () {
+      final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>\x224\x22}user=';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals('user'));
+        expect(packet.device, equals('Kenwood TH-D72A'));
+        expect(packet.altitude, closeTo(11.0, 1.0));
+      }
+    });
+
+    // Real Kenwood TH-D74 signature: leading `>` prefix, trailing `^` suffix.
+    // Regression guard: `^` alone (no `>` prefix) is Yaesu VX-8, but with
+    // a `>` prefix it is a Kenwood TH-D74.
+    test(
+      'TH-D74 (`>` prefix + `^` suffix) — not misclassified as Yaesu VX-8',
+      () {
+        final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>hello^';
+        final packet = parser.parse(rawLine);
+        expect(packet, isA<MicEPacket>());
+        if (packet is MicEPacket) {
+          expect(packet.comment, equals('hello'));
+          expect(packet.device, equals('Kenwood TH-D74'));
+        }
+      },
+    );
+
+    // Real-world capture from KM4TJO-9 (user-owned TM-D710): the radio sent
+    // an empty user comment, so the extension is just the prefix + altitude
+    // + suffix. Earlier the parser surfaced "]\"4\"}=" as the comment.
+    test('TM-D710 with empty user comment renders as empty comment', () {
+      final rawLine =
+          'KM4TJO-9>S6TW3Q,KE4KDY-5,WIDE1,WIDE2-1:\x60h_} *p>/]\x224\x22}=';
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals(''));
+        expect(packet.device, equals('Kenwood TM-D710'));
+        expect(packet.altitude, closeTo(11.0, 1.0));
+      }
+    });
+
+    // Real-world capture from KM4TJO-9: TM-D710 with a frequency-object-style
+    // comment ('146.520MHz Toff Eric\'s D710G'). The comment itself does not
+    // end in `=` — only the model marker does. Verifies the suffix-strip
+    // does not over-eat the user's text.
+    test('TM-D710 with frequency-object comment preserves user text', () {
+      final rawLine =
+          "KM4TJO-9>S6TV7S,KE4KDY-5,WIDE1,WIDE2-1:\x60h]nmJ\x14>/]\x223r}146.520MHz Toff Eric's D710G=";
+      final packet = parser.parse(rawLine);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, equals("146.520MHz Toff Eric's D710G"));
+        expect(packet.device, equals('Kenwood TM-D710'));
+        // altitude = (34-33)*8281 + (51-33)*91 + (114-33) - 10000
+        //          = 8281 + 1638 + 81 - 10000 = 0
+        expect(packet.altitude, closeTo(0.0, 1.0));
+      }
+    });
 
     // Real-world Yaesu FT3D packet: "`"3x}_0"
     // Backtick followed by '"' (0x22) — not a hex digit → strip only 1 byte.
@@ -890,16 +960,21 @@ void main() {
     );
 
     // Actual 2-channel telemetry: backtick + 4 hex digits + remaining comment.
-    // "a1b2" are valid hex → strip flag + 4 hex = 5 bytes.
-    test('backtick + 4 hex digits = telemetry stripped, remainder kept', () {
-      final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2rest]';
-      final packet = parser.parse(rawLine);
-      expect(packet, isA<MicEPacket>());
-      if (packet is MicEPacket) {
-        expect(packet.comment, equals('rest'));
-        expect(packet.device, equals('Kenwood (TH-D7x/TM-D7x)'));
-      }
-    });
+    // "a1b2" are valid hex → strip flag + 4 hex = 5 bytes. The trailing `]`
+    // is NOT a Kenwood model marker (per aprs.org/aprs12/mic-e-types.txt
+    // `]` is a leading prefix, never a suffix), so it remains as user text.
+    test(
+      'backtick + 4 hex digits = telemetry stripped, bare trailing ] kept',
+      () {
+        final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2rest]';
+        final packet = parser.parse(rawLine);
+        expect(packet, isA<MicEPacket>());
+        if (packet is MicEPacket) {
+          expect(packet.comment, equals('rest]'));
+          expect(packet.device, isNull);
+        }
+      },
+    );
 
     test('comment with no prefix and no suffix is unchanged', () {
       final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/plain comment';
