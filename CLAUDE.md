@@ -67,7 +67,7 @@ See `docs/ARCHITECTURE.md` for full detail.
 | **v0.20** | Polish & A11y — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests |
 | **v1.0** | Launch — release pipeline, signing, App Group, physical-device validation, store submission |
 
-> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused. See `docs/audit/milestone-reorg-audit.md`.
+> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
 
 **Current status: v0.17 shipped (Groups & Bulletins). Next: v0.18 — Foundations.**
 

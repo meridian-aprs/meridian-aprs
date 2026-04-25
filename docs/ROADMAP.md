@@ -28,7 +28,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
 
-> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused. See `docs/audit/milestone-reorg-audit.md` for the rationale.
+> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
 
 ---
 
