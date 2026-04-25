@@ -118,4 +118,14 @@ Show nearby Winlink RMS gateways on the map as a convenience layer for hybrid op
 
 ---
 
-*Last updated: 2026-04-21*
+## Deferred Infrastructure
+
+### Feature Flags Infrastructure
+A `lib/config/feature_flags.dart` surface for staged features — gated rollout, per-build flags for in-progress work, and a clean kill-switch path. Closed without implementation as #49 because no current consumer exists; the absence of a feature in flight made the seam premature. Re-graduates to a milestone when the first staged feature is scoped — Contacts, Digipeater, Weather, or Directed Queries are the most likely triggers.
+
+### CallsignDisplay Seam
+A centralized widget (or formatter) for rendering callsigns consistently across the app — base call vs full call, SSID badges, license-class adornments, and contact-aware presentation. Closed without implementation as #59 because it was a preemptive shotgun-risk hedge with no consumer. Re-graduates when the Contacts feature is formally scheduled, which is the first feature that adds enough new callsign-presentation surfaces to justify centralizing.
+
+---
+
+*Last updated: 2026-04-25*
