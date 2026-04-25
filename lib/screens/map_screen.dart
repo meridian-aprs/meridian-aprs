@@ -24,6 +24,7 @@ import '../theme/theme_controller.dart';
 import '../ui/widgets/aprs_symbol_widget.dart';
 import '../ui/utils/distance_formatter.dart';
 import '../ui/utils/maidenhead.dart';
+import '../ui/utils/operator_location.dart';
 import '../ui/utils/platform_route.dart';
 import '../ui/widgets/meridian_bottom_sheet.dart';
 import '../ui/widgets/station_info_sheet.dart';
@@ -401,14 +402,6 @@ class _MapScreenState extends State<MapScreen> {
     return (1.0 - t * 0.7).clamp(0.3, 1.0);
   }
 
-  LatLng get _mapCenter {
-    try {
-      return _mapController.camera.center;
-    } catch (_) {
-      return LatLng(widget.initialLat, widget.initialLon);
-    }
-  }
-
   Marker _buildMarker(Station s) => Marker(
     point: LatLng(s.lat, s.lon),
     width: 44,
@@ -417,8 +410,7 @@ class _MapScreenState extends State<MapScreen> {
     child: GestureDetector(
       onTap: () => showModalBottomSheet(
         context: context,
-        builder: (_) =>
-            StationInfoSheet(station: s, referencePosition: _mapCenter),
+        builder: (_) => StationInfoSheet(station: s),
       ),
       child: Tooltip(
         message: s.callsign,
@@ -524,10 +516,7 @@ class _MapScreenState extends State<MapScreen> {
       if (selected != null && mounted) {
         showModalBottomSheet(
           context: context,
-          builder: (_) => StationInfoSheet(
-            station: selected,
-            referencePosition: _mapCenter,
-          ),
+          builder: (_) => StationInfoSheet(station: selected),
         );
       }
     });
@@ -537,8 +526,7 @@ class _MapScreenState extends State<MapScreen> {
     setState(() => _pinLocation = location);
     showModalBottomSheet<void>(
       context: context,
-      builder: (_) =>
-          _PinDropSheet(location: location, referencePosition: _mapCenter),
+      builder: (_) => _PinDropSheet(location: location),
     ).whenComplete(() {
       if (mounted) setState(() => _pinLocation = null);
     });
@@ -727,14 +715,12 @@ class _ClusterRingPainter extends CustomPainter {
 }
 
 /// Bottom sheet shown when the user long-presses on the map to drop a pin.
-/// Displays coordinates, Maidenhead grid square, and distance from map center.
+/// Displays coordinates, Maidenhead grid square, and distance from the
+/// operator's location (manual coords or GPS fix).
 class _PinDropSheet extends StatelessWidget {
-  const _PinDropSheet({required this.location, this.referencePosition});
+  const _PinDropSheet({required this.location});
 
   final LatLng location;
-
-  /// The map center at the time the pin was dropped. Used to display distance.
-  final LatLng? referencePosition;
 
   String get _decimalCoordText {
     final lat = location.latitude.toStringAsFixed(5);
@@ -765,12 +751,13 @@ class _PinDropSheet extends StatelessWidget {
     final imperial = context.watch<StationService>().useImperialUnits;
 
     final grid = maidenheadLocator(location.latitude, location.longitude);
+    final operatorPosition = resolveOperatorLocation(context);
 
     double? distKm;
-    if (referencePosition != null) {
+    if (operatorPosition != null) {
       distKm = const Distance().as(
         LengthUnit.Kilometer,
-        referencePosition!,
+        operatorPosition,
         location,
       );
     }
