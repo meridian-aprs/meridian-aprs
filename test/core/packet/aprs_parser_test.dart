@@ -1516,6 +1516,41 @@ void main() {
       });
     });
 
+    // Compressed positions may use digit overlays (\0, \8, \9, …) on the
+    // alternate symbol table — IRLP/Echolink, 802.11 nodes, gas stations,
+    // etc. The discriminator that decides "uncompressed vs. compressed" must
+    // not misroute these to the uncompressed parser. Without this fix they
+    // were silently dropped (PositionPacket call site) or reported as
+    // "Object uncompressed position regex did not match" (Object call site).
+    group('digit-overlay compressed positions route correctly', () {
+      test('digit-0 overlay compressed PositionPacket decodes', () {
+        // Same payload as the canonical '/5L!!<*e7>7P[' compressed test, with
+        // the symbol-table char swapped to '0' (alternate-table digit-0 overlay).
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:=05L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('0'));
+      });
+
+      test('digit-9 overlay compressed PositionPacket decodes', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:=95L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('9'));
+      });
+
+      test('digit-overlay compressed ObjectPacket decodes', () {
+        // Object name (9 chars) + alive '*' + 7-char timestamp + compressed
+        // position with digit overlay. The new "uncompressed-shaped" error
+        // branch added in this PR must not catch this.
+        final p = expectPacketType<ObjectPacket>(
+          'N0CALL>APRS:;TESTOBJ  *251245z05L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('0'));
+        expect(p.objectName, equals('TESTOBJ'));
+      });
+    });
+
     group('Object error reporting', () {
       // Was previously misreported as "Object compressed position decode
       // failed" because the uncompressed regex was too strict and execution

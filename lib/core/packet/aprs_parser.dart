@@ -417,13 +417,18 @@ class AprsParser {
   }
 
   /// Heuristic to distinguish uncompressed from compressed position strings.
-  /// Uncompressed lat always begins with a digit (DDMM.HH pattern).
+  ///
+  /// Uncompressed lat is always `DDMM.HH` — first byte is a digit AND byte
+  /// index 4 is a literal `.`. Checking only "starts with a digit" is
+  /// insufficient because APRS 1.0.1 §6 / `symbolsX.txt` permits digit
+  /// overlays (`\0`, `\8`, `\9`, etc.) on the alternate symbol table — these
+  /// are emitted by IRLP/Echolink nodes, 802.11 nodes, gas-station markers,
+  /// and other deployed senders. A digit-overlay compressed position would
+  /// otherwise be misrouted to the uncompressed parser and silently dropped.
   bool _isUncompressedPos(String posStr) {
-    if (posStr.isEmpty) return false;
-    // Skip the symbol table char at index 0 for compressed; for uncompressed
-    // the entire posStr is the position data starting with digit.
-    // Uncompressed posStr starts with digits like '4903.50N...'
-    return posStr[0].codeUnitAt(0) >= 0x30 && posStr[0].codeUnitAt(0) <= 0x39;
+    if (posStr.length < 5) return false;
+    final c0 = posStr.codeUnitAt(0);
+    return c0 >= 0x30 && c0 <= 0x39 && posStr.codeUnitAt(4) == 0x2E;
   }
 
   AprsPacket _parseUncompressedPosition({
