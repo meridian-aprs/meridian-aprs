@@ -1339,6 +1339,18 @@ class AprsParser {
     // Trim leading whitespace after prefix removal.
     comment = comment.trimLeft();
 
+    // Kenwood "legacy" manufacturer prefix per aprs.org/aprs12/mic-e-types.txt:
+    //   `>` = TH-D7 family (D7A / D72A / D74 — distinguished by trailing byte)
+    //   `]` = TM-D700 family (D700 / D710 — distinguished by trailing byte)
+    // Strip the leading byte and remember it; the trailing byte is consumed
+    // after altitude/Yaesu blocks and before suffix-driven device detection.
+    String? micEPrefix;
+    if (comment.isNotEmpty &&
+        (comment.codeUnitAt(0) == 0x3E || comment.codeUnitAt(0) == 0x5D)) {
+      micEPrefix = comment[0];
+      comment = comment.substring(1);
+    }
+
     // Base-91 altitude in Mic-E comment (APRS 1.0.1 ch.10 p.55):
     // Three base-91 chars [!-{] followed by '}' encode altitude.
     // altitude_feet = (c1-33)*91² + (c2-33)*91 + (c3-33) - 10000
@@ -1382,20 +1394,28 @@ class AprsParser {
     // info field (common on Yaesu radios) doesn't prevent `_\d$` from matching.
     comment = comment.trim();
 
-    // Resolve device from comment suffix before stripping the suffix.
-    final device = DeviceResolver.resolve(micECommentSuffix: comment);
+    // Resolve device from (Kenwood prefix, comment) tuple before stripping
+    // any trailing model byte.
+    final device = DeviceResolver.resolve(
+      micEPrefix: micEPrefix,
+      micECommentSuffix: comment,
+    );
 
-    // Strip device-indicator suffixes from the comment.
-    if (comment.endsWith(']=')) {
-      comment = comment.substring(0, comment.length - 2);
-    } else if (comment.endsWith(']\x22')) {
-      comment = comment.substring(0, comment.length - 2);
-    } else if (comment.endsWith(']') ||
-        comment.endsWith('^') ||
-        comment.endsWith('~')) {
+    // Strip device-indicator trailing byte from the comment.
+    if (micEPrefix != null) {
+      // Legacy Kenwood: at most a single trailing byte (`=` for D710/D72A,
+      // `^` for D74, `v` reserved). If it's not one of those, it's user text
+      // and must be left intact.
+      if (comment.endsWith('=') ||
+          comment.endsWith('^') ||
+          comment.endsWith('v')) {
+        comment = comment.substring(0, comment.length - 1);
+      }
+    } else if (comment.endsWith('^') || comment.endsWith('~')) {
+      // Modern Yaesu suffix — single byte.
       comment = comment.substring(0, comment.length - 1);
     } else if (_micEFt3dRe.hasMatch(comment)) {
-      // Strip trailing _\d
+      // Yaesu FT3D series — strip trailing `_\d`.
       comment = comment.substring(0, comment.length - 2);
     }
     // Note: no generic `>IDENT` suffix branch. Per aprs.org/aprs12/mic-e-types.txt

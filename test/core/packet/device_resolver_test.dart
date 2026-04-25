@@ -55,21 +55,55 @@ void main() {
     });
   });
 
-  group('DeviceResolver.resolve — Mic-E suffix', () {
-    test('suffix ] → Kenwood (TH-D7x/TM-D7x)', () {
+  group('DeviceResolver.resolve — Mic-E legacy Kenwood (prefix + suffix)', () {
+    // Per APRS 1.0.1 ch.10 + aprs.org/aprs12/mic-e-types.txt, the Kenwood
+    // family identifies via the leading byte at info[9] plus an optional
+    // trailing model byte at the end of the comment.
+
+    test('prefix `>` alone → TH-D7A', () {
       expect(
-        DeviceResolver.resolve(micECommentSuffix: 'some comment]'),
-        equals('Kenwood (TH-D7x/TM-D7x)'),
+        DeviceResolver.resolve(micEPrefix: '>', micECommentSuffix: 'hi'),
+        equals('Kenwood TH-D7A'),
       );
     });
 
-    test('suffix ]= → Kenwood TH-D72A', () {
+    test('prefix `>` + suffix `=` → TH-D72A', () {
       expect(
-        DeviceResolver.resolve(micECommentSuffix: 'some comment]='),
+        DeviceResolver.resolve(micEPrefix: '>', micECommentSuffix: 'hi='),
         equals('Kenwood TH-D72A'),
       );
     });
 
+    test('prefix `>` + suffix `^` → TH-D74 (not Yaesu VX-8)', () {
+      expect(
+        DeviceResolver.resolve(micEPrefix: '>', micECommentSuffix: 'hi^'),
+        equals('Kenwood TH-D74'),
+      );
+    });
+
+    test('prefix `]` alone → TM-D700', () {
+      expect(
+        DeviceResolver.resolve(micEPrefix: ']', micECommentSuffix: 'hi'),
+        equals('Kenwood TM-D700'),
+      );
+    });
+
+    test('prefix `]` + suffix `=` → TM-D710', () {
+      expect(
+        DeviceResolver.resolve(micEPrefix: ']', micECommentSuffix: 'hi='),
+        equals('Kenwood TM-D710'),
+      );
+    });
+
+    test('prefix `]` with empty comment → TM-D700', () {
+      expect(
+        DeviceResolver.resolve(micEPrefix: ']', micECommentSuffix: ''),
+        equals('Kenwood TM-D700'),
+      );
+    });
+  });
+
+  group('DeviceResolver.resolve — Mic-E modern (suffix-anchored)', () {
     test('suffix ^ → Yaesu VX-8', () {
       expect(
         DeviceResolver.resolve(micECommentSuffix: 'comment^'),
@@ -98,9 +132,10 @@ void main() {
       );
     });
 
-    // `>` is a Kenwood TH-D7x *prefix* per aprs-deviceid, never a suffix.
-    // Trailing `>IDENT` must not be interpreted as a device identifier —
-    // this used to false-positive on any in-comment callsign mention.
+    // `>` is a Kenwood prefix per aprs.org/aprs12/mic-e-types.txt, never
+    // a suffix. A trailing `>IDENT` in the comment must not be interpreted
+    // as a device identifier — this used to false-positive on any
+    // in-comment callsign mention.
     test('trailing `>FT3DR` does NOT resolve as a device', () {
       expect(
         DeviceResolver.resolve(micECommentSuffix: 'comment>FT3DR'),
@@ -112,6 +147,24 @@ void main() {
       expect(DeviceResolver.resolve(micECommentSuffix: 'hi>AB'), isNull);
     });
 
+    // Without a `]` prefix, a bare trailing `]` is just user text per spec.
+    // (The previous "Kenwood (TH-D7x/TM-D7x)" mapping was incorrect.)
+    test('bare trailing `]` (no prefix) → null', () {
+      expect(
+        DeviceResolver.resolve(micECommentSuffix: 'some comment]'),
+        isNull,
+      );
+    });
+
+    // Likewise `]=` without a `]` prefix: this used to be misclassified as
+    // TH-D72A. The real D72A signature is `>` prefix + `=` suffix.
+    test('bare trailing `]=` (no prefix) → null', () {
+      expect(
+        DeviceResolver.resolve(micECommentSuffix: 'some comment]='),
+        isNull,
+      );
+    });
+
     test('no known pattern → null', () {
       expect(
         DeviceResolver.resolve(micECommentSuffix: 'just a plain comment'),
@@ -121,17 +174,6 @@ void main() {
 
     test('empty suffix → null', () {
       expect(DeviceResolver.resolve(micECommentSuffix: ''), isNull);
-    });
-
-    test('generic > suffix that is too long (>10 chars) → null', () {
-      expect(
-        DeviceResolver.resolve(micECommentSuffix: 'comment>TOOLONGDEVICENAME'),
-        isNull,
-      );
-    });
-
-    test('generic > suffix that is 1 char → null (too short)', () {
-      expect(DeviceResolver.resolve(micECommentSuffix: 'comment>X'), isNull);
     });
   });
 

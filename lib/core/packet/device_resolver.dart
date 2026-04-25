@@ -137,12 +137,23 @@ class DeviceResolver {
   /// [tocall] is the destination field from the APRS header (e.g. "APDR16",
   /// "APK004"). Used for non-Mic-E packets.
   ///
-  /// [micECommentSuffix] is the raw comment suffix extracted from a Mic-E
-  /// packet AFTER stripping the telemetry prefix. Pass null for non-Mic-E
-  /// packets.
-  static String? resolve({String? tocall, String? micECommentSuffix}) {
-    if (micECommentSuffix != null) {
-      return _resolveMicESuffix(micECommentSuffix);
+  /// For Mic-E packets, pass either or both of:
+  /// - [micEPrefix] — the single manufacturer-code byte at info position 9
+  ///   (the byte right after the symbol-table char), if it is `>` or `]`.
+  ///   These mark the legacy Kenwood family and combine with [micECommentSuffix]
+  ///   to disambiguate D7A / D72A / D74 / D700 / D710 per APRS 1.0.1 ch.10
+  ///   and aprs.org/aprs12/mic-e-types.txt.
+  /// - [micECommentSuffix] — the comment text (with any trailing model byte
+  ///   still attached) AFTER stripping telemetry/altitude. Used for the
+  ///   modern Yaesu/Anytone suffix-anchored match (`^`, `~`, `_\d`) and as
+  ///   the trailing-byte input for legacy Kenwood matching.
+  static String? resolve({
+    String? tocall,
+    String? micEPrefix,
+    String? micECommentSuffix,
+  }) {
+    if (micEPrefix != null || micECommentSuffix != null) {
+      return _resolveMicE(prefix: micEPrefix, comment: micECommentSuffix ?? '');
     }
     if (tocall != null && tocall.isNotEmpty) {
       return _resolveTocall(tocall);
@@ -170,20 +181,36 @@ class DeviceResolver {
     return null;
   }
 
-  static String? _resolveMicESuffix(String comment) {
-    if (comment.isEmpty) return null;
+  // Two-pass Mic-E device resolution.
+  //
+  // Pass 1 — legacy Kenwood (prefix + optional trailing byte):
+  //   per aprs.org/aprs12/mic-e-types.txt, the Kenwood family identifies
+  //   itself with a leading byte at info[9] and an optional trailing byte
+  //   at the end of the comment. Both must agree.
+  //
+  // Pass 2 — modern (Yaesu/Anytone/Byonics) suffix-anchored matching.
+  //   These radios all use the `\x60` (backtick) leading byte uniformly
+  //   and discriminate purely on the trailing byte(s).
+  static String? _resolveMicE({
+    required String? prefix,
+    required String comment,
+  }) {
+    // Pass 1 — Kenwood legacy.
+    if (prefix == '>') {
+      if (comment.endsWith('=')) return 'Kenwood TH-D72A';
+      if (comment.endsWith('^')) return 'Kenwood TH-D74';
+      return 'Kenwood TH-D7A';
+    }
+    if (prefix == ']') {
+      if (comment.endsWith('=')) return 'Kenwood TM-D710';
+      return 'Kenwood TM-D700';
+    }
 
-    // Check in order — longest/most-specific suffixes first.
-    if (comment.endsWith(']=')) return 'Kenwood TH-D72A';
-    if (comment.endsWith(']\x22')) return 'Kenwood TM-D710';
-    if (comment.endsWith(']')) return 'Kenwood (TH-D7x/TM-D7x)';
+    // Pass 2 — Yaesu / Anytone / Byonics suffix matching.
+    if (comment.isEmpty) return null;
     if (comment.endsWith('^')) return 'Yaesu VX-8';
     if (comment.endsWith('~')) return 'Yaesu FT2D';
     if (_ft3dRe.hasMatch(comment)) return 'Yaesu FT3D series';
-
-    // Note: no generic `>IDENT` suffix resolver. Per aprs.org mic-e-types.txt
-    // and aprs-deviceid/tocalls.yaml, `>` is a device-identifier *prefix*
-    // (Kenwood TH-D7x series), never a suffix.
     return null;
   }
 
