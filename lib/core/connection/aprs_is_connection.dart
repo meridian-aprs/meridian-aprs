@@ -144,6 +144,12 @@ class AprsIsConnection extends MeridianConnection {
     SharedPreferences.getInstance().then(
       (p) => p.setBool(_kAutoConnectKey, true),
     );
+    // Re-apply the last known viewport filter so a fresh connection (manual
+    // reconnect, watchdog recycle, resume) immediately starts receiving the
+    // correct slice of the feed instead of waiting for the next map pan.
+    // updateFilter is a sendLine call — safe to invoke right after connect.
+    final box = _lastBox;
+    if (box != null) updateFilter(box);
     notifyListeners();
   }
 
@@ -157,12 +163,29 @@ class AprsIsConnection extends MeridianConnection {
     notifyListeners();
   }
 
+  /// Recycle the socket without flipping the user-facing auto-connect intent.
+  /// Used by background watchdogs (Issue #76) that have detected the socket
+  /// is wedged but the user has not asked to disconnect.
+  @override
+  Future<void> recycle() async {
+    _applyCredentialsToTransport();
+    await _transport.forceReset();
+    await _transport.connect();
+    notifyListeners();
+  }
+
   @override
   Future<void> dispose() async {
     await _stateSub?.cancel();
     await _transport.dispose();
     super.dispose();
   }
+
+  /// Wall-clock timestamp of the most recently received line on the underlying
+  /// transport, or null if nothing has arrived yet. Exposed so the foreground
+  /// service heartbeat can detect staleness without inspecting the transport
+  /// directly.
+  DateTime? get lastLineAt => _transport.lastLineAt;
 
   @override
   Future<void> loadPersistedSettings() async {
