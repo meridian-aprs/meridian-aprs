@@ -1403,4 +1403,169 @@ void main() {
       expect(p.message, equals('REJ001'));
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Issue #80: Position ambiguity (APRS 1.0.1 §6)
+  // ---------------------------------------------------------------------------
+
+  group('Position ambiguity (APRS 1.0.1 §6)', () {
+    group('PositionPacket DTI !', () {
+      test('no ambiguity → level 0', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:!4903.50N/07201.75W-Test',
+        );
+        expect(p.positionAmbiguity, equals(0));
+        expect(p.lat, closeTo(49.0583, 0.001));
+        expect(p.lon, closeTo(-72.0292, 0.001));
+      });
+
+      test('ambiguity 1 (last hundredth space) decodes to centre', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:!4903.5 N/07201.7 W-Test',
+        );
+        expect(p.positionAmbiguity, equals(1));
+        // 4903.55 → 49 + 3.55/60 = 49.05917
+        expect(p.lat, closeTo(49.0592, 0.001));
+        expect(p.lon, closeTo(-72.0292, 0.001));
+      });
+
+      test('ambiguity 2 (both hundredths spaces) decodes to centre of box', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:!3646.  N/07617.  W-Test',
+        );
+        expect(p.positionAmbiguity, equals(2));
+        // 3646.55 → 36 + 46.55/60 = 36.77583
+        expect(p.lat, closeTo(36.776, 0.001));
+        // 07617.55 → -(76 + 17.55/60) = -76.2925
+        expect(p.lon, closeTo(-76.2925, 0.001));
+      });
+
+      test('ambiguity 3 (units of minute also space) decodes', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:!364 .  N/0761 .  W-Test',
+        );
+        expect(p.positionAmbiguity, equals(3));
+        // 3645.55 → 36 + 45.55/60 = 36.75917
+        expect(p.lat, closeTo(36.759, 0.001));
+      });
+
+      test('ambiguity 4 (degrees only) decodes', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:!36  .  N/076  .  W-Test',
+        );
+        expect(p.positionAmbiguity, equals(4));
+        // 3655.55 → 36 + 55.55/60 = 36.92583
+        expect(p.lat, closeTo(36.926, 0.001));
+      });
+    });
+
+    group('PositionPacket DTI = (messaging)', () {
+      test('ambiguity preserved with messaging DTI', () {
+        final p = expectPacketType<PositionPacket>(
+          'WB4APR-14>APWW10:=3855.  N/07701.  W-Direwolf',
+        );
+        expect(p.positionAmbiguity, equals(2));
+        expect(p.hasMessaging, isTrue);
+      });
+    });
+
+    group('PositionPacket DTI / (timestamped)', () {
+      test('ambiguity preserved with timestamp', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:/221509z3646.  N/07617.  W-Test',
+        );
+        expect(p.positionAmbiguity, equals(2));
+        expect(p.timestamp, isNotNull);
+      });
+    });
+
+    group('ObjectPacket DTI ;', () {
+      // Real-world wire packet from issue #80 — Winlink RMS gateway with
+      // tenth-of-minute ambiguity (APRS 1.0.1 §6).
+      test('Winlink WLNK-1 ambiguous Object decodes to ObjectPacket', () {
+        final p = expectPacketType<ObjectPacket>(
+          'WINLINK>APWL2K,TCPIP*,qAS,WLNK-1:;N4CEC-10 *251245z3646.  N'
+          'W07617.  Wa440.450MHz Winlink VARA FM Wide Gateway',
+        );
+        expect(p.positionAmbiguity, equals(2));
+        expect(p.objectName, equals('N4CEC-10'));
+        expect(p.isAlive, isTrue);
+        expect(p.lat, closeTo(36.776, 0.001));
+        expect(p.lon, closeTo(-76.2925, 0.001));
+        expect(p.symbolTable, equals('W'));
+        expect(p.symbolCode, equals('a'));
+      });
+
+      test('full-precision Object retains ambiguity 0', () {
+        final p = expectPacketType<ObjectPacket>(
+          'N0CALL>APRS:;TESTOBJ  *251245z3646.78N/07617.34W-Comment',
+        );
+        expect(p.positionAmbiguity, equals(0));
+      });
+    });
+
+    group('ItemPacket DTI )', () {
+      test('ambiguous Item decodes with ambiguity tracked', () {
+        final p = expectPacketType<ItemPacket>(
+          'N0CALL>APRS:)TESTITM!3646.  N/07617.  W-Item comment',
+        );
+        expect(p.positionAmbiguity, equals(2));
+        expect(p.itemName, equals('TESTITM'));
+        expect(p.lat, closeTo(36.776, 0.001));
+        expect(p.lon, closeTo(-76.2925, 0.001));
+      });
+    });
+
+    // Compressed positions may use digit overlays (\0, \8, \9, …) on the
+    // alternate symbol table — IRLP/Echolink, 802.11 nodes, gas stations,
+    // etc. The discriminator that decides "uncompressed vs. compressed" must
+    // not misroute these to the uncompressed parser. Without this fix they
+    // were silently dropped (PositionPacket call site) or reported as
+    // "Object uncompressed position regex did not match" (Object call site).
+    group('digit-overlay compressed positions route correctly', () {
+      test('digit-0 overlay compressed PositionPacket decodes', () {
+        // Same payload as the canonical '/5L!!<*e7>7P[' compressed test, with
+        // the symbol-table char swapped to '0' (alternate-table digit-0 overlay).
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:=05L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('0'));
+      });
+
+      test('digit-9 overlay compressed PositionPacket decodes', () {
+        final p = expectPacketType<PositionPacket>(
+          'N0CALL>APRS:=95L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('9'));
+      });
+
+      test('digit-overlay compressed ObjectPacket decodes', () {
+        // Object name (9 chars) + alive '*' + 7-char timestamp + compressed
+        // position with digit overlay. The new "uncompressed-shaped" error
+        // branch added in this PR must not catch this.
+        final p = expectPacketType<ObjectPacket>(
+          'N0CALL>APRS:;TESTOBJ  *251245z05L!!<*e7>7P[Test',
+        );
+        expect(p.symbolTable, equals('0'));
+        expect(p.objectName, equals('TESTOBJ'));
+      });
+    });
+
+    group('Object error reporting', () {
+      // Was previously misreported as "Object compressed position decode
+      // failed" because the uncompressed regex was too strict and execution
+      // fell through to the compressed decoder.
+      test('uncompressed-shaped Object that fails regex reports clearly', () {
+        final p = expectPacketType<UnknownPacket>(
+          // Position starts with digit but is structurally broken (missing
+          // N/S indicator).
+          'N0CALL>APRS:;BROKENOBJ*251245z3646.78X/07617.34W-Comment',
+        );
+        expect(
+          p.reason,
+          equals('Object uncompressed position regex did not match'),
+        );
+      });
+    });
+  });
 }

@@ -68,6 +68,12 @@ class PositionPacket extends AprsPacket {
   /// or null if unknown.
   final String? device;
 
+  /// APRS 1.0.1 §6 position ambiguity level (0–4). 0 = full precision; higher
+  /// values indicate the operator rounded to a coarser grid by replacing
+  /// trailing mantissa digits with spaces. The decoded [lat]/[lon] sit at the
+  /// centre of the ambiguity box.
+  final int positionAmbiguity;
+
   const PositionPacket({
     required super.rawLine,
     required super.source,
@@ -86,6 +92,7 @@ class PositionPacket extends AprsPacket {
     required this.hasMessaging,
     this.timestamp,
     this.device,
+    this.positionAmbiguity = 0,
   });
 }
 
@@ -214,6 +221,12 @@ class ObjectPacket extends AprsPacket {
   /// or null if unknown.
   final String? device;
 
+  /// APRS 1.0.1 §6 position ambiguity level (0–4). 0 = full precision; higher
+  /// values indicate the originating station rounded to a coarser grid by
+  /// replacing trailing mantissa digits with spaces. The decoded [lat]/[lon]
+  /// sit at the centre of the ambiguity box.
+  final int positionAmbiguity;
+
   const ObjectPacket({
     required super.rawLine,
     required super.source,
@@ -229,6 +242,7 @@ class ObjectPacket extends AprsPacket {
     required this.comment,
     required this.isAlive,
     this.device,
+    this.positionAmbiguity = 0,
   });
 }
 
@@ -253,6 +267,12 @@ class ItemPacket extends AprsPacket {
   /// or null if unknown.
   final String? device;
 
+  /// APRS 1.0.1 §6 position ambiguity level (0–4). 0 = full precision; higher
+  /// values indicate the originating station rounded to a coarser grid by
+  /// replacing trailing mantissa digits with spaces. The decoded [lat]/[lon]
+  /// sit at the centre of the ambiguity box.
+  final int positionAmbiguity;
+
   const ItemPacket({
     required super.rawLine,
     required super.source,
@@ -268,6 +288,7 @@ class ItemPacket extends AprsPacket {
     required this.comment,
     required this.isAlive,
     this.device,
+    this.positionAmbiguity = 0,
   });
 }
 

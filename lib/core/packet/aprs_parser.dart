@@ -303,8 +303,15 @@ class AprsParser {
 
   // Uncompressed position regex.
   // Groups: (lat DDMM.HH)(N|S)(symTable)(lon DDDMM.HH)(E|W)(symCode)(comment)
+  //
+  // Per APRS 1.0.1 §6 the four trailing digits of the lat (and longitude)
+  // mantissa may be replaced with spaces to indicate position ambiguity,
+  // working leftward from the last digit. The character classes here accept
+  // either a digit or a space at every ambiguity-eligible position; the
+  // permissive form (rather than enforcing strict leftward order) matches
+  // aprslib and Dire Wolf behaviour.
   static final _uncompressedPosRe = RegExp(
-    r'^(\d{4}\.\d{2})(N|S)(.)(\d{5}\.\d{2})(E|W)(.)(.*)$',
+    r'^(\d{2}[\d ]{2}\.[\d ]{2})(N|S)(.)(\d{3}[\d ]{2}\.[\d ]{2})(E|W)(.)(.*)$',
     dotAll: true,
   );
 
@@ -410,13 +417,18 @@ class AprsParser {
   }
 
   /// Heuristic to distinguish uncompressed from compressed position strings.
-  /// Uncompressed lat always begins with a digit (DDMM.HH pattern).
+  ///
+  /// Uncompressed lat is always `DDMM.HH` — first byte is a digit AND byte
+  /// index 4 is a literal `.`. Checking only "starts with a digit" is
+  /// insufficient because APRS 1.0.1 §6 / `symbolsX.txt` permits digit
+  /// overlays (`\0`, `\8`, `\9`, etc.) on the alternate symbol table — these
+  /// are emitted by IRLP/Echolink nodes, 802.11 nodes, gas-station markers,
+  /// and other deployed senders. A digit-overlay compressed position would
+  /// otherwise be misrouted to the uncompressed parser and silently dropped.
   bool _isUncompressedPos(String posStr) {
-    if (posStr.isEmpty) return false;
-    // Skip the symbol table char at index 0 for compressed; for uncompressed
-    // the entire posStr is the position data starting with digit.
-    // Uncompressed posStr starts with digits like '4903.50N...'
-    return posStr[0].codeUnitAt(0) >= 0x30 && posStr[0].codeUnitAt(0) <= 0x39;
+    if (posStr.length < 5) return false;
+    final c0 = posStr.codeUnitAt(0);
+    return c0 >= 0x30 && c0 <= 0x39 && posStr.codeUnitAt(4) == 0x2E;
   }
 
   AprsPacket _parseUncompressedPosition({
@@ -446,6 +458,7 @@ class AprsParser {
 
     final lat = _ddmm(m.group(1)!, isLat: true) * (m.group(2) == 'S' ? -1 : 1);
     final lon = _ddmm(m.group(4)!, isLat: false) * (m.group(5) == 'W' ? -1 : 1);
+    final ambiguity = _ambiguityLevel(m.group(1)!);
     final symbolTable = m.group(3)!;
     final symbolCode = m.group(6)!;
     var comment = m.group(7)!;
@@ -492,6 +505,7 @@ class AprsParser {
       hasMessaging: hasMessaging,
       timestamp: packetTimestamp,
       device: DeviceResolver.resolve(tocall: destination),
+      positionAmbiguity: ambiguity,
     );
   }
 
@@ -692,7 +706,25 @@ class AprsParser {
     final posStr = info.substring(18);
     final m = _uncompressedPosRe.firstMatch(posStr);
     if (m == null) {
-      // Try compressed
+      // Uncompressed positions (with or without ambiguity) always start with a
+      // digit (DDMM.HH). If posStr[0] is a digit, the uncompressed regex was
+      // the correct path — falling through to the compressed decoder would
+      // emit a misleading error. Only attempt compressed when the leading
+      // byte looks like a base-91 symbol-table char (`/`, `\`, A–Z, 0–9
+      // overlay).  Digits at index 0 of a compressed posStr are extremely
+      // rare (overlay codes are usually letters), so erring on the side of a
+      // clearer uncompressed error message is the right tradeoff.
+      if (posStr.isNotEmpty && _isUncompressedPos(posStr)) {
+        return _unknown(
+          rawLine,
+          source,
+          destination,
+          path,
+          'Object uncompressed position regex did not match',
+          rawInfo: info,
+          transportSource: transportSource,
+        );
+      }
       return _tryObjectCompressed(
         posStr: posStr,
         objectName: objectName,
@@ -709,6 +741,7 @@ class AprsParser {
 
     final lat = _ddmm(m.group(1)!, isLat: true) * (m.group(2) == 'S' ? -1 : 1);
     final lon = _ddmm(m.group(4)!, isLat: false) * (m.group(5) == 'W' ? -1 : 1);
+    final ambiguity = _ambiguityLevel(m.group(1)!);
 
     return ObjectPacket(
       rawLine: rawLine,
@@ -725,6 +758,7 @@ class AprsParser {
       comment: m.group(7)!,
       isAlive: isAlive,
       device: DeviceResolver.resolve(tocall: destination),
+      positionAmbiguity: ambiguity,
     );
   }
 
@@ -860,6 +894,7 @@ class AprsParser {
 
     final lat = _ddmm(m.group(1)!, isLat: true) * (m.group(2) == 'S' ? -1 : 1);
     final lon = _ddmm(m.group(4)!, isLat: false) * (m.group(5) == 'W' ? -1 : 1);
+    final ambiguity = _ambiguityLevel(m.group(1)!);
 
     return ItemPacket(
       rawLine: rawLine,
@@ -876,6 +911,7 @@ class AprsParser {
       comment: m.group(7)!,
       isAlive: isAlive,
       device: DeviceResolver.resolve(tocall: destination),
+      positionAmbiguity: ambiguity,
     );
   }
 
@@ -1467,10 +1503,27 @@ class AprsParser {
   // ---------------------------------------------------------------------------
 
   /// Convert DDMM.HH string to decimal degrees.
+  ///
+  /// Spaces in the mantissa (APRS 1.0.1 §6 position ambiguity) are replaced
+  /// with `'5'` before parsing so the decoded position sits near the centre
+  /// of the ambiguity box — same convention as aprslib and Dire Wolf.
   double _ddmm(String s, {required bool isLat}) {
+    final s2 = s.replaceAll(' ', '5');
     final d = isLat ? 2 : 3;
-    return double.parse(s.substring(0, d)) +
-        double.parse(s.substring(d)) / 60.0;
+    return double.parse(s2.substring(0, d)) +
+        double.parse(s2.substring(d)) / 60.0;
+  }
+
+  /// Count APRS 1.0.1 §6 position-ambiguity spaces in the lat mantissa.
+  ///
+  /// Returns 0–4. The spec guarantees lat and lon carry the same level of
+  /// ambiguity so deriving from lat alone is sufficient.
+  static int _ambiguityLevel(String latMantissa) {
+    int n = 0;
+    for (int i = 0; i < latMantissa.length; i++) {
+      if (latMantissa.codeUnitAt(i) == 0x20) n++;
+    }
+    return n > 4 ? 4 : n;
   }
 
   // ---------------------------------------------------------------------------
