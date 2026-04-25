@@ -155,7 +155,13 @@ class BackgroundServiceManager extends ChangeNotifier
   /// Per-connection pending reconnect timers. Null entry = not scheduled.
   final Map<String, Timer?> _reconnectTimers = {};
 
-  static const _kReconnectDelay = Duration(seconds: 10);
+  // Delay between background reconnect attempts. 30 s gives Doze and the
+  // radio time to settle between tries — re-attempting too aggressively in
+  // the background can flag the app as "abnormal background activity" on
+  // OEM firmware (MIUI, OneUI, EMUI) and trigger harder throttling. The
+  // foreground reconnect on AppLifecycleState.resumed is unaffected and
+  // still fires immediately.
+  static const _kReconnectDelay = Duration(seconds: 30);
 
   // ---------------------------------------------------------------------------
   // Public API

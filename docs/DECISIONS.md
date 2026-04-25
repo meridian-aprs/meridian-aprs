@@ -1291,3 +1291,64 @@ Separating built-in from custom groups lets the operator mute the broadcast-nois
 - GPS-mode operator-location push into `BulletinService`. A clean shape is for `BeaconingService` to emit `onLocationFixed(lat, lon)` and have `main.dart` fan out to `BulletinService`; filed as a v0.15 cleanup so we don't wire it hastily under the v0.17 deadline.
 - Persisting the `_lastBulletinKey` snapshot across cold starts. Currently re-seeded from `BulletinService.bulletins` on `initialize()` so the first post-restart refresh doesn't spam notifications for every persisted bulletin.
 - Android native `UNNotificationCategory` entries for iOS group/bulletin channels — channel registration here is the Dart-side `DarwinNotificationCategory` story; the richer action-based categories (like Messages) land when/if we add reply affordances to group threads from notifications.
+
+---
+
+## ADR-061: APRS-IS background RX — read-side idle watchdog + SO_KEEPALIVE + 30 s background reconnect (Issue #76)
+
+**Date:** 2026-04-24
+**Status:** Accepted
+**Supersedes:** none. **Related:** ADR-030 (iOS background), ADR-032 (no background isolate on iOS), ADR-036 (notifications on main isolate), ADR-060 (FGS type mask).
+
+### Context
+
+After Android backgrounds the app (screen lock), the persistent APRS-IS TCP socket on the main isolate stops receiving packets even though the foreground service is alive and the background-isolate beacon path keeps egressing. On resume the server replays the filter feed and packets flood in — confirming the read side was dead but went undetected.
+
+Two failure modes are at work:
+
+1. The Android kernel reaps idle TCP sockets aggressively under Doze and Wi-Fi sleep, despite the FGS wake lock keeping the *process* alive.
+2. `AprsIsTransport` did not detect a silently-wedged socket: it only emitted `disconnected` when the OS surfaced an explicit `onError` / `onDone`. A half-dead socket can sit indefinitely without either firing, so the existing reconnect path in `BackgroundServiceManager._maybeReconnectInBackground` never gets a chance to run.
+
+We considered three options (per the issue body):
+
+1. Application-layer keepalive writes (e.g. send `# meridian keepalive` every 30 s). Proactively keeps the socket warm. Costs battery (radio wake on every cadence), fights Android's Doze design intent, and risks OEM "abnormal background activity" flags on MIUI / OneUI / EMUI.
+2. Move the persistent RX socket into the background isolate alongside the bulletin / beacon timers. Largest change; violates ADR-036 ("packets flow on main isolate") and forces a redesign of how `StationService` and `MessageService` subscribe.
+3. Detection-based recovery — accept that the socket will sometimes die, detect dead sockets fast, reconnect cleanly. Aligns with platform design intent.
+
+### Decision
+
+Adopt option 3, the detection-based recovery model. Specifically:
+
+- **Kernel SO_KEEPALIVE** on the connected socket (best-effort via `Socket.setRawOption`). The TCP stack itself sends keepalive probes; these reveal half-dead sockets at the kernel layer without us paying any application-level cost. Failure to set the option is logged and ignored — the read watchdog still covers us.
+- **TCP_NODELAY** is also set (Nagle disabled) so short APRS lines flush immediately. This is incidental polish, not load-bearing for #76.
+- **Read-side idle watchdog** — a 120 s `Timer` that resets on every received line. APRS-IS servers (aprsc, javAPRSSrvr) emit periodic `# server-name ...` keepalive comments roughly every 20 s, so any healthy connection produces inbound bytes well within 120 s. When the timer fires, the watchdog calls `_socket.destroy()`; the existing listener's `onError` / `onDone` path then runs through the normal disconnected-state bookkeeping and `BackgroundServiceManager` schedules a reconnect.
+- **30 s background reconnect cadence** — `BackgroundServiceManager._kReconnectDelay` raised from 10 s to 30 s. At 10 s we re-attempt aggressively while Doze is throttling network access, which can put the app on the platform's "abnormal background activity" list. 30 s gives the radio time to settle. The foreground reconnect path (`AppLifecycleState.resumed`) is unaffected and still fires immediately, so user-perceived recovery latency on app return is unchanged.
+
+We explicitly **do not** add an outbound application-layer keepalive write. The server already supplies the cadence we need to detect death; adding our own writes would only cost battery and is not justified until field data shows the read watchdog is insufficient.
+
+### Worst-case latency
+
+A wedged socket is recovered within ~150 s end-to-end while the app is backgrounded:
+
+```
+120 s read watchdog
++ 30 s background reconnect delay
++ ~3 s reconnect (TCP + login)
+≈ 150 s
+```
+
+Compared to the old behaviour (potentially indefinite RX-dead until the user resumed the app), this is a substantial improvement and is well within the issue's acceptance criteria for screen-off RX continuity.
+
+### Consequences
+
+- New code in `lib/core/transport/aprs_is_transport.dart`: `_readWatchdog` timer, `_resetReadWatchdog` / `_cancelReadWatchdog` helpers, `_onReadIdleTimeout` handler, two `@visibleForTesting` debug hooks (`debugFireReadWatchdog`, `debugReadWatchdogActive`). SO_KEEPALIVE wired in `connect()`. Watchdog cancelled in `disconnect()`, `onError`, `onDone`, and on connect-failure exceptions.
+- `BackgroundServiceManager._kReconnectDelay` constant changed; its docstring documents the rationale.
+- New tests in `test/core/transport/aprs_is_transport_test.dart` against a localhost `ServerSocket` cover: arm on connect, cancel on disconnect, fire-handler tears down socket and emits `disconnected`, inbound line resets the timer.
+- No changes to `meridian_connection_task.dart`, `AndroidManifest.xml`, or any UI-layer code.
+- iOS is unaffected (different background model — see ADR-030 / ADR-032). Desktop and web are unaffected.
+
+### Out of scope (deferred)
+
+- An opt-in outbound keepalive setting if real-world device verification shows 120 s detection still leaves user-visible gaps. Reassess after a field test pass.
+- Per-platform tuning of the SO_KEEPALIVE option number (Linux/Android `9`, macOS/iOS `8`). The current implementation tries the Linux value and silently catches; macOS / iOS users still get full coverage from the read watchdog.
+- A configurable read-idle window in Settings → Advanced. 120 s was chosen to comfortably exceed the typical server keepalive cadence; surfacing it as a knob is unnecessary unless we encounter servers with materially different behaviour.
