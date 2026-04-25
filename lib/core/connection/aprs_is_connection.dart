@@ -157,12 +157,29 @@ class AprsIsConnection extends MeridianConnection {
     notifyListeners();
   }
 
+  /// Recycle the socket without flipping the user-facing auto-connect intent.
+  /// Used by background watchdogs (Issue #76) that have detected the socket
+  /// is wedged but the user has not asked to disconnect.
+  @override
+  Future<void> recycle() async {
+    _applyCredentialsToTransport();
+    await _transport.forceReset();
+    await _transport.connect();
+    notifyListeners();
+  }
+
   @override
   Future<void> dispose() async {
     await _stateSub?.cancel();
     await _transport.dispose();
     super.dispose();
   }
+
+  /// Wall-clock timestamp of the most recently received line on the underlying
+  /// transport, or null if nothing has arrived yet. Exposed so the foreground
+  /// service heartbeat can detect staleness without inspecting the transport
+  /// directly.
+  DateTime? get lastLineAt => _transport.lastLineAt;
 
   @override
   Future<void> loadPersistedSettings() async {

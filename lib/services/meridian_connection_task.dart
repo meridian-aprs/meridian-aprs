@@ -63,6 +63,17 @@ class MeridianConnectionTask extends TaskHandler {
   void onRepeatEvent(DateTime timestamp) {
     // 60-second heartbeat — prevents aggressive OEM firmware (MIUI, OneUI)
     // from terminating services that show no recent activity.
+
+    // Ask the main isolate to verify each APRS-IS connection is still
+    // receiving. Driven from the OS-scheduled FGS heartbeat rather than a
+    // Dart Timer because Dart Timers in the main isolate can be stretched
+    // arbitrarily under Android Doze, leaving the in-isolate read watchdog
+    // unable to fire (Issue #76).
+    FlutterForegroundTask.sendDataToMain({
+      'type': 'aprs_is_liveness_check',
+      'now_ms': DateTime.now().millisecondsSinceEpoch,
+    });
+
     // Also refreshes the "last beacon: Xm ago" notification text so it stays
     // current while the phone is locked (the main isolate cannot do this
     // because its event loop is throttled when backgrounded).

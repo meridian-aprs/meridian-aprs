@@ -113,6 +113,18 @@ abstract class MeridianConnection extends ChangeNotifier {
   /// The [MeridianConnection] instance remains valid and can be reconnected.
   Future<void> disconnect();
 
+  /// Force a transport-layer recycle without disturbing user-facing state
+  /// such as auto-connect intent. Default implementation simply chains
+  /// [disconnect] then [connect]; override on connections where that would
+  /// also flip a "user wants this off" flag (e.g. [AprsIsConnection]).
+  ///
+  /// Used by background-watchdog paths (Issue #76) when we suspect the
+  /// underlying socket is wedged but the OS has not surfaced an error.
+  Future<void> recycle() async {
+    await disconnect();
+    await connect();
+  }
+
   /// Permanently release all resources including stream controllers.
   ///
   /// Call only when the owning registry is being disposed. After [dispose] the

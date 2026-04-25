@@ -52,6 +52,13 @@ class AprsIsTransport implements AprsTransport {
   Timer? _readWatchdog;
   static const _readIdleTimeout = Duration(seconds: 120);
 
+  // Wall-clock timestamp of the most recently received line. Null until the
+  // server speaks once. Exposed to the foreground service so the FGS-driven
+  // heartbeat can detect a wedged socket even if a Dart Timer is throttled
+  // by Doze (Issue #76).
+  DateTime? _lastLineAt;
+  DateTime? get lastLineAt => _lastLineAt;
+
   // These controllers live for the lifetime of the transport instance — they
   // are never closed by a connection drop, only by an explicit dispose().
   final _controller = StreamController<String>.broadcast();
@@ -128,6 +135,7 @@ class AprsIsTransport implements AprsTransport {
           .transform(const LineSplitter())
           .listen(
             (line) {
+              _lastLineAt = DateTime.now();
               _resetReadWatchdog();
               if (!_controller.isClosed) _controller.add(line);
             },
@@ -170,12 +178,38 @@ class AprsIsTransport implements AprsTransport {
 
   void _onReadIdleTimeout() {
     debugPrint(
-      'AprsIsTransport: no inbound bytes for ${_readIdleTimeout.inSeconds}s — '
-      'tearing down socket so reconnect can take over',
+      'AprsIsTransport: read watchdog fired (no bytes for '
+      '${_readIdleTimeout.inSeconds}s) — destroying socket. '
+      'lastLineAt=$_lastLineAt now=${DateTime.now()}',
     );
     // destroy() releases the socket forcibly; the listener's onError/onDone
-    // path then runs through normal disconnected-state bookkeeping.
+    // path then runs through normal disconnected-state bookkeeping. If the
+    // OS swallows the close silently, the foreground service heartbeat in
+    // BackgroundServiceManager will catch the staleness on the next tick
+    // and call recycle() on the connection.
     _socket?.destroy();
+    // Belt-and-suspenders: emit disconnected immediately so the rest of the
+    // app stops trusting this transport even if the listener never fires.
+    _socket = null;
+    _emitState(ConnectionStatus.disconnected);
+  }
+
+  /// Force a hard reset of the underlying socket. Used by external watchdogs
+  /// (foreground-service heartbeat) that have detected staleness via
+  /// [lastLineAt] but cannot rely on the in-isolate Dart Timer to have fired
+  /// under Android Doze. Safe no-op if there is no live socket.
+  Future<void> forceReset() async {
+    debugPrint(
+      'AprsIsTransport: forceReset called by external watchdog — '
+      'lastLineAt=$_lastLineAt',
+    );
+    _cancelReadWatchdog();
+    final s = _socket;
+    _socket = null;
+    s?.destroy();
+    await _socketSubscription?.cancel();
+    _socketSubscription = null;
+    _emitState(ConnectionStatus.disconnected);
   }
 
   /// Test hook — fire the idle watchdog handler immediately so unit tests can

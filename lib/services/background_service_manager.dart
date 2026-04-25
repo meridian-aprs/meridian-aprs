@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show debugPrint, kIsWeb, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/connection/aprs_is_connection.dart';
 import '../core/connection/connection_registry.dart';
 import 'beaconing_service.dart';
 import 'meridian_connection_task.dart';
@@ -359,11 +361,25 @@ class BackgroundServiceManager extends ChangeNotifier
         FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
         _resumeBeaconingFromBackground();
 
-        // Reconnect any tracked connection that dropped while backgrounded.
+        // Recycle every tracked connection — not only the ones we observed
+        // dropping. Under Doze the socket may be silently wedged while the
+        // status still reads `connected` (Issue #76); the only safe move on
+        // resume is to force a reset and reconnect.
         for (final id in _reconnectIds) {
           final conn = _registry.byId(id);
-          if (conn != null && conn.status == ConnectionStatus.disconnected) {
+          if (conn == null) continue;
+          if (conn.status == ConnectionStatus.disconnected) {
+            debugPrint(
+              'BackgroundServiceManager: resume — reconnecting disconnected '
+              '$id',
+            );
             conn.connect(); // ignore: unawaited_futures
+          } else {
+            debugPrint(
+              'BackgroundServiceManager: resume — recycling $id (status was '
+              '${conn.status})',
+            );
+            conn.recycle(); // ignore: unawaited_futures
           }
         }
         _reconnectIds = {};
@@ -417,8 +433,37 @@ class BackgroundServiceManager extends ChangeNotifier
         }
       case 'beacon_sent':
         break;
+      case 'aprs_is_liveness_check':
+        _checkAprsIsLiveness();
     }
   }
+
+  /// Inspect each APRS-IS connection's [AprsIsConnection.lastLineAt] and
+  /// recycle any whose last inbound line is older than [_kAprsIsStaleAfter].
+  /// Driven by the FGS heartbeat (~60 s cadence) so detection works even when
+  /// Android Doze has frozen the in-isolate read watchdog.
+  void _checkAprsIsLiveness() {
+    final now = DateTime.now();
+    for (final conn in _registry.all) {
+      if (conn is! AprsIsConnection) continue;
+      if (conn.status != ConnectionStatus.connected) continue;
+      final last = conn.lastLineAt;
+      if (last == null) continue; // Server hasn't spoken yet — give it time.
+      if (now.difference(last) >= _kAprsIsStaleAfter) {
+        debugPrint(
+          'BackgroundServiceManager: APRS-IS liveness check tripped on '
+          '${conn.id} — lastLineAt=$last, now=$now. Recycling.',
+        );
+        conn.recycle(); // ignore: unawaited_futures
+      }
+    }
+  }
+
+  /// Maximum tolerated silence on an APRS-IS connection before the FGS
+  /// heartbeat forces a recycle. Sized to comfortably exceed the typical
+  /// server keepalive comment cadence (~20 s on aprsc / javAPRSSrvr) plus
+  /// some Doze slack on the heartbeat itself (Issue #76).
+  static const _kAprsIsStaleAfter = Duration(seconds: 150);
 
   // ---------------------------------------------------------------------------
   // Auto-start / auto-stop
