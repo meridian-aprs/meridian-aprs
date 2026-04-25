@@ -23,7 +23,7 @@ import '../helpers/fake_secure_credential_store.dart';
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Minimal fake transport that records updateCredentials and sendLine calls.
+/// Minimal fake transport that records updateLoginLine and sendLine calls.
 class _CapturingAprsIsTransport extends AprsIsTransport {
   _CapturingAprsIsTransport()
     : super(host: 'fake.host', port: 0, loginLine: 'user NOCALL pass -1\r\n');
@@ -45,9 +45,9 @@ class _CapturingAprsIsTransport extends AprsIsTransport {
   ConnectionStatus get currentStatus => _status;
 
   @override
-  void updateCredentials({required String loginLine, String? filterLine}) {
+  void updateLoginLine(String loginLine) {
     capturedLoginLines.add(loginLine);
-    super.updateCredentials(loginLine: loginLine, filterLine: filterLine);
+    super.updateLoginLine(loginLine);
   }
 
   @override

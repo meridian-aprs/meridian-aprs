@@ -48,7 +48,7 @@ class ConnectionCredentials {
   }
 
   /// APRS-IS login line ending in `\r\n`, ready for
-  /// [AprsIsTransport.updateCredentials] / the initial connect handshake.
+  /// [AprsIsTransport.updateLoginLine] / the initial connect handshake.
   ///
   /// Always emits a valid login — if [passcode] is empty, the unlicensed
   /// `-1` passcode is used (receive-only mode, accepted by APRS-IS servers).

@@ -226,10 +226,7 @@ class AprsIsConnection extends MeridianConnection {
   /// while connected and the next `#filter` sent via [updateFilter] will
   /// continue to honour it.
   void updateFilterLine(String filterLine) {
-    _transport.updateCredentials(
-      loginLine: _effectiveLoginLine(),
-      filterLine: filterLine,
-    );
+    _transport.setFilterLine(filterLine);
   }
 
   // ---------------------------------------------------------------------------
@@ -251,11 +248,15 @@ class AprsIsConnection extends MeridianConnection {
   /// underlying transport. Invoked on [connect] and whenever credentials
   /// change so the licensed-state override always takes effect before the
   /// next connection attempt.
+  ///
+  /// Deliberately leaves the transport's filter line alone unless [filterLine]
+  /// is non-null — credential refreshes must not erase the persistent filter
+  /// (Issue #84). Pass an explicit [filterLine] to update both at once.
   void _applyCredentialsToTransport({String? filterLine}) {
-    _transport.updateCredentials(
-      loginLine: _effectiveLoginLine(),
-      filterLine: filterLine,
-    );
+    _transport.updateLoginLine(_effectiveLoginLine());
+    if (filterLine != null) {
+      _transport.setFilterLine(filterLine);
+    }
   }
 
   /// The currently active server displayed as "host:port".
@@ -303,6 +304,10 @@ class AprsIsConnection extends MeridianConnection {
       config: cfg,
       namedBulletinGroups: _namedBulletinGroups,
     );
+    // Stash the line on the transport so a subsequent reconnect/recycle
+    // re-applies the same viewport filter without waiting for the next pan
+    // (Issue #84). Also send it live for the current connection.
+    _transport.setFilterLine(line);
     _transport.sendLine(line);
   }
 
