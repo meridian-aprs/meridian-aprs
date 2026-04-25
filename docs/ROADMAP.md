@@ -23,9 +23,12 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | ✅ Complete |
 | v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | ✅ Complete |
 | v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
-| v0.15 — Battery & Performance | Battery & performance optimization pass (background service drain, SQLite evaluation) | — |
-| v0.16 — Bug Triage | Dedicated triage and bugfix pass before final polish | — |
-| v1.0 — Launch | Final polish, all-platform store submission (iOS App Store, Google Play, macOS, Windows, Linux) | — |
+| v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | — |
+| v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | — |
+| v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
+| v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
+
+> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
 
 ---
 
@@ -146,33 +149,66 @@ Protocol-complete APRS messaging — group messages (`CQ`, `QST`, `ALL`, custom 
 
 ---
 
-### v0.15 — Battery & Performance
-Optimize for real-world sustained use.
+### v0.18 — Foundations
 
-- Profile and reduce background service battery drain
-- Packet processing efficiency review
-- Memory usage audit for large station counts
-- Evaluate migrating station/packet persistence from SharedPreferences JSON blobs to SQLite (via `drift`): current flat-JSON approach is fine for hundreds of stations but will not scale to large history windows or dense RF environments; SQLite enables indexed bounding-box queries and avoids loading the full dataset into RAM on startup
+Architecture, testing, and dependency foundations that unblock the subsequent performance, polish, and launch work. Nothing here is user-visible on its own; all of it removes friction or risk from later milestones.
+
+- Inject `Clock` abstraction so time-dependent logic is deterministic in tests (#43)
+- Service-level test coverage for `BeaconingService` (#52) and `TxService` Serial > BLE > APRS-IS routing hierarchy (#60)
+- BeaconFAB widget regression guard — pin start/stop semantics in auto/smart modes, long-press cooldown, "Xm ago" label (#86, split from #53)
+- Dependency upgrades: `flutter_local_notifications` v18 → v21 paired with `desugar_jdk_libs` refresh (#54, absorbed #66); `flutter_blue_plus` 1.x → 2.x (#55)
+- CI platform matrix — add Android / iOS / macOS / Windows builds alongside the existing Linux-debug build (#50)
+- Architecture cleanup: remove double subscription to `conn.lines` between `main.dart` and `ConnectionRegistry` (#56)
 
 ---
 
-### v0.16 — Bug Triage
-Dedicated milestone for clearing the bug backlog before final polish.
+### v0.19 — Performance
 
-- Triage all open `bug` issues
-- Fix confirmed bugs prioritized by severity
-- Regression test pass across platforms
+Performance pass — measurable baselines and the structural fixes that move the needle. Battery, memory, and packet throughput each get a baseline so v1.0 has a defensible "good enough" answer.
+
+- MapScreen rebuild fix — stop the entire scaffold from rebuilding on every packet (#51)
+- Selector convention — establish the `Selector<>` pattern across `Provider`-driven UI rather than the current single-site usage (#57)
+- Non-builder `ListView` sweep — convert eager-inflate sites in SettingsScreen, PacketDetailSheet, and the PacketLogScreen filter bar (#58, absorbed #64)
+- SQLite / drift evaluation spike — decision doc on persistence for stations, packets, and (follow-on) bulletins (#87)
+- Background service battery drain — profiling report on Android + iOS, plus go/no-go on optimization sub-tasks (#88)
+- Memory audit — stress-test station count target (5k stable), identify allocation hotspots, document baseline (#89)
+- Packet processing throughput — establish baseline at ≥5 packets/second sustained, identify bottlenecks (#90)
+
+---
+
+### v0.20 — Polish & A11y
+
+Pre-launch polish. The same surfaces being touched for accessibility and adaptive-widget cleanup are the ones that need pinning widget tests, so this milestone co-locates all three.
+
+- Semantics audit — only 3 annotations exist in the codebase today; pass over all interactive widgets (#61)
+- Adaptive widget consistency — `Switch.adaptive` / `CircularProgressIndicator.adaptive` etc. across iOS-rendered surfaces (#62)
+- MapScreen helper extraction — `MapScreen.build()` is ~380 lines; extract helpers (#65)
+- Widget tests — one-per-screen pass for PacketLogScreen, ConnectionScreen, MapScreen, Settings, Messaging tabs (#91, sibling of #86 in v0.18)
 
 ---
 
 ### v1.0 — Launch
-The release milestone. No new features — quality, stability, and store readiness only.
 
-- Final UI polish pass across all platforms
-- README and public documentation
-- App Store (iOS) and Google Play submission
-- macOS, Windows, Linux packaging
-- Final CI/CD and release pipeline review
+The release milestone — release pipeline, store readiness, and final field validation. No new features.
+
+- Android release signing config (replace debug keystore + gitignored `key.properties`) (#46)
+- iOS Live Activity App Group portal setup — `group.com.meridianaprs.meridianAprs` on both Runner and `MeridianLiveActivity` bundle IDs (#47)
+- Release-build CI — ProGuard/R8/archive validation for Android and iOS (#63)
+- Physical iPhone 16 Pro validation — Cupertino tier visual audit, iOS background beaconing, Live Activity, BLE TNC pairing (#92)
+- Real-world Smart Beaconing drive test — validate cadence under mixed-speed driving, tune defaults if needed (#93)
+- Tocall bump — `APMDN0` → next-tier `APMDN?` allocation as v1.0 ships (see Pending Items)
+- Final CI/CD and release pipeline review; App Store + Play Store submission
+
+> **v0.15 and v0.16 numbers are skipped** — see Status table.
+
+---
+
+## Backlog / Deferred
+
+Items that were filed as issues but deferred without scheduling. Each is tracked in `docs/FUTURE_FEATURES.md` and re-graduates to a milestone when its trigger condition is met.
+
+- **Feature flags scaffold** (formerly #49) — staged-feature configuration via `lib/config/feature_flags.dart`. Re-graduates when the first staged feature is scoped (Contacts, Digipeater, Weather, or Directed Queries).
+- **CallsignDisplay seam** (formerly #59) — preemptive seam to centralize callsign rendering. Re-graduates when the Contacts feature is scheduled.
 
 ---
 
@@ -185,4 +221,4 @@ The release milestone. No new features — quality, stability, and store readine
 
 ---
 
-*Last updated: 2026-04-22*
+*Last updated: 2026-04-25*

@@ -61,12 +61,23 @@ See `docs/ARCHITECTURE.md` for full detail.
 | ~~v0.12~~ | ~~Onboarding improvements~~ ✓ |
 | ~~v0.13~~ | ~~Security & connectivity (passcode secure storage, APRS-IS filter config)~~ ✓ |
 | ~~v0.14~~ | ~~Base-callsign message matching (cross-SSID capture, addressee badges, conversation grouping)~~ ✓ |
-| **v0.17** | Groups & Bulletins — APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure |
-| **v0.15** | Battery & performance optimization pass |
-| **v0.16** | Bug triage pass |
-| **v1.0** | Final polish + store submission |
+| ~~v0.17~~ | ~~Groups & Bulletins — APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure~~ ✓ |
+| **v0.18** | Foundations — architecture, testing, and dependency foundations |
+| **v0.19** | Performance — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery/memory/throughput baselines |
+| **v0.20** | Polish & A11y — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests |
+| **v1.0** | Launch — release pipeline, signing, App Group, physical-device validation, store submission |
 
-**Current status: v0.17 in progress (Groups & Bulletins). v0.17 adds: addressee matcher with load-bearing `Bulletin → Direct → Group` precedence (ADR-055); group subscriptions with per-group `notify`/`matchMode`/`replyMode` (ADR-056); bulletin receive store with `(source,addressee)` upsert; outgoing bulletins with fixed-interval retransmission + initial pulse + max lifetime (ADR-057); `BulletinScheduler` on the main isolate + parallel background-isolate bulletin timer reading `OutgoingBulletin` list from prefs each tick; Messaging tab split into Direct / Groups / Bulletins via platform-adaptive segmented control (ADR-059); shared `ChatBubble` widget for visual parity across direct + group surfaces; APRS-IS filter extension `g/BLN0..9` + `g/BLN*NAME` per subscription + filter-rebuild on subscription change (ADR-058); client-side bulletin distance filter (haversine); new notification channels (built-in groups, custom groups, general bulletins, subscribed bulletin groups, expired) with broadcast-noisy defaults muted. v0.15 = Battery & Performance; v0.16 = Bug Triage. ADRs 001–060 in `docs/DECISIONS.md`. Key new files: `lib/core/callsign/addressee_matcher.dart`, `lib/core/callsign/operator_identity.dart`, `lib/core/callsign/message_classification.dart`, `lib/core/connection/aprs_is_filter_builder.dart`, `lib/services/bulletin_scheduler.dart`, `lib/services/bulletin_service.dart`, `lib/services/bulletin_subscription_service.dart`, `lib/services/group_subscription_service.dart`, `lib/services/messaging_settings_service.dart`, `lib/screens/group_channel_screen.dart`, `lib/screens/groups_tab.dart`, `lib/screens/bulletins_tab.dart`, `lib/screens/bulletin_detail_screen.dart`, `lib/screens/bulletin_compose_screen.dart`, `lib/ui/widgets/chat_bubble.dart`.**
+> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
+
+**Current status: v0.17 shipped (Groups & Bulletins). Next: v0.18 — Foundations.**
+
+The active milestones are now structured as:
+- **v0.18 — Foundations** — clock injection, service-level tests, double-subscription cleanup, dependency upgrades (`flutter_local_notifications` v21, `flutter_blue_plus` 2.x), CI platform matrix, BeaconFAB widget regression guard.
+- **v0.19 — Performance** — MapScreen rebuild fix, Selector convention, non-builder ListView sweep, SQLite/drift evaluation, battery drain profiling, memory audit, packet throughput baseline.
+- **v0.20 — Polish & A11y** — Semantics audit, adaptive widget consistency, MapScreen helper extraction, one-per-screen widget tests.
+- **v1.0 — Launch** — Android signing, iOS App Group, release-build CI, physical iPhone 16 Pro validation, Smart Beaconing drive test, store submission.
+
+ADRs 001–060 in `docs/DECISIONS.md`. v0.17 added: addressee matcher with load-bearing `Bulletin → Direct → Group` precedence (ADR-055); group subscriptions with per-group `notify`/`matchMode`/`replyMode` (ADR-056); bulletin receive store with `(source,addressee)` upsert; outgoing bulletins with fixed-interval retransmission + initial pulse + max lifetime (ADR-057); `BulletinScheduler` on the main isolate + parallel background-isolate bulletin timer; Messaging tab split into Direct / Groups / Bulletins via platform-adaptive segmented control (ADR-059); shared `ChatBubble` widget; APRS-IS filter extension `g/BLN0..9` + `g/BLN*NAME` per subscription (ADR-058); client-side bulletin distance filter (haversine); new notification channels with broadcast-noisy defaults muted. Key v0.17 files: `lib/core/callsign/addressee_matcher.dart`, `lib/core/callsign/operator_identity.dart`, `lib/core/callsign/message_classification.dart`, `lib/core/connection/aprs_is_filter_builder.dart`, `lib/services/bulletin_scheduler.dart`, `lib/services/bulletin_service.dart`, `lib/services/bulletin_subscription_service.dart`, `lib/services/group_subscription_service.dart`, `lib/services/messaging_settings_service.dart`, `lib/screens/group_channel_screen.dart`, `lib/screens/groups_tab.dart`, `lib/screens/bulletins_tab.dart`, `lib/screens/bulletin_detail_screen.dart`, `lib/screens/bulletin_compose_screen.dart`, `lib/ui/widgets/chat_bubble.dart`.
 
 **Conventions added in v0.5:**
 - `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
