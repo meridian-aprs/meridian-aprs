@@ -34,12 +34,29 @@ class AprsIsTransport implements AprsTransport {
     _port = port;
   }
 
-  /// Updates the login and filter lines used on the next [connect] call.
+  /// Updates the login line used on the next [connect] call.
   /// Safe to call while disconnected; has no effect on an active connection.
-  void updateCredentials({required String loginLine, String? filterLine}) {
+  ///
+  /// Deliberately does NOT touch the filter line. The filter line carries the
+  /// last server-side `#filter …` directive the connection has prepared and
+  /// must survive a credential refresh — wiping it on every login update was
+  /// the cause of the "no packets until I pan the map" class of bugs (Issue
+  /// #84). Use [setFilterLine] to update the filter independently.
+  void updateLoginLine(String loginLine) {
     _loginLine = loginLine;
+  }
+
+  /// Replace (or clear) the filter line used on the next [connect] call.
+  /// Pass `null` to clear; otherwise the value is written verbatim to the
+  /// socket immediately after the login line on connect.
+  void setFilterLine(String? filterLine) {
     _filterLine = filterLine;
   }
+
+  /// The filter line that will be written to the socket on the next [connect].
+  /// Exposed so callers (and tests) can verify the persistent filter survives
+  /// credential refreshes.
+  String? get filterLine => _filterLine;
 
   Socket? _socket;
   StreamSubscription? _socketSubscription;

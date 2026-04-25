@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/connection/aprs_is_connection.dart';
 import 'package:meridian_aprs/core/connection/aprs_is_filter_config.dart';
+import 'package:meridian_aprs/core/connection/connection_credentials.dart';
 import 'package:meridian_aprs/core/connection/lat_lng_box.dart';
 import 'package:meridian_aprs/core/connection/meridian_connection.dart';
 import 'package:meridian_aprs/core/transport/aprs_is_transport.dart';
@@ -302,4 +303,77 @@ void main() {
       expect(double.parse(parts[1]), lessThan(double.parse(parts[3]))); // W < E
     },
   );
+
+  // ---------------------------------------------------------------------------
+  // Issue #84 — filter line must survive credential refreshes
+  // ---------------------------------------------------------------------------
+  //
+  // Previously, AprsIsConnection.connect() / recycle() / setCredentials()
+  // funnelled into a single _applyCredentialsToTransport call that wiped the
+  // transport's persistent _filterLine. With no `_lastBox` (cold start, no
+  // pan yet) the server received a login with no filter and sent nothing
+  // until the user panned the map. These tests pin the new contract: a
+  // filter set via the constructor or updateFilterLine survives any
+  // credential refresh and is observable on the transport.
+
+  test(
+    'connect() preserves the constructor-supplied filter line (Issue #84)',
+    () async {
+      final t = AprsIsTransport(
+        host: 'fake.host',
+        port: 0,
+        loginLine: 'user NOCALL pass -1\r\n',
+        filterLine: '#filter a/40.00/-78.00/38.00/-76.00\r\n',
+      );
+      final c = AprsIsConnection(t);
+      // The transport's filter line is set at construction.
+      expect(t.filterLine, '#filter a/40.00/-78.00/38.00/-76.00\r\n');
+      // connect() runs _applyCredentialsToTransport — must NOT wipe filter.
+      // (We can't actually open a real socket here; just verify the
+      // pre-connect contract that drives what gets written on the wire.)
+      // Simulate the call path that historically wiped the filter.
+      c.setCredentials(
+        // Doesn't matter — we just need a credential refresh.
+        // The bug was that this nulled the filter.
+        const _NoopCreds().asConnectionCredentials,
+      );
+      expect(
+        t.filterLine,
+        '#filter a/40.00/-78.00/38.00/-76.00\r\n',
+        reason:
+            'setCredentials must not wipe the persistent filter line — this '
+            'was Issue #84',
+      );
+    },
+  );
+
+  test('updateFilter writes the filter line to the transport so it persists '
+      'across reconnects (Issue #84)', () async {
+    const box = LatLngBox(north: 48.0, south: 47.0, east: -122.0, west: -123.0);
+    conn.updateFilter(box);
+    // The connection must stash the line on the transport (not just send
+    // it live), so a subsequent reconnect/recycle re-applies it before any
+    // new pan.
+    expect(transport.filterLine, isNotNull);
+    expect(transport.filterLine, startsWith('#filter a/'));
+  });
+
+  test('updateFilterLine routes to setFilterLine on the transport', () async {
+    conn.updateFilterLine('#filter a/1/2/3/4\r\n');
+    expect(transport.filterLine, '#filter a/1/2/3/4\r\n');
+  });
+}
+
+/// Minimal helper to construct a ConnectionCredentials without wiring up the
+/// real StationSettingsService stack. The bug under test only depends on the
+/// fact that credential refresh used to reset the transport's filter line.
+class _NoopCreds {
+  const _NoopCreds();
+  ConnectionCredentials get asConnectionCredentials =>
+      const ConnectionCredentials(
+        callsign: 'NOCALL',
+        ssid: 0,
+        passcode: '',
+        isLicensed: false,
+      );
 }
