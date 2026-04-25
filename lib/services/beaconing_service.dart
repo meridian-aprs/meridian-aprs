@@ -16,6 +16,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/beaconing/smart_beaconing.dart';
@@ -82,6 +83,12 @@ class BeaconingService extends ChangeNotifier {
   SmartBeaconingParams get smartParams => _smartParams;
   DateTime? get lastBeaconAt => _lastBeaconAt;
   BeaconError? get lastError => _lastError;
+
+  /// Most recent GPS fix as a [LatLng], or null if no fix has been obtained.
+  /// Updated whenever the geolocator stream emits a new position.
+  LatLng? get lastKnownLocation => _lastPosition == null
+      ? null
+      : LatLng(_lastPosition!.latitude, _lastPosition!.longitude);
 
   /// Human-readable description of when the last beacon was sent.
   String? get lastBeaconAgo {

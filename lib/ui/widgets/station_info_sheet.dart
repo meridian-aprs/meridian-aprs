@@ -9,6 +9,7 @@ import '../../screens/message_thread_screen.dart';
 import '../../services/station_service.dart';
 import '../utils/distance_formatter.dart';
 import '../utils/maidenhead.dart';
+import '../utils/operator_location.dart';
 import '../utils/platform_route.dart';
 import '../utils/wx_data.dart';
 import 'aprs_symbol_widget.dart';
@@ -40,18 +41,9 @@ String _formatLastHeard(DateTime lastHeard) {
 /// );
 /// ```
 class StationInfoSheet extends StatelessWidget {
-  const StationInfoSheet({
-    super.key,
-    required this.station,
-    this.referencePosition,
-    this.onShowOnMap,
-  });
+  const StationInfoSheet({super.key, required this.station, this.onShowOnMap});
 
   final Station station;
-
-  /// When provided, the sheet shows the distance from this position to the
-  /// station. Typically the current map center or GPS location.
-  final LatLng? referencePosition;
 
   /// When provided, a "Show on map" button is displayed. The callback should
   /// close the sheet (via [Navigator.pop]) and navigate to the map.
@@ -70,6 +62,7 @@ class StationInfoSheet extends StatelessWidget {
     final relativeTime = _formatLastHeard(station.lastHeard);
     final hasComment = station.comment.isNotEmpty;
     final grid = maidenheadLocator(station.lat, station.lon);
+    final operatorPosition = resolveOperatorLocation(context);
 
     return SafeArea(
       child: Padding(
@@ -198,8 +191,9 @@ class StationInfoSheet extends StatelessWidget {
               ],
             ),
 
-            // Distance from reference point (map center or GPS)
-            if (referencePosition != null) ...[
+            // Distance from operator location (manual coords or GPS).
+            // Hidden entirely when no operator location is available.
+            if (operatorPosition != null) ...[
               const SizedBox(height: 4),
               Row(
                 children: [
@@ -211,7 +205,7 @@ class StationInfoSheet extends StatelessWidget {
                   const SizedBox(width: 4),
                   Text(
                     _distanceText(
-                      referencePosition!,
+                      operatorPosition,
                       station,
                       imperial: context
                           .watch<StationService>()
