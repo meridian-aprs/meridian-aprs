@@ -113,10 +113,12 @@ class BackgroundServiceManager extends ChangeNotifier
     required BeaconingService beaconing,
     required TxService tx,
     ForegroundServiceApi? taskApi,
+    void Function(String line)? onPacketLogged,
   }) : _registry = registry,
        _beaconing = beaconing,
        _tx = tx,
-       _taskApi = taskApi ?? const _DefaultForegroundServiceApi() {
+       _taskApi = taskApi ?? const _DefaultForegroundServiceApi(),
+       _onPacketLogged = onPacketLogged {
     _registry.addListener(_onServiceStateChanged);
     _beaconing.addListener(_onServiceStateChanged);
     if (!kIsWeb && Platform.isAndroid) {
@@ -133,6 +135,13 @@ class BackgroundServiceManager extends ChangeNotifier
   final BeaconingService _beaconing;
   final TxService _tx;
   final ForegroundServiceApi _taskApi;
+
+  /// Invoked when the background isolate reports a transmitted line
+  /// (`beacon_sent` / `bulletin_sent` IPC). Wire this to
+  /// [StationService.ingestLine] so background-fired packets appear in the
+  /// local packet log — same loopback semantics as
+  /// [BeaconingService.onBeaconSent] for the foreground path.
+  final void Function(String line)? _onPacketLogged;
 
   static const _keyBgActivity = 'bg_activity_enabled';
 
@@ -435,11 +444,20 @@ class BackgroundServiceManager extends ChangeNotifier
           ); // ignore: unawaited_futures
         }
       case 'beacon_sent':
-        break;
+        final aprsLine = msg['aprs_line'] as String?;
+        if (aprsLine != null) _onPacketLogged?.call(aprsLine);
+      case 'bulletin_sent':
+        final aprsLine = msg['aprs_line'] as String?;
+        if (aprsLine != null) _onPacketLogged?.call(aprsLine);
       case 'aprs_is_liveness_check':
         _checkAprsIsLiveness();
     }
   }
+
+  /// Test-only entrypoint for IPC dispatch. Mirrors what
+  /// [FlutterForegroundTask.addTaskDataCallback] would deliver in production.
+  @visibleForTesting
+  void debugDispatchTaskData(Object data) => _onTaskData(data);
 
   /// Inspect each APRS-IS connection's [AprsIsConnection.lastLineAt] and
   /// recycle any whose last inbound line is older than [_kAprsIsStaleAfter].
