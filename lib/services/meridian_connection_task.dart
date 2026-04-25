@@ -6,10 +6,13 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/beaconing/smart_beacon_scheduler.dart';
+import '../core/beaconing/smart_beaconing.dart';
 import '../core/credentials/credential_key.dart';
 import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
 import '../models/outgoing_bulletin.dart';
+import 'beaconing_service.dart' show BeaconMode;
 import 'bulletin_service.dart';
 import 'messaging_settings_service.dart';
 
@@ -45,6 +48,16 @@ class MeridianConnectionTask extends TaskHandler {
   Timer? _beaconTimer;
   Timer? _bulletinTimer;
   int? _lastBeaconTs; // ms since epoch; null until first beacon this session
+
+  /// Active beacon mode for this background session. Set on `start_beaconing`
+  /// IPC from the main isolate; treated as auto if not yet set.
+  BeaconMode _activeMode = BeaconMode.auto;
+
+  /// Smart-mode scheduler. Non-null only while `_activeMode == BeaconMode.smart`.
+  SmartBeaconScheduler? _smart;
+
+  /// GPS position stream subscription. Active only in smart mode.
+  StreamSubscription<Position>? _positionSub;
 
   /// Bulletin scheduler tick interval in the background isolate. Matches the
   /// main-isolate `BulletinScheduler` cadence so schedule math is consistent.
@@ -99,6 +112,8 @@ class MeridianConnectionTask extends TaskHandler {
       case 'stop_beaconing':
         _beaconTimer?.cancel();
         _beaconTimer = null;
+        _stopSmartPositionStream();
+        _smart = null;
         _lastBeaconTs =
             null; // Stop onRepeatEvent updating notification after handoff
     }
@@ -108,6 +123,8 @@ class MeridianConnectionTask extends TaskHandler {
   Future<void> onDestroy(DateTime timestamp) async {
     _beaconTimer?.cancel();
     _bulletinTimer?.cancel();
+    await _positionSub?.cancel();
+    _positionSub = null;
   }
 
   // ---------------------------------------------------------------------------
@@ -118,20 +135,66 @@ class MeridianConnectionTask extends TaskHandler {
   /// main isolate last beaconed, so there is no gap after the screen locks.
   void _scheduleFirstBeacon(int lastBeaconTsMs) {
     _beaconTimer?.cancel();
+    _stopSmartPositionStream();
+    _smart = null;
     // Seed _lastBeaconTs so onRepeatEvent can start updating the notification
     // text immediately, before the first background beacon fires.
     if (lastBeaconTsMs > 0) _lastBeaconTs = lastBeaconTsMs;
-    SharedPreferences.getInstance().then((prefs) {
-      final intervalS = prefs.getInt('beacon_interval_s') ?? 600;
+    SharedPreferences.getInstance().then((prefs) async {
+      await prefs.reload();
+      _activeMode = _readBeaconMode(prefs);
+
+      // Manual mode never auto-fires. The user explicitly chose to send only
+      // when triggered; the prior background path would auto-fire anyway,
+      // which was a separate latent bug — this branch closes it.
+      if (_activeMode == BeaconMode.manual) return;
+
+      final intervalS = _resolveInitialIntervalS(prefs);
       final elapsedMs = DateTime.now().millisecondsSinceEpoch - lastBeaconTsMs;
       final elapsedS = elapsedMs ~/ 1000;
       final remainingS = (intervalS - elapsedS).clamp(0, intervalS);
       _beaconTimer = Timer(Duration(seconds: remainingS), _onBeaconTimer);
+
+      if (_activeMode == BeaconMode.smart) {
+        final params = _loadSmartParamsFromPrefs(prefs);
+        final smart = SmartBeaconScheduler(params: params);
+        // Seed the scheduler so the in-flight timer's deadline is visible to
+        // onPositionUpdate's only-shorten reschedule check.
+        smart.markBeaconSent(
+          DateTime.fromMillisecondsSinceEpoch(
+            lastBeaconTsMs > 0
+                ? lastBeaconTsMs
+                : DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        smart.seedCurrentTimer(
+          startedAt: DateTime.fromMillisecondsSinceEpoch(
+            lastBeaconTsMs > 0
+                ? lastBeaconTsMs
+                : DateTime.now().millisecondsSinceEpoch,
+          ),
+          intervalS: intervalS,
+        );
+        _smart = smart;
+        await _startSmartPositionStream();
+      }
     });
   }
 
   void _scheduleNextBeacon() {
-    SharedPreferences.getInstance().then((prefs) {
+    SharedPreferences.getInstance().then((prefs) async {
+      await prefs.reload();
+
+      if (_activeMode == BeaconMode.manual) return;
+
+      if (_activeMode == BeaconMode.smart && _smart != null) {
+        // Hot-reload params so user changes apply on the next cycle without
+        // restarting the FGS.
+        _smart!.updateParams(_loadSmartParamsFromPrefs(prefs));
+        _beaconTimer = Timer(_smart!.intervalAfterBeacon(), _onBeaconTimer);
+        return;
+      }
+
       final intervalS = prefs.getInt('beacon_interval_s') ?? 600;
       _beaconTimer = Timer(Duration(seconds: intervalS), _onBeaconTimer);
     });
@@ -140,6 +203,98 @@ class MeridianConnectionTask extends TaskHandler {
   void _onBeaconTimer() {
     // whenComplete ensures the next timer is always scheduled, even if _sendBeacon throws.
     _sendBeacon().whenComplete(_scheduleNextBeacon);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Mode + smart-beaconing helpers
+  // ---------------------------------------------------------------------------
+
+  BeaconMode _readBeaconMode(SharedPreferences prefs) {
+    final idx = prefs.getInt('beacon_mode') ?? BeaconMode.auto.index;
+    if (idx >= 0 && idx < BeaconMode.values.length) {
+      return BeaconMode.values[idx];
+    }
+    return BeaconMode.auto;
+  }
+
+  /// Initial interval to use when scheduling the first background beacon.
+  /// In smart mode we don't have a speed yet; fall back to slowRate as a
+  /// fail-safe upper bound — onPositionUpdate will shorten it once a fix
+  /// arrives if the user is moving.
+  int _resolveInitialIntervalS(SharedPreferences prefs) {
+    if (_activeMode == BeaconMode.smart) {
+      return prefs.getInt('smart_slowRateS') ??
+          SmartBeaconingParams.defaults.slowRateS;
+    }
+    return prefs.getInt('beacon_interval_s') ?? 600;
+  }
+
+  SmartBeaconingParams _loadSmartParamsFromPrefs(SharedPreferences prefs) {
+    final map = <String, dynamic>{};
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith('smart_')) {
+        map[key.substring('smart_'.length)] = prefs.get(key);
+      }
+    }
+    return map.isEmpty
+        ? SmartBeaconingParams.defaults
+        : SmartBeaconingParams.fromMap(map);
+  }
+
+  Future<void> _startSmartPositionStream() async {
+    await _positionSub?.cancel();
+    _positionSub = null;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        await FlutterForegroundTask.updateService(
+          notificationText:
+              'Smart beaconing unavailable — location service off',
+        );
+        return;
+      }
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        await FlutterForegroundTask.updateService(
+          notificationText:
+              'Smart beaconing unavailable — location permission required',
+        );
+        return;
+      }
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+        ),
+      ).listen(_onSmartPositionUpdate);
+    } catch (_) {
+      // Stream couldn't start — fall back to fixed cadence (slowRate timer
+      // is already scheduled in _scheduleFirstBeacon / _scheduleNextBeacon).
+    }
+  }
+
+  void _stopSmartPositionStream() {
+    _positionSub?.cancel();
+    _positionSub = null;
+  }
+
+  void _onSmartPositionUpdate(Position position) {
+    final smart = _smart;
+    if (smart == null || _activeMode != BeaconMode.smart) return;
+
+    final action = smart.onPositionUpdate(position);
+    switch (action) {
+      case FireNow():
+        _beaconTimer?.cancel();
+        _beaconTimer = null;
+        _onBeaconTimer();
+      case Reschedule(:final delay):
+        _beaconTimer?.cancel();
+        _beaconTimer = Timer(delay, _onBeaconTimer);
+      case Keep():
+        // No timer change.
+        break;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -261,6 +416,10 @@ class MeridianConnectionTask extends TaskHandler {
 
     final tsMs = DateTime.now().millisecondsSinceEpoch;
     _lastBeaconTs = tsMs;
+
+    // Reset the smart scheduler's turn-trigger window so the next sharp turn
+    // is measured from this beacon, not from the previous one.
+    _smart?.markBeaconSent(DateTime.fromMillisecondsSinceEpoch(tsMs));
 
     // Persist timestamp to SharedPreferences so the main isolate can sync
     // the BeaconingService timer on resume, even if the IPC message is delayed.
