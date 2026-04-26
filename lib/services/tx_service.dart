@@ -12,6 +12,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/connection/connection_registry.dart';
+import '../core/packet/aprs_packet.dart';
 import 'station_settings_service.dart';
 
 // ---------------------------------------------------------------------------
@@ -32,13 +33,23 @@ class TxEventTncReconnected extends TxEvent {}
 // ---------------------------------------------------------------------------
 
 class TxService extends ChangeNotifier {
-  TxService(this._registry, this._settings) {
+  TxService(this._registry, this._settings, {this.onSent}) {
     _registry.addListener(_onRegistryChanged);
   }
 
   final ConnectionRegistry _registry;
   final StationSettingsService _settings;
   final _eventController = StreamController<TxEvent>.broadcast();
+
+  /// Invoked once per successful per-connection transmit so outgoing packets
+  /// can be recorded in the packet log tagged with their actual transport.
+  final void Function(String aprsLine, PacketSource source)? onSent;
+
+  static PacketSource _packetSourceFor(ConnectionType t) => switch (t) {
+    ConnectionType.aprsIs => PacketSource.aprsIs,
+    ConnectionType.bleTnc => PacketSource.bleTnc,
+    ConnectionType.serialTnc => PacketSource.serialTnc,
+  };
 
   bool _tncWasConnected = false;
 
@@ -84,6 +95,7 @@ class TxService extends ChangeNotifier {
     final conn = _effectiveConnection(forceVia: forceVia);
     if (conn == null) return;
     await conn.sendLine(aprsLine, digipeaterPath: digipeaterPath);
+    onSent?.call(aprsLine, _packetSourceFor(conn.type));
   }
 
   /// Send a bulletin packet honoring the per-bulletin transport flags. Unlike
@@ -112,6 +124,7 @@ class TxService extends ChangeNotifier {
       if (conn != null) {
         try {
           await conn.sendLine(aprsLine);
+          onSent?.call(aprsLine, _packetSourceFor(conn.type));
         } catch (e) {
           debugPrint('TxService: bulletin via APRS-IS failed: $e');
         }
@@ -129,6 +142,7 @@ class TxService extends ChangeNotifier {
       if (conn != null) {
         try {
           await conn.sendLine(aprsLine, digipeaterPath: rfPath);
+          onSent?.call(aprsLine, _packetSourceFor(conn.type));
         } catch (e) {
           debugPrint('TxService: bulletin via RF (${conn.id}) failed: $e');
         }
@@ -152,6 +166,7 @@ class TxService extends ChangeNotifier {
       if (conn.beaconingEnabled && conn.isConnected) {
         try {
           await conn.sendLine(aprsLine);
+          onSent?.call(aprsLine, _packetSourceFor(conn.type));
         } catch (e) {
           debugPrint('TxService: sendBeacon via ${conn.id} failed: $e');
         }
@@ -178,6 +193,7 @@ class TxService extends ChangeNotifier {
         .firstOrNull;
     if (conn != null) {
       await conn.sendLine(aprsLine, digipeaterPath: digipeaterPath);
+      onSent?.call(aprsLine, _packetSourceFor(conn.type));
     }
   }
 

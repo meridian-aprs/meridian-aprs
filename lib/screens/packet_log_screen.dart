@@ -244,58 +244,77 @@ class _PacketRow extends StatelessWidget {
     final typeLabel = _typeLabel(packet);
     final summary = _summary(packet);
     final timeStr = timeFmt.format(packet.receivedAt.toLocal());
+    final transportLabel = _transportLabel(packet);
 
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Timestamp
-            SizedBox(
-              width: 68,
-              child: Text(
-                timeStr,
-                style: textTheme.bodySmall?.copyWith(
-                  fontFamily: 'monospace',
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ),
-
-            // Type chip
-            _TypeBadge(label: typeLabel, colorScheme: colorScheme),
-
-            const SizedBox(width: 8),
-
-            // Source badge — only for TNC packets to avoid visual noise
-            if (packet.transportSource == PacketSource.tnc)
-              _SourceBadge(colorScheme: colorScheme),
-            if (packet.transportSource == PacketSource.tnc)
-              const SizedBox(width: 6),
+            // Type chip — leading, color-coded per packet type
+            _TypeBadge(label: typeLabel, brightness: theme.brightness),
+            const SizedBox(width: 10),
 
             // Callsign + summary
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    packet.source,
-                    style: textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: colorScheme.onSurface,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (summary.isNotEmpty)
-                    Text(
-                      summary,
-                      style: textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          packet.source,
+                          style: textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: colorScheme.onSurface,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                      const SizedBox(width: 8),
+                      Text(
+                        timeStr,
+                        style: textTheme.bodySmall?.copyWith(
+                          fontFamily: 'monospace',
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      if (summary.isNotEmpty)
+                        Expanded(
+                          child: Text(
+                            summary,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        )
+                      else
+                        const Spacer(),
+                      const SizedBox(width: 8),
+                      Text(
+                        transportLabel,
+                        style: textTheme.labelSmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant.withValues(
+                            alpha: 0.75,
+                          ),
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -303,6 +322,14 @@ class _PacketRow extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  static String _transportLabel(AprsPacket p) {
+    final transport = switch (p.transportSource) {
+      PacketSource.aprsIs => 'Internet',
+      PacketSource.bleTnc || PacketSource.serialTnc || PacketSource.tnc => 'RF',
+    };
+    return p.isOutgoing ? 'Sent · $transport' : transport;
   }
 
   static String _typeLabel(AprsPacket p) {
@@ -363,60 +390,48 @@ class _PacketRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Type badge
+// Type badge — color-coded per packet type, theme-aware
 // ---------------------------------------------------------------------------
 
 class _TypeBadge extends StatelessWidget {
-  const _TypeBadge({required this.label, required this.colorScheme});
+  const _TypeBadge({required this.label, required this.brightness});
 
   final String label;
-  final ColorScheme colorScheme;
+  final Brightness brightness;
 
   @override
   Widget build(BuildContext context) {
+    final base = _typeBase(label);
+    final isDark = brightness == Brightness.dark;
+    final bg = base.withValues(alpha: isDark ? 0.24 : 0.16);
+    final fg = isDark ? base.shade200 : base.shade800;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      width: 56,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(vertical: 3),
       decoration: BoxDecoration(
-        color: colorScheme.secondaryContainer,
+        color: bg,
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: colorScheme.onSecondaryContainer,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
+          color: fg,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.4,
         ),
       ),
     );
   }
-}
 
-// ---------------------------------------------------------------------------
-// Source badge
-// ---------------------------------------------------------------------------
-
-class _SourceBadge extends StatelessWidget {
-  const _SourceBadge({required this.colorScheme});
-
-  final ColorScheme colorScheme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-      decoration: BoxDecoration(
-        color: colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Text(
-        'RF',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: colorScheme.onTertiaryContainer,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 0.3,
-        ),
-      ),
-    );
-  }
+  static MaterialColor _typeBase(String label) => switch (label) {
+    'POS' => Colors.blue,
+    'MSG' => Colors.deepPurple,
+    'WX' => Colors.cyan,
+    'OBJ' => Colors.deepOrange,
+    'ITEM' => Colors.amber,
+    'STATUS' => Colors.green,
+    'MIC-E' => Colors.indigo,
+    _ => Colors.blueGrey,
+  };
 }

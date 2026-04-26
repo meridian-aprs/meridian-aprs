@@ -270,6 +270,12 @@ class StationService extends ChangeNotifier {
   void ingestLine(String raw, {PacketSource source = PacketSource.aprsIs}) =>
       _handleLine(raw, source: source);
 
+  /// Record a packet that *we* just transmitted, tagged with the transport
+  /// it went out on. Used by [TxService] to surface outgoing traffic in the
+  /// packet log alongside received packets.
+  void recordOutgoing(String raw, {required PacketSource source}) =>
+      _handleLine(raw, source: source, isOutgoing: true);
+
   // ---------------------------------------------------------------------------
   // History persistence
   // ---------------------------------------------------------------------------
@@ -388,12 +394,17 @@ class StationService extends ChangeNotifier {
   // Internal
   // ---------------------------------------------------------------------------
 
-  void _handleLine(String raw, {PacketSource source = PacketSource.aprsIs}) {
+  void _handleLine(
+    String raw, {
+    PacketSource source = PacketSource.aprsIs,
+    bool isOutgoing = false,
+  }) {
     debugPrint(raw);
 
     if (raw.isEmpty || raw.startsWith('#')) return;
 
-    final packet = _parser.parse(raw, transportSource: source);
+    final packet = _parser.parse(raw, transportSource: source)
+      ..isOutgoing = isOutgoing;
 
     // Add to rolling in-session buffer, capped for performance.
     _recentPackets.insert(0, packet);

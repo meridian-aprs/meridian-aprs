@@ -32,13 +32,19 @@ sealed class AprsPacket {
   /// Which transport delivered this packet.
   final PacketSource transportSource;
 
-  const AprsPacket({
+  /// True when this packet was transmitted by *us* and recorded back into
+  /// the log via [StationService.recordOutgoing]. Set after construction
+  /// because the parser is unaware of TX direction.
+  bool isOutgoing;
+
+  AprsPacket({
     required this.rawLine,
     required this.source,
     required this.destination,
     required this.path,
     required this.receivedAt,
     this.transportSource = PacketSource.aprsIs,
+    this.isOutgoing = false,
   });
 }
 
@@ -74,7 +80,7 @@ class PositionPacket extends AprsPacket {
   /// centre of the ambiguity box.
   final int positionAmbiguity;
 
-  const PositionPacket({
+  PositionPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -134,7 +140,7 @@ class WeatherPacket extends AprsPacket {
   /// Rainfall since midnight, in hundredths of an inch (APRS field `P`).
   final double? rainSinceMidnight;
 
-  const WeatherPacket({
+  WeatherPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -184,7 +190,7 @@ class MessagePacket extends AprsPacket {
   /// When true, [messageId] contains the wire ID being rejected.
   final bool isRej;
 
-  const MessagePacket({
+  MessagePacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -227,7 +233,7 @@ class ObjectPacket extends AprsPacket {
   /// sit at the centre of the ambiguity box.
   final int positionAmbiguity;
 
-  const ObjectPacket({
+  ObjectPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -273,7 +279,7 @@ class ItemPacket extends AprsPacket {
   /// sit at the centre of the ambiguity box.
   final int positionAmbiguity;
 
-  const ItemPacket({
+  ItemPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -303,7 +309,7 @@ class StatusPacket extends AprsPacket {
   /// Optional DHM/HMS timestamp encoded in the status field.
   final DateTime? timestamp;
 
-  const StatusPacket({
+  StatusPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -338,7 +344,7 @@ class MicEPacket extends AprsPacket {
   /// suffix (e.g. "Kenwood TH-D72A", "Yaesu FT3D series"), or null if unknown.
   final String? device;
 
-  const MicEPacket({
+  MicEPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
@@ -370,7 +376,7 @@ class UnknownPacket extends AprsPacket {
   final String reason;
   final String rawInfo;
 
-  const UnknownPacket({
+  UnknownPacket({
     required super.rawLine,
     required super.source,
     required super.destination,
