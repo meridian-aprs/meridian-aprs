@@ -179,14 +179,13 @@ Future<void> main() async {
     });
   }
 
-  final txService = TxService(registry, stationSettings);
-
-  final beaconingService = BeaconingService(
+  final txService = TxService(
+    registry,
     stationSettings,
-    txService,
-    onBeaconSent: (line) =>
-        service.ingestLine(line, source: PacketSource.aprsIs),
+    onSent: (line, src) => service.recordOutgoing(line, source: src),
   );
+
+  final beaconingService = BeaconingService(stationSettings, txService);
   await beaconingService.loadPersistedSettings();
 
   final groupSubscriptions = GroupSubscriptionService(prefs: prefs);

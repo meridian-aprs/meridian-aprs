@@ -137,7 +137,23 @@ class PacketDetailSheet extends StatelessWidget {
     // Common header fields
     m['Source'] = p.source;
     m['Destination'] = p.destination;
-    if (p.path.isNotEmpty) m['Path'] = p.path.join(', ');
+    m['Direction'] = p.isOutgoing ? 'Outgoing' : 'Incoming';
+    m[p.isOutgoing ? 'Sent via' : 'Received via'] = _transportLabel(
+      p.transportSource,
+    );
+    if (!p.isOutgoing && _isRf(p.transportSource)) {
+      // Show only digipeaters that actually relayed this packet (H-bit set,
+      // i.e. trailing '*' in the reconstructed path). Unused entries describe
+      // the requested route, not the route taken.
+      final usedDigis = p.path.where((d) => d.endsWith('*')).toList();
+      if (usedDigis.isEmpty) {
+        m['Heard'] = 'Direct from ${p.source}';
+      } else {
+        m['Heard via'] = [p.source, ...usedDigis].join(' → ');
+      }
+    } else if (p.path.isNotEmpty) {
+      m['Path'] = p.path.join(', ');
+    }
     m['Received'] = p.receivedAt
         .toUtc()
         .toString()
@@ -247,6 +263,18 @@ class PacketDetailSheet extends StatelessWidget {
     return m;
   }
 }
+
+bool _isRf(PacketSource src) =>
+    src == PacketSource.bleTnc ||
+    src == PacketSource.serialTnc ||
+    src == PacketSource.tnc;
+
+String _transportLabel(PacketSource src) => switch (src) {
+  PacketSource.aprsIs => 'Internet (APRS-IS)',
+  PacketSource.bleTnc => 'RF (BLE TNC)',
+  PacketSource.serialTnc => 'RF (Serial TNC)',
+  PacketSource.tnc => 'RF (TNC)',
+};
 
 String _formatLat(double lat) {
   final dir = lat >= 0 ? 'N' : 'S';
