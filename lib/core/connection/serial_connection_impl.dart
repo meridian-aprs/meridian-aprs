@@ -10,6 +10,7 @@ import '../packet/aprs_parser.dart';
 import '../transport/kiss_tnc_transport.dart';
 import '../transport/serial_kiss_transport.dart';
 import '../transport/tnc_config.dart';
+import '../util/clock.dart';
 import 'meridian_connection.dart';
 import 'reconnectable_mixin.dart';
 
@@ -28,7 +29,9 @@ import 'reconnectable_mixin.dart';
 /// SharedPreferences so it survives app restarts; [loadPersistedSettings]
 /// restores it on startup without connecting.
 class SerialConnection extends MeridianConnection with ReconnectableMixin {
-  SerialConnection();
+  SerialConnection({Clock clock = DateTime.now}) : _clock = clock;
+
+  final Clock _clock;
 
   static const _kBeaconingKey = 'beacon_enabled_serial_tnc';
 
@@ -302,7 +305,7 @@ class SerialConnection extends MeridianConnection with ReconnectableMixin {
   }
 
   void _onFrame(Uint8List frameBytes) {
-    final packet = _parser.parseFrame(frameBytes);
+    final packet = _parser.parseFrame(frameBytes, receivedAt: _clock().toUtc());
     if (packet.rawLine.isNotEmpty && !_linesController.isClosed) {
       _linesController.add(packet.rawLine);
     }

@@ -89,7 +89,10 @@ void main() {
       final ax25Result = const Ax25Parser().parseFrame(frames[0]);
       expect(ax25Result, isA<Ax25Ok>());
 
-      final packet = AprsParser().parseFrame(frames[0]);
+      final packet = AprsParser().parseFrame(
+        frames[0],
+        receivedAt: DateTime.utc(2026, 1, 1),
+      );
       expect(packet, isA<PositionPacket>());
 
       final pos = packet as PositionPacket;
@@ -109,7 +112,10 @@ void main() {
 
       expect(frames, hasLength(1));
 
-      final packet = AprsParser().parseFrame(frames[0]);
+      final packet = AprsParser().parseFrame(
+        frames[0],
+        receivedAt: DateTime.utc(2026, 1, 1),
+      );
       expect(packet, isA<StatusPacket>());
       expect(packet.source, equals('KD9ABC'));
     });
@@ -127,7 +133,10 @@ void main() {
 
         expect(frames, hasLength(1));
 
-        final packet = AprsParser().parseFrame(frames[0]);
+        final packet = AprsParser().parseFrame(
+          frames[0],
+          receivedAt: DateTime.utc(2026, 1, 1),
+        );
         expect(packet, isA<UnknownPacket>());
       },
     );

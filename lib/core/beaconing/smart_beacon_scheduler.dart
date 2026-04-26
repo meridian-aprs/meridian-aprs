@@ -11,6 +11,7 @@ library;
 
 import 'package:geolocator/geolocator.dart';
 
+import '../util/clock.dart';
 import 'smart_beaconing.dart';
 
 /// Decision returned by [SmartBeaconScheduler.onPositionUpdate].
@@ -38,10 +39,14 @@ class Keep extends SmartAction {
 }
 
 class SmartBeaconScheduler {
-  SmartBeaconScheduler({required SmartBeaconingParams params})
-    : _params = params;
+  SmartBeaconScheduler({
+    required SmartBeaconingParams params,
+    Clock clock = DateTime.now,
+  }) : _params = params,
+       _clock = clock;
 
   SmartBeaconingParams _params;
+  final Clock _clock;
   Position? _lastPosition;
   double? _lastHeading;
   DateTime? _lastBeaconAt;
@@ -78,7 +83,7 @@ class SmartBeaconScheduler {
   ///
   /// If no GPS fix is available yet, falls back to the slowRate.
   Duration intervalAfterBeacon({DateTime? now}) {
-    final stamp = now ?? DateTime.now();
+    final stamp = now ?? _clock();
     final speedKmh = _speedKmhFromLast();
     final intervalS = SmartBeaconing.computeInterval(_params, speedKmh);
     _currentTimerStartedAt = stamp;
@@ -91,7 +96,7 @@ class SmartBeaconScheduler {
   /// Mirrors [BeaconingService._onPositionUpdate] exactly — turn trigger
   /// check first (gated on minTurnTimeS), then only-shorten reschedule.
   SmartAction onPositionUpdate(Position position, {DateTime? now}) {
-    final stamp = now ?? DateTime.now();
+    final stamp = now ?? _clock();
     final speedKmh = (position.speed * 3.6).clamp(0.0, double.infinity);
     final heading = position.heading;
 

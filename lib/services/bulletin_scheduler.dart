@@ -18,6 +18,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/packet/aprs_encoder.dart';
+import '../core/util/clock.dart';
 import '../models/outgoing_bulletin.dart';
 import 'bulletin_service.dart';
 import 'messaging_settings_service.dart';
@@ -48,20 +49,20 @@ class BulletinScheduler extends ChangeNotifier {
     required MessagingSettingsService messagingSettings,
     required StationSettingsService stationSettings,
     Duration tickInterval = const Duration(seconds: 30),
-    DateTime Function()? clock,
+    Clock clock = DateTime.now,
   }) : _bulletins = bulletins,
        _tx = tx,
        _messagingSettings = messagingSettings,
        _stationSettings = stationSettings,
        _tickInterval = tickInterval,
-       _clock = clock ?? DateTime.now;
+       _clock = clock;
 
   final BulletinService _bulletins;
   final TxService _tx;
   final MessagingSettingsService _messagingSettings;
   final StationSettingsService _stationSettings;
   final Duration _tickInterval;
-  final DateTime Function() _clock;
+  final Clock _clock;
 
   final _eventController = StreamController<Object>.broadcast();
   Timer? _timer;

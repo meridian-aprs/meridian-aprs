@@ -21,6 +21,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/beaconing/smart_beaconing.dart';
 import '../core/packet/aprs_encoder.dart';
+import '../core/util/clock.dart';
 import 'station_settings_service.dart';
 import 'tx_service.dart';
 
@@ -39,10 +40,16 @@ enum BeaconError {
 }
 
 class BeaconingService extends ChangeNotifier {
-  BeaconingService(this._settings, this._tx, {this.onBeaconSent});
+  BeaconingService(
+    this._settings,
+    this._tx, {
+    this.onBeaconSent,
+    Clock clock = DateTime.now,
+  }) : _clock = clock;
 
   final StationSettingsService _settings;
   final TxService _tx;
+  final Clock _clock;
 
   /// Called after every successful beacon with the raw APRS-IS line.
   ///
@@ -217,7 +224,7 @@ class BeaconingService extends ChangeNotifier {
     // does not echo the packet back.
     onBeaconSent?.call(aprsLine);
     await _tx.sendBeacon(aprsLine);
-    _lastBeaconAt = DateTime.now();
+    _lastBeaconAt = _clock();
 
     if (_isActive) await _restartTimer();
     notifyListeners();
@@ -233,7 +240,7 @@ class BeaconingService extends ChangeNotifier {
     // before notifyListeners so the very first BSM rebuild sees a fresh
     // timestamp. beaconNow() will overwrite this with the real send time
     // on success.
-    _lastBeaconAt = DateTime.now();
+    _lastBeaconAt = _clock();
     // Notify immediately so UI and BackgroundServiceManager update the
     // notification before the first beacon send (which may take several
     // seconds waiting for a GPS fix).
@@ -282,7 +289,7 @@ class BeaconingService extends ChangeNotifier {
     _timer?.cancel();
     _lastBeaconAt = ts;
     if (_isActive) {
-      final elapsed = DateTime.now().difference(ts).inSeconds;
+      final elapsed = _clock().difference(ts).inSeconds;
       final remaining = (_autoIntervalS - elapsed).clamp(0, _autoIntervalS);
       _timerStartedAt = ts;
       _timerIntervalS = _autoIntervalS;
@@ -378,7 +385,7 @@ class BeaconingService extends ChangeNotifier {
         _lastBeaconAt != null &&
         _lastHeading != null) {
       final headingDelta = _angleDiff(heading, _lastHeading!);
-      final timeSinceLast = DateTime.now().difference(_lastBeaconAt!);
+      final timeSinceLast = _clock().difference(_lastBeaconAt!);
       if (SmartBeaconing.shouldTriggerTurn(
         _smartParams,
         speedKmh,
@@ -418,7 +425,7 @@ class BeaconingService extends ChangeNotifier {
   Future<void> _restartTimer() async {
     _timer?.cancel();
     final intervalS = await _resolveCurrentInterval();
-    _timerStartedAt = DateTime.now();
+    _timerStartedAt = _clock();
     _timerIntervalS = intervalS;
     _timer = Timer(Duration(seconds: intervalS), _onTimerFired);
   }
@@ -428,13 +435,13 @@ class BeaconingService extends ChangeNotifier {
   /// the timer and delaying beacons indefinitely.
   void _rescheduleSmartTimer(int intervalS) {
     if (_timerStartedAt != null && _timerIntervalS != null) {
-      final elapsed = DateTime.now().difference(_timerStartedAt!).inSeconds;
+      final elapsed = _clock().difference(_timerStartedAt!).inSeconds;
       final remaining = _timerIntervalS! - elapsed;
       // Only shorten — never push the beacon further out.
       if (intervalS >= remaining) return;
     }
     _timer?.cancel();
-    _timerStartedAt = DateTime.now();
+    _timerStartedAt = _clock();
     _timerIntervalS = intervalS;
     _timer = Timer(Duration(seconds: intervalS), _onTimerFired);
   }

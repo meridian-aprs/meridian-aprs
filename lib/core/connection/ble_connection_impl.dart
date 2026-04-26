@@ -10,6 +10,7 @@ import '../ax25/ax25_encoder.dart';
 import '../packet/aprs_parser.dart';
 import '../transport/ble_tnc_transport.dart';
 import '../transport/kiss_tnc_transport.dart';
+import '../util/clock.dart';
 import 'meridian_connection.dart';
 import 'reconnectable_mixin.dart';
 
@@ -26,7 +27,9 @@ import 'reconnectable_mixin.dart';
 /// Call [connectToDevice] to initiate a session with a specific BLE device.
 /// Calling [connect] after [connectToDevice] re-uses the stored device.
 class BleConnection extends MeridianConnection with ReconnectableMixin {
-  BleConnection();
+  BleConnection({Clock clock = DateTime.now}) : _clock = clock;
+
+  final Clock _clock;
 
   static const _kBeaconingKey = 'beacon_enabled_ble_tnc';
 
@@ -293,7 +296,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   }
 
   void _onFrame(Uint8List frameBytes) {
-    final packet = _parser.parseFrame(frameBytes);
+    final packet = _parser.parseFrame(frameBytes, receivedAt: _clock().toUtc());
     if (packet.rawLine.isNotEmpty && !_linesController.isClosed) {
       _linesController.add(packet.rawLine);
     }

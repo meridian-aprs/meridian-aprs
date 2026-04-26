@@ -106,6 +106,14 @@ Inter (weights 400/500/600/700) is bundled offline and registered in `pubspec.ya
 Transport (bytes) → KISS framing → AX.25 frame → APRS parser → Station model → UI
 ```
 
+`AprsParser` is pure: `parse(...)` and `parseFrame(...)` both require a
+`receivedAt: DateTime` argument and contain zero `DateTime.now()` calls. The
+canonical transport-boundary stamp lives in `StationService._handleLine`,
+which calls `_parser.parse(raw, transportSource: source, receivedAt: _clock().toUtc())`.
+This keeps the parser deterministic for the same bytes (replay-friendly) and
+puts arrival-time stamping on the side of the system that actually knows
+when packets arrived.
+
 ## Data Flow (Transmit Path)
 
 ```
@@ -291,7 +299,7 @@ abstract interface class KissTncTransport {
 }
 ```
 
-Both `SerialKissTransport` (USB serial, desktop) and `BleTncTransport` (BLE, mobile) implement this interface. APRS parsing is **not** part of this interface — it is the service layer's responsibility.
+Both `SerialKissTransport` (USB serial, desktop) and `BleTncTransport` (BLE, mobile) implement this interface. APRS parsing is **not** part of this interface — it is the service layer's responsibility, and arrival-time stamping happens at ingestion in `StationService` (see [Data Flow (Receive Path)](#data-flow-receive-path) for the parser/transport boundary contract).
 
 ### `TransportManager`
 

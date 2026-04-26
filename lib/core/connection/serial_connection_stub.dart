@@ -4,11 +4,12 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../transport/kiss_tnc_transport.dart';
 import '../transport/tnc_config.dart';
+import '../util/clock.dart';
 import 'meridian_connection.dart';
 
 /// Stub [SerialConnection] for platforms where serial is not supported (web).
 class SerialConnection extends MeridianConnection {
-  SerialConnection();
+  SerialConnection({Clock clock = DateTime.now});
 
   @visibleForTesting
   KissTncTransport Function(TncConfig)? transportFactory;

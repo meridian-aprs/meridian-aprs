@@ -155,7 +155,7 @@ Protocol-complete APRS messaging — group messages (`CQ`, `QST`, `ALL`, custom 
 
 Architecture, testing, and dependency foundations that unblock the subsequent performance, polish, and launch work. Nothing here is user-visible on its own; all of it removes friction or risk from later milestones.
 
-- Inject `Clock` abstraction so time-dependent logic is deterministic in tests (#43)
+- ✅ Inject `Clock` abstraction so time-dependent logic is deterministic in tests (#43)
 - Service-level test coverage for `BeaconingService` (#52) and `TxService` Serial > BLE > APRS-IS routing hierarchy (#60)
 - BeaconFAB widget regression guard — pin start/stop semantics in auto/smart modes, long-press cooldown, "Xm ago" label (#86, split from #53)
 - Dependency upgrades: `flutter_local_notifications` v18 → v21 paired with `desugar_jdk_libs` refresh (#54, absorbed #66); `flutter_blue_plus` 1.x → 2.x (#55)

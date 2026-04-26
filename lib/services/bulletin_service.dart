@@ -19,6 +19,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/aprs_packet.dart';
+import '../core/util/clock.dart';
 import '../models/bulletin.dart';
 import '../models/outgoing_bulletin.dart';
 import 'bulletin_subscription_service.dart';
@@ -40,11 +41,14 @@ class BulletinService extends ChangeNotifier {
   BulletinService({
     required BulletinSubscriptionService subscriptions,
     SharedPreferences? prefs,
+    Clock clock = DateTime.now,
   }) : _subscriptions = subscriptions,
-       _prefsOverride = prefs;
+       _prefsOverride = prefs,
+       _clock = clock;
 
   final BulletinSubscriptionService _subscriptions;
   final SharedPreferences? _prefsOverride;
+  final Clock _clock;
 
   static const _keyBulletins = 'bulletins_v1';
   static const _keyNextId = 'bulletins_next_id_v1';
@@ -347,7 +351,7 @@ class BulletinService extends ChangeNotifier {
         'invalid bulletin addressee — must be BLN[0-9A-Z][NAME]',
       );
     }
-    final now = DateTime.now();
+    final now = _clock();
     final ob = OutgoingBulletin(
       id: _outgoingNextId++,
       addressee: normalized,
@@ -469,7 +473,7 @@ class BulletinService extends ChangeNotifier {
   /// Call from a periodic sweeper (added in PR 5 along with the notification
   /// pipeline).
   Future<void> pruneOlderThan(Duration retention) async {
-    final cutoff = DateTime.now().subtract(retention);
+    final cutoff = _clock().subtract(retention);
     final before = _bulletins.length;
     _bulletins.removeWhere((_, b) => b.lastHeardAt.isBefore(cutoff));
     if (_bulletins.length == before) return;

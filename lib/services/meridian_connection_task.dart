@@ -12,6 +12,7 @@ import '../core/beaconing/smart_beaconing.dart';
 import '../core/credentials/credential_key.dart';
 import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
+import '../core/util/clock.dart';
 import '../models/outgoing_bulletin.dart';
 import 'beaconing_service.dart' show BeaconMode;
 import 'bulletin_service.dart';
@@ -46,6 +47,10 @@ void startMeridianConnectionTask() {
 /// `rotate.aprs2.net:14580`, logs in, sends the packet, and closes. This is
 /// independent of the main isolate's APRS-IS socket.
 class MeridianConnectionTask extends TaskHandler {
+  MeridianConnectionTask({Clock clock = DateTime.now}) : _clock = clock;
+
+  final Clock _clock;
+
   Timer? _beaconTimer;
   Timer? _bulletinTimer;
   int? _lastBeaconTs; // ms since epoch; null until first beacon this session
@@ -104,7 +109,7 @@ class MeridianConnectionTask extends TaskHandler {
     // unable to fire (Issue #76).
     FlutterForegroundTask.sendDataToMain({
       'type': 'aprs_is_liveness_check',
-      'now_ms': DateTime.now().millisecondsSinceEpoch,
+      'now_ms': _clock().millisecondsSinceEpoch,
     });
 
     // Also refreshes the "last beacon: Xm ago" notification text so it stays
@@ -116,7 +121,7 @@ class MeridianConnectionTask extends TaskHandler {
     if (_beaconTimer == null) return;
     final ts = _lastBeaconTs;
     if (ts == null) return;
-    final diffMs = DateTime.now().millisecondsSinceEpoch - ts;
+    final diffMs = _clock().millisecondsSinceEpoch - ts;
     final minutes = diffMs ~/ 60000;
     final ago = minutes < 1 ? 'just now' : '${minutes}m ago';
     FlutterForegroundTask.updateService(
@@ -181,7 +186,7 @@ class MeridianConnectionTask extends TaskHandler {
       if (_activeMode == BeaconMode.manual) return;
 
       final intervalS = _resolveInitialIntervalS(prefs);
-      final elapsedMs = DateTime.now().millisecondsSinceEpoch - lastBeaconTsMs;
+      final elapsedMs = _clock().millisecondsSinceEpoch - lastBeaconTsMs;
       final elapsedS = elapsedMs ~/ 1000;
       final remainingS = (intervalS - elapsedS).clamp(0, intervalS);
       _beaconTimer = Timer(Duration(seconds: remainingS), _onBeaconTimer);
@@ -195,14 +200,14 @@ class MeridianConnectionTask extends TaskHandler {
           DateTime.fromMillisecondsSinceEpoch(
             lastBeaconTsMs > 0
                 ? lastBeaconTsMs
-                : DateTime.now().millisecondsSinceEpoch,
+                : _clock().millisecondsSinceEpoch,
           ),
         );
         smart.seedCurrentTimer(
           startedAt: DateTime.fromMillisecondsSinceEpoch(
             lastBeaconTsMs > 0
                 ? lastBeaconTsMs
-                : DateTime.now().millisecondsSinceEpoch,
+                : _clock().millisecondsSinceEpoch,
           ),
           intervalS: intervalS,
         );
@@ -458,7 +463,7 @@ class MeridianConnectionTask extends TaskHandler {
 
     if (!anySent) return;
 
-    final tsMs = DateTime.now().millisecondsSinceEpoch;
+    final tsMs = _clock().millisecondsSinceEpoch;
     _lastBeaconTs = tsMs;
 
     // Reset the smart scheduler's turn-trigger window so the next sharp turn
@@ -584,7 +589,7 @@ class MeridianConnectionTask extends TaskHandler {
     }
 
     var mutated = false;
-    final now = DateTime.now();
+    final now = _clock();
     for (var i = 0; i < outgoing.length; i++) {
       final ob = outgoing[i];
       if (!ob.enabled) continue;

@@ -34,12 +34,13 @@ class AprsParser {
   ///
   /// Format: `SOURCE>DEST,PATH:INFO`
   ///
-  /// Supply [receivedAt] to override the default of [DateTime.now]. Useful
-  /// when restoring persisted packets that already have a known receive time.
+  /// [receivedAt] stamps the moment the packet arrived. The parser is pure
+  /// w.r.t. wall-clock — callers (typically [StationService] at the transport
+  /// boundary) supply the timestamp so tests can inject deterministic time.
   AprsPacket parse(
     String line, {
+    required DateTime receivedAt,
     PacketSource transportSource = PacketSource.aprsIs,
-    DateTime? receivedAt,
   }) {
     // Ignore blank lines and server comment lines.
     if (line.isEmpty || line.startsWith('#')) {
@@ -49,6 +50,7 @@ class AprsParser {
         '',
         [],
         'Server comment or empty line',
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -62,6 +64,7 @@ class AprsParser {
         '',
         [],
         'No colon separator found',
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -78,6 +81,7 @@ class AprsParser {
         '',
         [],
         'No > in header',
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -94,12 +98,12 @@ class AprsParser {
         destination,
         path,
         'Empty info field',
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
 
     final dti = info[0];
-    final now = receivedAt ?? DateTime.now().toUtc();
 
     try {
       return _dispatch(
@@ -109,7 +113,7 @@ class AprsParser {
         source: source,
         destination: destination,
         path: path,
-        receivedAt: now,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     } catch (_) {
@@ -119,7 +123,7 @@ class AprsParser {
         source: source,
         destination: destination,
         path: path,
-        receivedAt: now,
+        receivedAt: receivedAt,
         transportSource: transportSource,
         reason: 'Unhandled parse exception',
         rawInfo: info,
@@ -129,10 +133,11 @@ class AprsParser {
 
   /// Parse raw AX.25 frame bytes.
   ///
-  /// Stub implementation — returns [UnknownPacket] until AX.25 framing support
-  /// is added in a future milestone.
+  /// [receivedAt] stamps the moment the frame arrived. See [parse] for the
+  /// rationale.
   AprsPacket parseFrame(
     Uint8List frameBytes, {
+    required DateTime receivedAt,
     PacketSource transportSource = PacketSource.aprsIs,
   }) {
     final result = const Ax25Parser().parseFrame(frameBytes);
@@ -142,7 +147,7 @@ class AprsParser {
         source: '',
         destination: '',
         path: const [],
-        receivedAt: DateTime.now().toUtc(),
+        receivedAt: receivedAt,
         transportSource: transportSource,
         reason: 'AX.25 decode failed: ${result.reason}',
       );
@@ -155,7 +160,11 @@ class AprsParser {
     final pathStr = frame.pathString.isEmpty ? '' : ',${frame.pathString}';
     final reconstructed =
         '${frame.source}>${frame.destination}$pathStr:$infoStr';
-    return parse(reconstructed, transportSource: transportSource);
+    return parse(
+      reconstructed,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -292,6 +301,7 @@ class AprsParser {
           path,
           'Unrecognised DTI: $dti',
           rawInfo: info,
+          receivedAt: receivedAt,
           transportSource: transportSource,
         );
     }
@@ -354,6 +364,7 @@ class AprsParser {
           path,
           'Timestamped position too short',
           rawInfo: info,
+          receivedAt: receivedAt,
           transportSource: transportSource,
         );
       }
@@ -372,6 +383,7 @@ class AprsParser {
         path,
         'No position data after DTI/timestamp',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -452,6 +464,7 @@ class AprsParser {
         path,
         'Uncompressed position regex did not match',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -532,6 +545,7 @@ class AprsParser {
         path,
         'Compressed position string too short',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -553,6 +567,7 @@ class AprsParser {
         path,
         'Invalid base-91 encoding in compressed position',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -681,6 +696,7 @@ class AprsParser {
         path,
         'Object packet too short',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -698,6 +714,7 @@ class AprsParser {
         path,
         'Object packet missing timestamp/position',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -722,6 +739,7 @@ class AprsParser {
           path,
           'Object uncompressed position regex did not match',
           rawInfo: info,
+          receivedAt: receivedAt,
           transportSource: transportSource,
         );
       }
@@ -782,6 +800,7 @@ class AprsParser {
         path,
         'Object compressed position too short',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -801,6 +820,7 @@ class AprsParser {
         path,
         'Object compressed position decode failed',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -849,6 +869,7 @@ class AprsParser {
         path,
         'Item packet too short',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -872,6 +893,7 @@ class AprsParser {
         path,
         'Item name delimiter not found',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -888,6 +910,7 @@ class AprsParser {
         path,
         'Item position parse failed',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -940,6 +963,7 @@ class AprsParser {
         path,
         'Message format invalid (need :XXXXXXXXX:)',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -1179,6 +1203,7 @@ class AprsParser {
         path,
         'Mic-E packet too short',
         rawInfo: info,
+        receivedAt: receivedAt,
         transportSource: transportSource,
       );
     }
@@ -1556,6 +1581,7 @@ class AprsParser {
     String destination,
     List<String> path,
     String reason, {
+    required DateTime receivedAt,
     String rawInfo = '',
     PacketSource transportSource = PacketSource.aprsIs,
   }) {
@@ -1564,7 +1590,7 @@ class AprsParser {
       source: source,
       destination: destination,
       path: path,
-      receivedAt: DateTime.now().toUtc(),
+      receivedAt: receivedAt,
       transportSource: transportSource,
       reason: reason,
       rawInfo: rawInfo,

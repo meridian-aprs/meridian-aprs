@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/connection/aprs_is_connection.dart';
 import '../core/connection/connection_registry.dart';
+import '../core/util/clock.dart';
 import 'beaconing_service.dart';
 import 'meridian_connection_task.dart';
 import 'tx_service.dart';
@@ -122,11 +123,13 @@ class BackgroundServiceManager extends ChangeNotifier
     required TxService tx,
     ForegroundServiceApi? taskApi,
     void Function(String line)? onPacketLogged,
+    Clock clock = DateTime.now,
   }) : _registry = registry,
        _beaconing = beaconing,
        _tx = tx,
        _taskApi = taskApi ?? const _DefaultForegroundServiceApi(),
-       _onPacketLogged = onPacketLogged {
+       _onPacketLogged = onPacketLogged,
+       _clock = clock {
     _registry.addListener(_onServiceStateChanged);
     _beaconing.addListener(_onServiceStateChanged);
     if (!kIsWeb && Platform.isAndroid) {
@@ -143,6 +146,7 @@ class BackgroundServiceManager extends ChangeNotifier
   final BeaconingService _beaconing;
   final TxService _tx;
   final ForegroundServiceApi _taskApi;
+  final Clock _clock;
 
   /// Invoked when the background isolate reports a transmitted line
   /// (`beacon_sent` / `bulletin_sent` IPC). Wire this to
@@ -414,7 +418,7 @@ class BackgroundServiceManager extends ChangeNotifier
         // stale — otherwise we'd flash "Disconnected" on every resume even
         // though the FGS heartbeat kept the link healthy through the lock
         // period (Issue #76).
-        final now = DateTime.now();
+        final now = _clock();
         for (final id in _reconnectIds) {
           final conn = _registry.byId(id);
           if (conn == null) continue;
@@ -450,7 +454,7 @@ class BackgroundServiceManager extends ChangeNotifier
         final bgTs = DateTime.fromMillisecondsSinceEpoch(bgTsMs);
         ts = (mainTs != null && mainTs.isAfter(bgTs)) ? mainTs : bgTs;
       } else {
-        ts = mainTs ?? DateTime.now();
+        ts = mainTs ?? _clock();
       }
       _beaconing.resumeFromBackground(ts);
     });
@@ -502,7 +506,7 @@ class BackgroundServiceManager extends ChangeNotifier
   /// Driven by the FGS heartbeat (~60 s cadence) so detection works even when
   /// Android Doze has frozen the in-isolate read watchdog.
   void _checkAprsIsLiveness() {
-    final now = DateTime.now();
+    final now = _clock();
     for (final conn in _registry.all) {
       if (conn is! AprsIsConnection) continue;
       if (conn.status != ConnectionStatus.connected) continue;
