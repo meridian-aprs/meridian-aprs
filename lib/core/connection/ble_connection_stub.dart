@@ -3,11 +3,12 @@ library;
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../transport/kiss_tnc_transport.dart';
+import '../util/clock.dart';
 import 'meridian_connection.dart';
 
 /// Stub [BleConnection] for platforms where BLE is not supported (web, desktop).
 class BleConnection extends MeridianConnection {
-  BleConnection();
+  BleConnection({Clock clock = DateTime.now});
 
   @visibleForTesting
   KissTncTransport Function(dynamic)? transportFactory;

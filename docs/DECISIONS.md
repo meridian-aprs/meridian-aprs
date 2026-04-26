@@ -1352,3 +1352,43 @@ Compared to the old behaviour (potentially indefinite RX-dead until the user res
 - An opt-in outbound keepalive setting if real-world device verification shows 120 s detection still leaves user-visible gaps. Reassess after a field test pass.
 - Per-platform tuning of the SO_KEEPALIVE option number (Linux/Android `9`, macOS/iOS `8`). The current implementation tries the Linux value and silently catches; macOS / iOS users still get full coverage from the read watchdog.
 - A configurable read-idle window in Settings → Advanced. 120 s was chosen to comfortably exceed the typical server keepalive cadence; surfacing it as a knob is unnecessary unless we encounter servers with materially different behaviour.
+
+
+## ADR-062: Inject `Clock` typedef for deterministic time-dependent logic
+
+**Date:** 2026-04-26
+**Status:** Accepted
+
+### Context
+
+Three independent audits (F-ARCH-006 / F-EXT-002 / F-FLT-009) flagged `DateTime.now()` scattered across the service layer. Concretely it blocks deterministic testing of:
+
+- `BeaconingService` interval / smart-turn / reschedule logic.
+- `MessageService` retry-backoff and pruning.
+- `StationService` / `BulletinService` retention pruning.
+- `BackgroundServiceManager` and `MeridianConnectionTask` liveness / heartbeat / beacon-resume math.
+- `SmartBeaconScheduler` interval-after-beacon and only-shorten reschedule.
+
+It also coupled `AprsParser` to wall-clock — a parser should be a pure function of input bytes, with the received-at stamp supplied at the transport boundary.
+
+### Decision
+
+Introduce `typedef Clock = DateTime Function();` in `lib/core/util/clock.dart` (no external dependency).
+
+- Each affected class accepts `Clock clock = DateTime.now` as a defaulted constructor parameter and stores it as `final Clock _clock`. Body sites call `_clock()` instead of `DateTime.now()`.
+- `AprsParser.parse(...)` and `AprsParser.parseFrame(...)` now take `required DateTime receivedAt`. The parser contains zero `DateTime.now()` calls.
+- `StationService` is the canonical transport-boundary stamp site: `_handleLine` calls `_parser.parse(raw, transportSource: source, receivedAt: _clock().toUtc())`. `BleConnection` and `SerialConnection` also stamp via their own injected clock when reconstructing AX.25 frame text (the timestamp is structurally required but discarded — only `packet.rawLine` is forwarded; `StationService` re-stamps on ingestion).
+- `BulletinScheduler` already followed this pattern with an inline `DateTime Function()? clock` parameter; standardised on the new `Clock` typedef.
+
+### Alternatives considered
+
+- **`package:clock`** — rejected to keep zero-dep posture in the core. The project already had a proven in-house pattern (`BulletinScheduler._MutableClock` test helper), and the typedef is a single line of code. The package is already a *transitive* dependency via `intl`, but we deliberately do not depend on its API surface so future churn there cannot break us.
+- **Per-method `DateTime? now` overrides everywhere** — rejected as too invasive at call sites and inconsistent with `BulletinScheduler`. `SmartBeaconScheduler` retains its existing per-method `now` parameter as a convenience but its fallback now reads `_clock()` instead of `DateTime.now()`.
+
+### Consequences
+
+- UI date/time formatters (`*_screen.dart`, `*_tab.dart`, `chat_bubble.dart`, `station_list_tile.dart`, etc.) intentionally remain on `DateTime.now()` — they want render-time "now" and are out of scope.
+- Tests can fake-advance time per service via the same `_MutableClock` shape used in `bulletin_scheduler_test.dart`. Full per-service coverage is deferred to PR 4 (#60, TxService routing) and PR 5 (#52, BeaconingService).
+- One spot-check test (`test/core/util/clock_injection_test.dart`) covers `StationService` retention pruning end-to-end as proof of the seam.
+- Future replay / golden-frame test flows are now feasible — a recorded packet stream can be played through the parser with a deterministic timeline.
+- The background isolate's `MeridianConnectionTask` accepts a `Clock` too, for unit tests; the production `vm:entry-point` constructs it with the default `DateTime.now`.

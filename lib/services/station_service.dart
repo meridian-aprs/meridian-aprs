@@ -9,6 +9,7 @@ import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
 import '../core/packet/station.dart';
 import '../core/transport/aprs_transport.dart' show ConnectionStatus;
+import '../core/util/clock.dart';
 
 /// Service that ingests APRS text lines, decodes them with [AprsParser], and
 /// exposes two streams:
@@ -101,7 +102,9 @@ class StationService extends ChangeNotifier {
   SharedPreferences? _prefs;
   Timer? _persistTimer;
 
-  StationService();
+  StationService({Clock clock = DateTime.now}) : _clock = clock;
+
+  final Clock _clock;
 
   // ---------------------------------------------------------------------------
   // Backward-compat stubs (removed in Phase 6 when UI is updated)
@@ -338,7 +341,7 @@ class StationService extends ChangeNotifier {
           final tsMs = map['ts'] as int?;
           final receivedAt = tsMs != null
               ? DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)
-              : null;
+              : _clock().toUtc();
           final packet = _parser.parse(
             raw,
             transportSource: src,
@@ -403,8 +406,11 @@ class StationService extends ChangeNotifier {
 
     if (raw.isEmpty || raw.startsWith('#')) return;
 
-    final packet = _parser.parse(raw, transportSource: source)
-      ..isOutgoing = isOutgoing;
+    final packet = _parser.parse(
+      raw,
+      transportSource: source,
+      receivedAt: _clock().toUtc(),
+    )..isOutgoing = isOutgoing;
 
     // Add to rolling in-session buffer, capped for performance.
     _recentPackets.insert(0, packet);
@@ -566,7 +572,7 @@ class StationService extends ChangeNotifier {
 
   bool _withinAge(DateTime dt, int days) {
     if (days == forever) return true;
-    return DateTime.now().difference(dt).inDays < days;
+    return _clock().difference(dt).inDays < days;
   }
 
   void _schedulePersist() {

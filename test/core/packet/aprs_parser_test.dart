@@ -37,6 +37,7 @@ Uint8List _buildAprsFrame({
 }
 
 void main() {
+  final kTestReceivedAt = DateTime.utc(2026, 1, 1, 12, 0, 0);
   late AprsParser parser;
 
   setUp(() {
@@ -48,7 +49,7 @@ void main() {
   // ---------------------------------------------------------------------------
 
   T expectPacketType<T extends AprsPacket>(String line) {
-    final packet = parser.parse(line);
+    final packet = parser.parse(line, receivedAt: kTestReceivedAt);
     expect(
       packet,
       isA<T>(),
@@ -107,20 +108,12 @@ void main() {
       expect(p.path, containsAll(['TCPIP*', 'qAC', 'T2MCI']));
     });
 
-    test('receivedAt is a recent UTC time', () {
-      final before = DateTime.now().toUtc();
+    test('receivedAt is the injected timestamp (UTC)', () {
       final p = expectPacketType<PositionPacket>(
         'N0CALL>APRS:!4903.50N/07201.75W-Test',
       );
-      final after = DateTime.now().toUtc();
-      expect(
-        p.receivedAt.isAfter(before) || p.receivedAt.isAtSameMomentAs(before),
-        isTrue,
-      );
-      expect(
-        p.receivedAt.isBefore(after) || p.receivedAt.isAtSameMomentAs(after),
-        isTrue,
-      );
+      expect(p.receivedAt, equals(kTestReceivedAt));
+      expect(p.receivedAt.isUtc, isTrue);
     });
 
     test('rawLine is preserved exactly', () {
@@ -312,7 +305,10 @@ void main() {
 
     test('returns PositionPacket not UnknownPacket for compressed', () {
       // Validate we don't fall through to UnknownPacket.
-      final packet = parser.parse('N0CALL>APRS:=/5L!!<*e7>7P[Test compressed');
+      final packet = parser.parse(
+        'N0CALL>APRS:=/5L!!<*e7>7P[Test compressed',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<PositionPacket>());
     });
   });
@@ -503,7 +499,10 @@ void main() {
     // Real-world Mic-E packet: WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`
     // WB4APR is the inventor of APRS; his beacon is a good test vector.
     test('parses Mic-E packet (backtick DTI)', () {
-      final packet = parser.parse('WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`');
+      final packet = parser.parse(
+        'WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`',
+        receivedAt: kTestReceivedAt,
+      );
       // The destination T2SR6Y encodes Mic-E data; packet should be MicEPacket
       // or at minimum not crash. In some edge cases the destination may not
       // be a valid Mic-E encoding and will return UnknownPacket — that is also
@@ -512,7 +511,10 @@ void main() {
     });
 
     test('Mic-E lat is in valid range', () {
-      final packet = parser.parse('WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`');
+      final packet = parser.parse(
+        'WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`',
+        receivedAt: kTestReceivedAt,
+      );
       if (packet is MicEPacket) {
         expect(packet.lat, greaterThanOrEqualTo(-90));
         expect(packet.lat, lessThanOrEqualTo(90));
@@ -522,7 +524,10 @@ void main() {
     });
 
     test('Mic-E micEMessage is populated', () {
-      final packet = parser.parse('WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`');
+      final packet = parser.parse(
+        'WB4APR-14>T2SR6Y,WIDE2-2:`(_fn"Oj/`',
+        receivedAt: kTestReceivedAt,
+      );
       if (packet is MicEPacket) {
         expect(packet.micEMessage, isNotEmpty);
       }
@@ -532,6 +537,7 @@ void main() {
       // Single-quote DTI variant
       final packet = parser.parse(
         "KD0ABC-9>S3QRYU,WIDE1-1,WIDE2-1:'(_fn\"Oj/`",
+        receivedAt: kTestReceivedAt,
       );
       expect(packet, anyOf(isA<MicEPacket>(), isA<UnknownPacket>()));
     });
@@ -556,7 +562,10 @@ void main() {
     // positions 0-2 only; A-K at positions 3-5 is not defined.
     test('P-Y destination decodes lat, lon, hemisphere, and message type', () {
       // All printable ASCII; info field is exactly 9 bytes.
-      final packet = parser.parse('N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       final p = packet as MicEPacket;
       expect(p.lat, closeTo(38.9848, 0.001));
@@ -582,7 +591,10 @@ void main() {
     //   lat = 38°84.00' — latMin=84 is out of range; that is fine, the parser
     //   does no range validation on lat.  We only check micEMessage here.
     test('messageBits=7 decodes to Off Duty', () {
-      final packet = parser.parse('N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
     });
@@ -592,7 +604,10 @@ void main() {
     //   '3', '8', '5' → bits 0,0,0
     //   North: 'E', no offset: '0', West: 'A'  → Destination: 385E0A
     test('messageBits=0 decodes to Emergency', () {
-      final packet = parser.parse('N0CALL-9>385E0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>385E0A,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Emergency'));
     });
@@ -602,7 +617,10 @@ void main() {
     //   'S'(P+3), '8', 'T'(P+4) → bits 1,0,1 = 0b101 = 5
     //   Destination: S8TE0A
     test('messageBits=5 decodes to In Service', () {
-      final packet = parser.parse('N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('In Service'));
     });
@@ -614,38 +632,65 @@ void main() {
 
   group('UnknownPacket and malformed input', () {
     test('blank line returns UnknownPacket', () {
-      expect(parser.parse(''), isA<UnknownPacket>());
+      expect(
+        parser.parse('', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('server comment line returns UnknownPacket', () {
-      expect(parser.parse('# logresp NOCALL unverified'), isA<UnknownPacket>());
+      expect(
+        parser.parse(
+          '# logresp NOCALL unverified',
+          receivedAt: kTestReceivedAt,
+        ),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('line with no colon returns UnknownPacket', () {
-      expect(parser.parse('GARBAGE LINE WITH NO COLON'), isA<UnknownPacket>());
+      expect(
+        parser.parse('GARBAGE LINE WITH NO COLON', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('line with no > in header returns UnknownPacket', () {
-      expect(parser.parse('BADCALL>:info'), isA<UnknownPacket>());
+      expect(
+        parser.parse('BADCALL>:info', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('completely garbage input returns UnknownPacket', () {
-      expect(parser.parse(':::'), isA<UnknownPacket>());
+      expect(
+        parser.parse(':::', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('empty info field returns UnknownPacket', () {
       // Header OK but nothing after the colon.
-      expect(parser.parse('N0CALL>APRS:'), isA<UnknownPacket>());
+      expect(
+        parser.parse('N0CALL>APRS:', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('unrecognised DTI returns UnknownPacket', () {
       // DTI 'Z' is not defined.
-      expect(parser.parse('N0CALL>APRS:Znot a packet'), isA<UnknownPacket>());
+      expect(
+        parser.parse('N0CALL>APRS:Znot a packet', receivedAt: kTestReceivedAt),
+        isA<UnknownPacket>(),
+      );
     });
 
     test('telemetry packet (T) returns UnknownPacket', () {
       expect(
-        parser.parse('N0CALL>APRS:T#001,100,200,050,000,255,00000001'),
+        parser.parse(
+          'N0CALL>APRS:T#001,100,200,050,000,255,00000001',
+          receivedAt: kTestReceivedAt,
+        ),
         isA<UnknownPacket>(),
       );
     });
@@ -664,12 +709,16 @@ void main() {
         'a' * 1000,
       ];
       for (final s in inputs) {
-        expect(() => parser.parse(s), returnsNormally, reason: 'Input: $s');
+        expect(
+          () => parser.parse(s, receivedAt: kTestReceivedAt),
+          returnsNormally,
+          reason: 'Input: $s',
+        );
       }
     });
 
     test('UnknownPacket has reason field', () {
-      final p = parser.parse('') as UnknownPacket;
+      final p = parser.parse('', receivedAt: kTestReceivedAt) as UnknownPacket;
       expect(p.reason, isNotEmpty);
     });
   });
@@ -779,7 +828,7 @@ void main() {
       () {
         // Build raw line: 9-byte info prefix + '"4G}' (Yaesu block) + 'comment_0'
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x224G}comment_0';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('comment'));
@@ -799,7 +848,7 @@ void main() {
       () {
         // comment field: \x60 + "a1b2" (valid hex) + "comment]"
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2comment]';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('comment]'));
@@ -818,7 +867,7 @@ void main() {
         // After the 9-byte fixed Mic-E block, the comment field is:
         // ']' + '"4"}' (altitude) + 'hello' + '='
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/]\x224\x22}hello=';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('hello'));
@@ -835,7 +884,7 @@ void main() {
       'TM-D700 (`]` prefix, no suffix): altitude parses, no suffix to strip',
       () {
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/]\x224\x22}hello';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('hello'));
@@ -848,7 +897,7 @@ void main() {
     // Real Kenwood TH-D72A signature: leading `>` prefix, trailing `=` suffix.
     test('TH-D72A (`>` prefix + `=` suffix)', () {
       final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>\x224\x22}user=';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
         expect(packet.comment, equals('user'));
@@ -864,7 +913,7 @@ void main() {
       'TH-D74 (`>` prefix + `^` suffix) — not misclassified as Yaesu VX-8',
       () {
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>hello^';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('hello'));
@@ -879,7 +928,7 @@ void main() {
     test('TM-D710 with empty user comment renders as empty comment', () {
       final rawLine =
           'KM4TJO-9>S6TW3Q,KE4KDY-5,WIDE1,WIDE2-1:\x60h_} *p>/]\x224\x22}=';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
         expect(packet.comment, equals(''));
@@ -895,7 +944,7 @@ void main() {
     test('TM-D710 with frequency-object comment preserves user text', () {
       final rawLine =
           "KM4TJO-9>S6TV7S,KE4KDY-5,WIDE1,WIDE2-1:\x60h]nmJ\x14>/]\x223r}146.520MHz Toff Eric's D710G=";
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
         expect(packet.comment, equals("146.520MHz Toff Eric's D710G"));
@@ -920,7 +969,7 @@ void main() {
         // = backtick + '"' + '3' + 'x' + '}' + '_' + '0'
         final rawLine =
             'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60\x22\x33\x78\x7D\x5F\x30';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals(''));
@@ -950,7 +999,7 @@ void main() {
       () {
         final rawLine =
             "N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60Eric's FT3DR_0 ";
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals("Eric's FT3DR"));
@@ -967,7 +1016,7 @@ void main() {
       'backtick + 4 hex digits = telemetry stripped, bare trailing ] kept',
       () {
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x60a1b2rest]';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         if (packet is MicEPacket) {
           expect(packet.comment, equals('rest]'));
@@ -978,7 +1027,7 @@ void main() {
 
     test('comment with no prefix and no suffix is unchanged', () {
       final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/plain comment';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
         expect(packet.comment, equals('plain comment'));
@@ -1011,7 +1060,7 @@ void main() {
         srcSsid: 9,
         info: infoBytes,
       );
-      final packet = parser.parseFrame(frame);
+      final packet = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).lon, inInclusiveRange(-180.0, 180.0));
     });
@@ -1019,7 +1068,7 @@ void main() {
     test('parseFrame and parse produce consistent lat/lon for latin1 0xB7', () {
       // APRS-IS string with same destination/info using latin1 char 0xB7.
       const rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60\xB7LPN Ol>/';
-      final fromString = parser.parse(rawLine);
+      final fromString = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(fromString, isA<MicEPacket>());
 
       final infoBytes = [0x60, 0xB7, 0x4C, 0x50, 0x20, 0x4C, 0x6C, 0x3E, 0x2F];
@@ -1029,7 +1078,7 @@ void main() {
         srcSsid: 9,
         info: infoBytes,
       );
-      final fromFrame = parser.parseFrame(frame);
+      final fromFrame = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(fromFrame, isA<MicEPacket>());
 
       final p1 = fromString as MicEPacket;
@@ -1057,7 +1106,7 @@ void main() {
         srcSsid: 7,
         info: infoBytes,
       );
-      final packet = parser.parseFrame(frame);
+      final packet = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(packet, isA<MessagePacket>());
       final mp = packet as MessagePacket;
       expect(mp.isAck, isTrue);
@@ -1069,7 +1118,7 @@ void main() {
           .map((c) => c & 0xFF)
           .toList();
       final frame = _buildAprsFrame(dst: 'APRS', src: 'W1AW', info: infoBytes);
-      final packet = parser.parseFrame(frame);
+      final packet = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(packet, isA<MessagePacket>());
       final mp = packet as MessagePacket;
       expect(mp.messageId, equals('005'));
@@ -1083,7 +1132,10 @@ void main() {
 
   group('ItemPacket — minimum name length', () {
     test('2-char item name (delimiter at index 2) is rejected', () {
-      final packet = parser.parse('W1ABC>APRS:)AB!4903.50N/07201.75W-');
+      final packet = parser.parse(
+        'W1ABC>APRS:)AB!4903.50N/07201.75W-',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<UnknownPacket>());
     });
 
@@ -1109,7 +1161,7 @@ void main() {
         pid: 0xF0,
         info: infoBytes,
       );
-      final packet = parser.parseFrame(frame);
+      final packet = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(packet, isA<UnknownPacket>());
       expect((packet as UnknownPacket).reason, contains('Not a UI/APRS frame'));
     });
@@ -1123,7 +1175,7 @@ void main() {
         pid: 0xCF,
         info: infoBytes,
       );
-      final packet = parser.parseFrame(frame);
+      final packet = parser.parseFrame(frame, receivedAt: kTestReceivedAt);
       expect(packet, isA<UnknownPacket>());
       expect((packet as UnknownPacket).reason, contains('Not a UI/APRS frame'));
     });
@@ -1200,7 +1252,7 @@ void main() {
     //   (Custom table reverses the bit-to-label mapping vs. Standard.)
     test('Mic-E Custom message bits (A-J) decode to Custom-0', () {
       final rawLine = 'N0CALL-9>ABJE0A,WIDE1-1:\x60i<N Ol>/';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Custom-0'));
     });
@@ -1212,27 +1264,36 @@ void main() {
     //   custBits=0b100≠0, stdBits=0b011≠0 → mixed → 'Unknown'
     test('Mic-E mixed Standard+Custom bits decode to Unknown', () {
       final rawLine = 'N0CALL-9>ASRE0A,WIDE1-1:\x60i<N Ol>/';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Unknown'));
     });
 
     // Regression: P-Y only → stdBits → standard table (Off Duty, In Service)
     test('regression: Off Duty still decodes correctly', () {
-      final packet = parser.parse('N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>SXTE0A,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
     });
 
     test('regression: In Service still decodes correctly', () {
-      final packet = parser.parse('N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>S8TE0A,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('In Service'));
     });
 
     // All digits → stdBits=0, custBits=0 → Emergency
     test('regression: Emergency (all digits) still decodes correctly', () {
-      final packet = parser.parse('N0CALL-9>385Y0Y,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>385Y0Y,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Emergency'));
     });
@@ -1247,7 +1308,10 @@ void main() {
     //   'Y' pos 3 → North, '0' pos 4 → no offset, 'Y' pos 5 → West
     //   → _micECustomMessages[7] = 'Custom-0'
     test('K ambiguity at positions 0-2 sets Custom bit (not Emergency)', () {
-      final packet = parser.parse('N0CALL-9>KKKY0Y,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>KKKY0Y,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       final p = packet as MicEPacket;
       expect(
@@ -1262,7 +1326,10 @@ void main() {
     // 0-2. Similar regression: an all-Z destination must decode to Off Duty
     // (stdBits=0b111=7), not Emergency.
     test('Z ambiguity at positions 0-2 sets Standard bit (not Emergency)', () {
-      final packet = parser.parse('N0CALL-9>ZZZY0Y,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>ZZZY0Y,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).micEMessage, equals('Off Duty'));
     });
@@ -1275,7 +1342,10 @@ void main() {
     // Destination SX5Y0Z:
     //   'Y' pos 3 → North, '0' pos 4 → no offset, 'Z' pos 5 → West (ambiguous)
     test('Z at position 5 decodes as West (not East)', () {
-      final packet = parser.parse('N0CALL-9>SX5Y0Z,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>SX5Y0Z,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect(
         (packet as MicEPacket).lon,
@@ -1286,7 +1356,10 @@ void main() {
 
     // Z at position 3 = ambiguous N/S with North flag.
     test('Z at position 3 decodes as North (not South)', () {
-      final packet = parser.parse('N0CALL-9>SX5Z0Y,WIDE1-1:`i<N Ol>/');
+      final packet = parser.parse(
+        'N0CALL-9>SX5Z0Y,WIDE1-1:`i<N Ol>/',
+        receivedAt: kTestReceivedAt,
+      );
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).lat, isPositive);
     });
@@ -1303,14 +1376,14 @@ void main() {
     // in-comment callsign mentions with no spec basis.
     test('mixed-case prose containing ` > ` is NOT stripped', () {
       final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/Driving > Fast';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).comment, equals('Driving > Fast'));
     });
 
     test('lowercase `a>B` is NOT stripped', () {
       final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/a>B';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).comment, equals('a>B'));
     });
@@ -1319,7 +1392,7 @@ void main() {
     // basis; the in-comment callsign mention must be preserved.
     test('space + `>CALLSIGN` is NOT stripped', () {
       final rawLine = 'N0CALL-9>SX5Y0Y,WIDE1-1:`i<N Ol>/My Car >VE3ABC';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).comment, equals('My Car >VE3ABC'));
     });
@@ -1336,7 +1409,7 @@ void main() {
     //   c1 is '#' (0x23), not '"' (0x22), so the Yaesu stripper is not triggered.
     test('base-91 altitude 10000 ft decoded from comment', () {
       final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/\x23Fh}';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).altitude, closeTo(10000.0, 0.5));
     });
@@ -1350,7 +1423,7 @@ void main() {
       () {
         // info comment bytes: '!' '{' '{' '}' = 0x21 0x7B 0x7B 0x7D
         final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/!\x7B\x7B\x7D';
-        final packet = parser.parse(rawLine);
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
         expect(packet, isA<MicEPacket>());
         expect((packet as MicEPacket).altitude, closeTo(-1720.0, 0.5));
       },
@@ -1358,7 +1431,7 @@ void main() {
 
     test('comment with no altitude prefix leaves altitude null', () {
       final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/plain comment';
-      final packet = parser.parse(rawLine);
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       expect((packet as MicEPacket).altitude, isNull);
     });

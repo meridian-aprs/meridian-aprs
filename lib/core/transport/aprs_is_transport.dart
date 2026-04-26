@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart'
     show debugPrint, kIsWeb, visibleForTesting;
 
+import '../util/clock.dart';
 import 'aprs_transport.dart';
 
 // TODO(web): replace with WebSocketTransport — see ADR-004
@@ -19,10 +20,14 @@ class AprsIsTransport implements AprsTransport {
     int port = 14580,
     required String loginLine,
     String? filterLine,
+    Clock clock = DateTime.now,
   }) : _host = host,
        _port = port,
        _loginLine = loginLine,
-       _filterLine = filterLine;
+       _filterLine = filterLine,
+       _clock = clock;
+
+  final Clock _clock;
 
   String get host => _host;
   int get port => _port;
@@ -152,7 +157,7 @@ class AprsIsTransport implements AprsTransport {
           .transform(const LineSplitter())
           .listen(
             (line) {
-              _lastLineAt = DateTime.now();
+              _lastLineAt = _clock();
               _resetReadWatchdog();
               if (!_controller.isClosed) _controller.add(line);
             },

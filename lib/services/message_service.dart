@@ -20,6 +20,7 @@ import '../core/callsign/callsign_utils.dart';
 import '../core/callsign/message_classification.dart';
 import '../core/packet/aprs_encoder.dart';
 import '../core/packet/aprs_packet.dart';
+import '../core/util/clock.dart';
 import '../models/group_subscription.dart';
 import '../models/message_category.dart';
 import 'bulletin_service.dart';
@@ -112,11 +113,15 @@ class MessageService extends ChangeNotifier {
     StationService stations, {
     required GroupSubscriptionService groupSubscriptions,
     required BulletinService bulletins,
+    Clock clock = DateTime.now,
   }) : _stations = stations,
        _groupSubscriptions = groupSubscriptions,
-       _bulletins = bulletins {
+       _bulletins = bulletins,
+       _clock = clock {
     _incomingSub = stations.packetStream.listen(_onPacket);
   }
+
+  final Clock _clock;
 
   final StationSettingsService _settings;
   final TxService _tx;
@@ -320,12 +325,12 @@ class MessageService extends ChangeNotifier {
     // their own send in the channel view. No wireId, no retry loop.
     final localId =
         'group_${normalized}_'
-        '${DateTime.now().millisecondsSinceEpoch}';
+        '${_clock().millisecondsSinceEpoch}';
     final entry = MessageEntry(
       localId: localId,
       wireId: null,
       text: text,
-      timestamp: DateTime.now(),
+      timestamp: _clock(),
       isOutgoing: true,
       category: MessageCategory.group,
       groupName: normalized,
@@ -344,20 +349,19 @@ class MessageService extends ChangeNotifier {
   Future<void> sendMessage(String toCallsign, String text) async {
     final peer = toCallsign.trim().toUpperCase();
     final wireId = await _nextMessageId();
-    final localId =
-        '${peer}_${wireId}_${DateTime.now().millisecondsSinceEpoch}';
+    final localId = '${peer}_${wireId}_${_clock().millisecondsSinceEpoch}';
 
     final entry = MessageEntry(
       localId: localId,
       wireId: wireId,
       text: text,
-      timestamp: DateTime.now(),
+      timestamp: _clock(),
       isOutgoing: true,
     );
 
     final conv = _getOrCreateConversation(peer);
     conv.messages.add(entry);
-    conv.lastActivity = DateTime.now();
+    conv.lastActivity = _clock();
 
     await _transmitMessage(peer, text, wireId);
     _scheduleRetry(entry, peer, attempt: 0);
@@ -791,7 +795,7 @@ class MessageService extends ChangeNotifier {
   /// Returns true if [dt] is within [days] days of now.
   bool _withinAge(DateTime dt, int days) {
     if (days == forever) return true;
-    return DateTime.now().difference(dt).inDays < days;
+    return _clock().difference(dt).inDays < days;
   }
 
   MessageEntry _entryFromJson(Map<String, dynamic> json) {

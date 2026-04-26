@@ -174,7 +174,10 @@ void main() {
 
         // The frame arrived and can be parsed into an APRS packet.
         expect(frames, isNotEmpty);
-        final packet = AprsParser().parseFrame(frames.first);
+        final packet = AprsParser().parseFrame(
+          frames.first,
+          receivedAt: DateTime.utc(2026, 1, 1),
+        );
         expect(packet.rawLine, contains('W1AW'));
       },
     );
