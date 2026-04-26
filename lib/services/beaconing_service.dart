@@ -22,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/beaconing/smart_beaconing.dart';
 import '../core/packet/aprs_encoder.dart';
 import '../core/util/clock.dart';
+import 'geolocator_adapter.dart';
 import 'station_settings_service.dart';
 import 'tx_service.dart';
 
@@ -45,11 +46,14 @@ class BeaconingService extends ChangeNotifier {
     this._tx, {
     this.onBeaconSent,
     Clock clock = DateTime.now,
-  }) : _clock = clock;
+    GeolocatorAdapter geo = const RealGeolocatorAdapter(),
+  }) : _clock = clock,
+       _geo = geo;
 
   final StationSettingsService _settings;
   final TxService _tx;
   final Clock _clock;
+  final GeolocatorAdapter _geo;
 
   /// Called after every successful beacon with the raw APRS-IS line.
   ///
@@ -317,15 +321,15 @@ class BeaconingService extends ChangeNotifier {
 
   Future<Position?> _requestPosition() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await _geo.isLocationServiceEnabled();
       if (!serviceEnabled) {
         _lastError = BeaconError.locationServiceDisabled;
         return null;
       }
 
-      LocationPermission permission = await Geolocator.checkPermission();
+      LocationPermission permission = await _geo.checkPermission();
       if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+        permission = await _geo.requestPermission();
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
@@ -333,7 +337,7 @@ class BeaconingService extends ChangeNotifier {
         return null;
       }
 
-      return await Geolocator.getCurrentPosition(
+      return await _geo.getCurrentPosition(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.best,
         ),
@@ -354,19 +358,21 @@ class BeaconingService extends ChangeNotifier {
     if (_mode != BeaconMode.smart) return;
 
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      bool serviceEnabled = await _geo.isLocationServiceEnabled();
       if (!serviceEnabled) return;
-      LocationPermission permission = await Geolocator.checkPermission();
+      LocationPermission permission = await _geo.checkPermission();
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         return;
       }
 
-      _positionSub = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.best,
-        ),
-      ).listen(_onPositionUpdate);
+      _positionSub = _geo
+          .getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.best,
+            ),
+          )
+          .listen(_onPositionUpdate);
     } on MissingPluginException {
       _gpsUnsupported = true;
       _lastError = BeaconError.locationUnsupported;
