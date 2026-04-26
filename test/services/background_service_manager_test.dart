@@ -563,59 +563,56 @@ void main() {
   // Issue #99 — BeaconingService.startBeaconing refreshes lastBeaconAt
   // ---------------------------------------------------------------------------
   group('BeaconingService — startBeaconing refreshes lastBeaconAt', () {
-    test(
-      'startBeaconing overwrites a stale _lastBeaconAt (Bug C)',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        final prefs = await SharedPreferences.getInstance();
-        final settings = StationSettingsService(
-          prefs,
-          store: FakeSecureCredentialStore(),
-        );
-        // Manual location source so beaconNow does not need GPS — the test
-        // platform has no geolocator implementation.
-        await settings.setLocationSource(LocationSource.manual);
-        await settings.setManualPosition(40.0, -74.0);
-        await settings.setCallsign('NOCALL');
+    test('startBeaconing overwrites a stale _lastBeaconAt (Bug C)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final settings = StationSettingsService(
+        prefs,
+        store: FakeSecureCredentialStore(),
+      );
+      // Manual location source so beaconNow does not need GPS — the test
+      // platform has no geolocator implementation.
+      await settings.setLocationSource(LocationSource.manual);
+      await settings.setManualPosition(40.0, -74.0);
+      await settings.setCallsign('NOCALL');
 
-        final registry = ConnectionRegistry();
-        final tx = TxService(registry, settings);
-        final beaconing = BeaconingService(settings, tx);
-        await beaconing.setMode(BeaconMode.auto);
+      final registry = ConnectionRegistry();
+      final tx = TxService(registry, settings);
+      final beaconing = BeaconingService(settings, tx);
+      await beaconing.setMode(BeaconMode.auto);
 
-        // Set up the bug precondition: a stale _lastBeaconAt from a prior
-        // session. The cleanest way to plant one without exposing internals
-        // is to send a beacon, stop, then verify the stale timestamp persists
-        // until the next startBeaconing() call.
-        await beaconing.beaconNow();
-        final firstBeaconAt = beaconing.lastBeaconAt;
-        expect(firstBeaconAt, isNotNull);
+      // Set up the bug precondition: a stale _lastBeaconAt from a prior
+      // session. The cleanest way to plant one without exposing internals
+      // is to send a beacon, stop, then verify the stale timestamp persists
+      // until the next startBeaconing() call.
+      await beaconing.beaconNow();
+      final firstBeaconAt = beaconing.lastBeaconAt;
+      expect(firstBeaconAt, isNotNull);
 
-        // Simulate time passing — yield enough microtasks that DateTime.now()
-        // advances past `firstBeaconAt` in millisecond resolution.
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+      // Simulate time passing — yield enough microtasks that DateTime.now()
+      // advances past `firstBeaconAt` in millisecond resolution.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
 
-        // startBeaconing must reset _lastBeaconAt to "now" so the notification
-        // body does not lie with a stale "22m ago" value carried over from
-        // before the previous stop.
-        // ignore: unawaited_futures
-        beaconing.startBeaconing();
-        // Yield so the synchronous notifyListeners + assignment chain settles
-        // (the await on _startPositionStream comes after our line of interest).
-        await Future<void>.delayed(Duration.zero);
+      // startBeaconing must reset _lastBeaconAt to "now" so the notification
+      // body does not lie with a stale "22m ago" value carried over from
+      // before the previous stop.
+      // ignore: unawaited_futures
+      beaconing.startBeaconing();
+      // Yield so the synchronous notifyListeners + assignment chain settles
+      // (the await on _startPositionStream comes after our line of interest).
+      await Future<void>.delayed(Duration.zero);
 
-        final afterStart = beaconing.lastBeaconAt;
-        expect(afterStart, isNotNull);
-        expect(
-          afterStart!.isAfter(firstBeaconAt!),
-          isTrue,
-          reason:
-              'startBeaconing must reset _lastBeaconAt so the notification '
-              'body does not lie about the pre-disable timestamp.',
-        );
+      final afterStart = beaconing.lastBeaconAt;
+      expect(afterStart, isNotNull);
+      expect(
+        afterStart!.isAfter(firstBeaconAt!),
+        isTrue,
+        reason:
+            'startBeaconing must reset _lastBeaconAt so the notification '
+            'body does not lie about the pre-disable timestamp.',
+      );
 
-        await beaconing.stopBeaconing();
-      },
-    );
+      await beaconing.stopBeaconing();
+    });
   });
 }
