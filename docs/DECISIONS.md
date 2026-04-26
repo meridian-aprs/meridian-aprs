@@ -1429,3 +1429,36 @@ The result was duplicate listener machinery for every transport, dead broadcast 
 - `StationService.attach` enforces a single-attach contract via `assert`; calling it twice is a programming error.
 - `_packetSourceFor` is now a private static helper on `StationService`; `main.dart` no longer carries transport-tagging logic.
 - Future consumers of `registry.lines` need only `registry.lines.listen(...)` — no plumbing changes required.
+
+---
+
+## ADR-064: Inject `GeolocatorAdapter` for testable GPS access in `BeaconingService`
+
+**Date:** 2026-04-26
+**Status:** Accepted
+
+### Context
+
+`BeaconingService` (`lib/services/beaconing_service.dart`) had no service-level test coverage despite owning the timer state machine, mode transitions, smart-mode reschedule logic, and the `MissingPluginException → BeaconError.locationUnsupported` translation. PR 2 (#43) had already injected the `Clock` typedef so timer fires can be driven deterministically with `fake_async`, but five static `Geolocator.*` calls remained — `isLocationServiceEnabled`, `checkPermission`, `requestPermission`, `getCurrentPosition`, `getPositionStream` — and `package:geolocator` has no in-tree mocking helper that would work in a Dart-only `flutter test` (no platform channels, no method channel mocker).
+
+### Decision
+
+Introduce `lib/services/geolocator_adapter.dart`:
+
+```dart
+abstract class GeolocatorAdapter { /* the 5 methods above, signatures verbatim */ }
+class RealGeolocatorAdapter implements GeolocatorAdapter { /* delegates 1:1 */ }
+```
+
+`BeaconingService` accepts `GeolocatorAdapter geo = const RealGeolocatorAdapter()` as a defaulted constructor parameter and replaces every `Geolocator.X(...)` call with `_geo.X(...)`. No translation, no remapping — the adapter is a thin pass-through. `MissingPluginException` continues to bubble up from each method exactly as it did from the static calls; the existing `try/catch` blocks in `_requestPosition` and `_startPositionStream` continue to translate it into `BeaconError.locationUnsupported`. Tests pass `FakeGeolocatorAdapter` (in `test/helpers/`) with controllable `serviceEnabled` / `permission` / `throwMissingPlugin` flags and a stream the test can `emitPosition(...)` into.
+
+### Alternatives considered
+
+- **`mockito` / `mocktail` over the geolocator API.** Rejected: the project is mock-free in services today (`test/services/bulletin_scheduler_test.dart` uses a hand-rolled fixture + recording subclass), and adding `mockito` for one service would create a stylistic inconsistency. A small hand-rolled adapter mirrors the `KissTncTransport` / `SecureCredentialStore` pattern already established.
+- **Method-channel mock via `TestDefaultBinaryMessengerBinding`.** Rejected: would re-implement geolocator's wire protocol and bind us to its internal channel codec. Higher maintenance and lower clarity than a Dart-level seam.
+
+### Consequences
+
+- `BeaconingService` is now fully covered by `test/services/beaconing_service_test.dart` (12 cases): mode transitions, smart-mode reschedule (shorten-only), suspend/resume handoff, `onBeaconSent` fan-out, and `locationUnsupported` (single-attempt bounded, no retry storm).
+- The `FakeGeolocatorAdapter` helper is the natural template for v0.20's wider widget-test sweep when GPS-dependent UI gets covered.
+- No production wiring change — `lib/main.dart` continues to construct `BeaconingService(settings, tx, onBeaconSent: ...)` and the default `RealGeolocatorAdapter()` preserves identical runtime behavior.
