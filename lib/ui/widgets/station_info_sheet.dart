@@ -110,6 +110,10 @@ class StationInfoSheet extends StatelessWidget {
                     color: colorScheme.onSurfaceVariant,
                   ),
                 ),
+                const SizedBox(width: 8),
+                _MessageCapabilityIndicator(
+                  capability: station.messageCapability,
+                ),
               ],
             ),
 
@@ -222,7 +226,7 @@ class StationInfoSheet extends StatelessWidget {
             const SizedBox(height: 16),
 
             // Show on map button (only when launched from outside the map).
-            if (onShowOnMap != null) ...[
+            if (onShowOnMap != null)
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
@@ -234,27 +238,29 @@ class StationInfoSheet extends StatelessWidget {
                   },
                 ),
               ),
-              const SizedBox(height: 8),
-            ],
 
-            // Message button
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonalIcon(
-                icon: const Icon(Symbols.message),
-                label: Text('Message ${station.callsign}'),
-                onPressed: () {
-                  final nav = Navigator.of(context);
-                  nav.pop();
-                  nav.push(
-                    buildPlatformRoute<void>(
-                      (_) =>
-                          MessageThreadScreen(peerCallsign: station.callsign),
-                    ),
-                  );
-                },
+            // Message button — hidden when the station is known not to support
+            // APRS messaging.
+            if (station.messageCapability != MessageCapability.unsupported) ...[
+              if (onShowOnMap != null) const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  icon: const Icon(Symbols.message),
+                  label: Text('Message ${station.callsign}'),
+                  onPressed: () {
+                    final nav = Navigator.of(context);
+                    nav.pop();
+                    nav.push(
+                      buildPlatformRoute<void>(
+                        (_) =>
+                            MessageThreadScreen(peerCallsign: station.callsign),
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
@@ -373,4 +379,42 @@ class _WxRow {
   const _WxRow({required this.icon, required this.label});
   final IconData icon;
   final String label;
+}
+
+// ---------------------------------------------------------------------------
+// Message capability indicator
+// ---------------------------------------------------------------------------
+
+class _MessageCapabilityIndicator extends StatelessWidget {
+  const _MessageCapabilityIndicator({required this.capability});
+
+  final MessageCapability capability;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    final (IconData icon, String tooltip, Color color) = switch (capability) {
+      MessageCapability.supported => (
+        Symbols.mark_chat_read,
+        'Message-capable',
+        colorScheme.onSurfaceVariant,
+      ),
+      MessageCapability.unsupported => (
+        Symbols.speaker_notes_off,
+        'Not message-capable',
+        colorScheme.error,
+      ),
+      MessageCapability.unknown => (
+        Symbols.chat_bubble,
+        'Messaging support unknown',
+        colorScheme.onSurfaceVariant.withAlpha(160),
+      ),
+    };
+
+    return Tooltip(
+      message: tooltip,
+      child: Icon(icon, size: 16, color: color),
+    );
+  }
 }

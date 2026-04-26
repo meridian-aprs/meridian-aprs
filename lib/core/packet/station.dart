@@ -14,6 +14,18 @@ class TimestampedPosition {
 /// regardless of their symbol.
 enum StationType { weather, mobile, fixed, object, other }
 
+/// Whether this station can receive APRS messages.
+///
+/// Derived from the position packet's data type indicator (DTI):
+/// - `=` / `@` → [supported]
+/// - `!` / `/` → [unsupported]
+/// - Mic-E packets default to [supported] (Mic-E is overwhelmingly used by
+///   messaging-capable mobile trackers; the spec doesn't expose a per-packet
+///   flag).
+/// - Object, Item, Weather, and stations with no position seen yet are
+///   [unknown].
+enum MessageCapability { supported, unsupported, unknown }
+
 /// Derive a [StationType] from the station's APRS symbol table and code.
 ///
 /// Objects and items must be classified by the caller as [StationType.object]
@@ -72,6 +84,9 @@ class Station {
   /// Station category used for the map type filter and cluster ring.
   final StationType type;
 
+  /// Whether this station can receive APRS messages.
+  final MessageCapability messageCapability;
+
   const Station({
     required this.callsign,
     required this.lat,
@@ -84,6 +99,7 @@ class Station {
     this.device,
     this.positionHistory = const [],
     this.type = StationType.fixed,
+    this.messageCapability = MessageCapability.unknown,
   });
 
   Station copyWith({
@@ -98,6 +114,7 @@ class Station {
     String? device,
     List<TimestampedPosition>? positionHistory,
     StationType? type,
+    MessageCapability? messageCapability,
   }) {
     return Station(
       callsign: callsign ?? this.callsign,
@@ -111,6 +128,7 @@ class Station {
       device: device ?? this.device,
       positionHistory: positionHistory ?? this.positionHistory,
       type: type ?? this.type,
+      messageCapability: messageCapability ?? this.messageCapability,
     );
   }
 
