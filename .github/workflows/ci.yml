@@ -41,6 +41,103 @@ jobs:
       - name: Build (Linux debug)
         run: flutter build linux --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
 
+  build-android:
+    name: Build (Android debug APK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build (Android debug APK)
+        run: flutter build apk --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
+
+  build-ios:
+    name: Build (iOS debug, no codesign)
+    runs-on: macos-latest
+    # Info-only until iOS App Group + signing land in v1.0 (#47).
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build (iOS debug, no codesign)
+        run: flutter build ios --no-codesign --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
+
+  build-macos:
+    name: Build (macOS debug)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install macOS build dependencies
+        # libserialport (transitive native dep of flutter_libserialport) requires
+        # automake + libtool during its CocoaPods prepare step.
+        run: brew install automake libtool
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build (macOS debug)
+        run: flutter build macos --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
+
+  build-windows:
+    name: Build (Windows debug)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter (stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build (Windows debug)
+        run: flutter build windows --debug --dart-define=STADIA_MAPS_API_KEY=${{ secrets.STADIA_MAPS_API_KEY }}
+
   check-deviceid-freshness:
     name: Check device-ID snapshot freshness
     if: startsWith(github.ref, 'refs/tags/')
