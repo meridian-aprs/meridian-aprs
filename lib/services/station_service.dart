@@ -5,10 +5,10 @@ import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/connection/connection_registry.dart';
 import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
 import '../core/packet/station.dart';
-import '../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../core/util/clock.dart';
 
 /// Service that ingests APRS text lines, decodes them with [AprsParser], and
@@ -18,10 +18,11 @@ import '../core/util/clock.dart';
 ///   - [stationUpdates] — a snapshot of the station map, updated each time a
 ///     position packet is received
 ///
-/// Lines are fed via [ingestLine], which is called from [main.dart] for each
-/// connection registered in [ConnectionRegistry]. This service has no
-/// transport dependency; connection lifecycle is managed by the connection
-/// classes and [ConnectionRegistry].
+/// Lines are normally fed via [attach], which subscribes once to the
+/// multiplexed [ConnectionRegistry.lines] stream and routes each tagged line
+/// to the parser. Tests and one-off callers can also push lines synchronously
+/// via [ingestLine]. This service has no transport dependency; connection
+/// lifecycle is managed by the connection classes and [ConnectionRegistry].
 ///
 /// [recentPackets] holds a rolling buffer of recent packets. The in-session
 /// buffer is capped at [_kMaxInMemoryPackets] for performance; time-based
@@ -102,6 +103,10 @@ class StationService extends ChangeNotifier {
   SharedPreferences? _prefs;
   Timer? _persistTimer;
 
+  // Active subscription to ConnectionRegistry.lines, set by [attach] and
+  // cancelled by [stop]. Null until [attach] is called.
+  StreamSubscription<({String line, ConnectionType source})>? _registrySub;
+
   StationService({Clock clock = DateTime.now}) : _clock = clock;
 
   final Clock _clock;
@@ -125,9 +130,12 @@ class StationService extends ChangeNotifier {
   /// No-op. Line ingestion is wired in main.dart via [ConnectionRegistry].
   Future<void> start() async {}
 
-  /// Closes stream controllers and cancels timers.
+  /// Closes stream controllers, cancels timers, and detaches from any
+  /// [ConnectionRegistry] previously wired via [attach].
   Future<void> stop() async {
     _persistTimer?.cancel();
+    await _registrySub?.cancel();
+    _registrySub = null;
     await _stationController.close();
     await _packetController.close();
   }
@@ -266,12 +274,38 @@ class StationService extends ChangeNotifier {
   // Ingest
   // ---------------------------------------------------------------------------
 
+  /// Subscribe to [registry]'s multiplexed [ConnectionRegistry.lines] stream
+  /// and route every tagged line into the parser. This is the single
+  /// production ingestion seam — [main.dart] calls it once at startup, after
+  /// [loadPersistedHistory].
+  ///
+  /// Calling [attach] more than once is a programming error; the second call
+  /// will throw in debug builds. Use [stop] to cancel the subscription.
+  void attach(ConnectionRegistry registry) {
+    assert(
+      _registrySub == null,
+      'StationService.attach called twice; a single subscription is expected.',
+    );
+    _registrySub = registry.lines.listen(
+      (event) =>
+          _handleLine(event.line, source: _packetSourceFor(event.source)),
+    );
+  }
+
   /// Ingest a pre-formatted APRS line from a connection.
   ///
   /// [source] identifies whether the line came from APRS-IS, a BLE TNC, or a
-  /// serial TNC. Defaults to [PacketSource.aprsIs].
+  /// serial TNC. Defaults to [PacketSource.aprsIs]. Production ingestion goes
+  /// through [attach]; this method remains the synchronous direct-injection
+  /// seam used by tests and the background-isolate packet relay.
   void ingestLine(String raw, {PacketSource source = PacketSource.aprsIs}) =>
       _handleLine(raw, source: source);
+
+  static PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
+    ConnectionType.aprsIs => PacketSource.aprsIs,
+    ConnectionType.bleTnc => PacketSource.bleTnc,
+    ConnectionType.serialTnc => PacketSource.serialTnc,
+  };
 
   /// Record a packet that *we* just transmitted, tagged with the transport
   /// it went out on. Used by [TxService] to surface outgoing traffic in the

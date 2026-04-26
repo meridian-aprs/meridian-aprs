@@ -1392,3 +1392,40 @@ Introduce `typedef Clock = DateTime Function();` in `lib/core/util/clock.dart` (
 - One spot-check test (`test/core/util/clock_injection_test.dart`) covers `StationService` retention pruning end-to-end as proof of the seam.
 - Future replay / golden-frame test flows are now feasible — a recorded packet stream can be played through the parser with a deterministic timeline.
 - The background isolate's `MeridianConnectionTask` accepts a `Clock` too, for unit tests; the production `vm:entry-point` constructs it with the default `DateTime.now`.
+
+---
+
+## ADR-063: `StationService` owns connection-line ingestion via attached `ConnectionRegistry` subscription
+
+**Date:** 2026-04-26
+**Status:** Accepted
+
+### Context
+
+Every `MeridianConnection.lines` stream was being subscribed to twice:
+
+1. `ConnectionRegistry.register` subscribed per-connection and re-emitted each line as a tagged tuple onto `registry.lines` (`Stream<({String line, ConnectionType source})>`). This stream had **zero production consumers** — only two test sites touched it.
+2. `main.dart` subscribed per-connection again and forwarded each line to `StationService.ingestLine(...)` with a hand-mapped `PacketSource` tag.
+
+The result was duplicate listener machinery for every transport, dead broadcast plumbing in the registry, and a per-connection mapping helper living in `main.dart` that should have been internal to the service.
+
+### Decision
+
+`StationService` owns connection-line ingestion. A single subscription is established via `StationService.attach(ConnectionRegistry)` against `registry.lines`, and the `ConnectionType → PacketSource` mapping moves into the service as a private helper. `main.dart` calls `service.attach(registry)` exactly once at startup. The subscription is cancelled in `StationService.stop()`.
+
+`ConnectionRegistry`'s broadcast plumbing is preserved unchanged and is now a real, used seam: `registry.lines` has exactly one production consumer, but the broadcast contract means future consumers (logging tap, TX confirmation observer, replay capture) can attach without touching either layer.
+
+`StationService.ingestLine(...)` remains public unchanged — it is the synchronous direct-injection seam used by ~30 service tests and by the background-isolate packet relay (`BackgroundServiceManager.onPacketLogged`). Both `attach` and `ingestLine` ultimately route through the same `_handleLine`.
+
+### Alternatives considered
+
+- **Delete `registry.lines` entirely.** Rejected: the broadcast hub is a useful future seam for non-decoding consumers (logging taps, TX confirmation observers, future replay capture), and broadcast streams have zero cost when unsubscribed. Deleting it would force any future consumer to either add per-connection subscription loops or reintroduce the registry plumbing later.
+- **Pass a callback into `ConnectionRegistry.register`.** Rejected: it would push ingestion policy into the registry's public API and couple it to the service, defeating the registry's role as a transport-agnostic state hub.
+
+### Consequences
+
+- One subscription chain per connection, end to end. No duplicate parser invocations.
+- Per-connection error context is preserved via an `onError` handler on the registry's per-connection `listen` (logs `[<conn.id>] stream error: ...` with the connection id in scope).
+- `StationService.attach` enforces a single-attach contract via `assert`; calling it twice is a programming error.
+- `_packetSourceFor` is now a private static helper on `StationService`; `main.dart` no longer carries transport-tagging logic.
+- Future consumers of `registry.lines` need only `registry.lines.listen(...)` — no plumbing changes required.

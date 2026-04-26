@@ -114,6 +114,18 @@ This keeps the parser deterministic for the same bytes (replay-friendly) and
 puts arrival-time stamping on the side of the system that actually knows
 when packets arrived.
 
+### Connection-line ingestion
+
+Each `MeridianConnection` exposes a `Stream<String> lines`. `ConnectionRegistry`
+subscribes once per connection and re-emits each line as a tagged tuple onto
+`registry.lines` (`Stream<({String line, ConnectionType source})>`). A single
+production consumer attaches via `StationService.attach(registry)` at startup,
+which routes each tagged line into `_handleLine` after mapping
+`ConnectionType → PacketSource`. See ADR-063 — the registry remains the
+broadcast hub but does not drive ingestion; future consumers (logging tap, TX
+confirmation observer, replay capture) attach to `registry.lines` without any
+plumbing changes.
+
 ## Data Flow (Transmit Path)
 
 ```
