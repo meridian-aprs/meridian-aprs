@@ -360,19 +360,14 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                                 !reg.all.any(
                                   (c) => c.beaconingEnabled && c.isConnected,
                                 );
+                            final callbacks = beaconFabCallbacksFor(beaconing);
                             return BeaconFAB(
                               isBeaconing: beaconing.isActive,
                               mode: beaconing.mode,
                               lastBeaconAt: beaconing.lastBeaconAt,
                               noBeaconTarget: noTarget,
-                              onTap: beaconing.mode == BeaconMode.manual
-                                  ? beaconing.beaconNow
-                                  : beaconing.isActive
-                                  ? beaconing.stopBeaconing
-                                  : beaconing.startBeaconing,
-                              onLongPress: beaconing.mode == BeaconMode.manual
-                                  ? beaconing.beaconNow
-                                  : null,
+                              onTap: callbacks.onTap,
+                              onLongPress: callbacks.onLongPress,
                             );
                           },
                         ),

@@ -7,6 +7,27 @@ import 'package:material_symbols_icons/symbols.dart';
 import '../../services/beaconing_service.dart';
 import '../../theme/meridian_colors.dart';
 
+/// Maps the current [BeaconingService] state to the callbacks a [BeaconFAB]
+/// should fire on tap and long-press.
+///
+/// This dispatch is the regression-prone part of the FAB UX (#86): in
+/// `auto` / `smart` modes a tap must start or stop the timed/SmartBeaconing
+/// loop, **never** trigger a one-shot [BeaconingService.beaconNow]. Encoded
+/// here so the same logic is exercised by both [MobileScaffold] and the
+/// widget test in `test/widget/beacon_fab_test.dart`.
+({Future<void> Function() onTap, Future<void> Function()? onLongPress})
+beaconFabCallbacksFor(BeaconingService beaconing) {
+  if (beaconing.mode == BeaconMode.manual) {
+    return (onTap: beaconing.beaconNow, onLongPress: beaconing.beaconNow);
+  }
+  return (
+    onTap: beaconing.isActive
+        ? beaconing.stopBeaconing
+        : beaconing.startBeaconing,
+    onLongPress: null,
+  );
+}
+
 /// A large FAB that represents the beacon transmit action.
 ///
 /// - Idle/manual: primary blue background, broadcasting icon.
