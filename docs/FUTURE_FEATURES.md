@@ -32,11 +32,19 @@ Add address search to the onboarding Location step (and Settings location picker
 
 ## High Priority (v1.1 candidates)
 
-### TCP KISS TNC
-Connect to a software TNC (Dire Wolf, soundmodem, or similar) over TCP on the local network. Enables a common workflow where a radio is attached to a desktop or Raspberry Pi running a software TNC, and Meridian on a phone or tablet connects to it over Wi-Fi. Config: hostname/IP + port (Dire Wolf default: 8001). Uses the same `KissTncTransport` interface and `ConnectionRegistry` as BLE and Serial connections — only the transport layer is new. Available on all platforms except web (no raw TCP sockets in browser; would need WebSocket bridging). `ReconnectableMixin` handles Wi-Fi drops.
+### TCP KISS TNC (bidirectional)
+Two related capabilities sharing the same KISS-over-TCP framing surface:
 
-### Offline Map Tile Caching
-Cache OSM/Stadia tiles locally for use without internet connectivity. The TileProvider abstraction introduced in v0.8 is designed to support this. Relevant for field use where connectivity is limited.
+- **Connect to a TCP KISS TNC** — speak KISS over a TCP socket to any server-side software TNC or networked KISS-over-WiFi modem. Common workflow: a radio attached to a desktop or single-board computer running a software TNC, with Meridian on a phone or tablet connecting over Wi-Fi. Config: hostname/IP + port. Uses the same `KissTncTransport` interface and `ConnectionRegistry` as BLE and Serial connections — only the transport layer is new.
+- **Act as a TCP KISS TNC server** — Meridian exposes its connected radio (BLE or Serial TNC) as a TCP KISS endpoint other apps on the LAN can connect to. Useful for desktop / headless setups and for sharing a single radio across multiple client apps.
+
+Should also consider DNS-SD / mDNS discovery of `_kiss-tnc._tcp` services for zero-config pairing on the LAN. The existing `ConnectionRegistry` and `MeridianConnection` abstractions are well-positioned for both directions. Available on all platforms except web (no raw TCP sockets in browser; would need WebSocket bridging). `ReconnectableMixin` handles Wi-Fi drops.
+
+### Inter-app API
+A documented integration surface that lets third-party tools (loggers, dashboards, contest software, automation) observe received traffic and trigger transmissions through Meridian. Android can use broadcast Intents; other platforms likely need URL schemes / shared files / a local HTTP endpoint. Surface candidates include service-state events, received-message events, position-update events, and outbound message / raw packet send. Open question whether to align with any existing community API surface for ecosystem compatibility or design fresh.
+
+### Kenwood NMEA-GPS bridge
+For radios that accept an external NMEA-GPS feed over serial (Kenwood APRS HTs and mobiles being the canonical case), Meridian could simulate an NMEA source to push the operator's phone GPS position into the radio's internal TNC, and parse the radio's waypoint / station output back. Lets a phone-based GPS drive a radio acting as a standalone APRS station. Niche but a genuine quality-of-life win for operators using that hardware class.
 
 ### QRZ / HamDB Callsign Lookup
 Tap a station callsign to pull operator info (name, location, license class) from QRZ.com or HamDB. Requires QRZ XML subscription for full data; HamDB is free but limited.
@@ -128,4 +136,4 @@ A centralized widget (or formatter) for rendering callsigns consistently across 
 
 ---
 
-*Last updated: 2026-04-25*
+*Last updated: 2026-04-26*

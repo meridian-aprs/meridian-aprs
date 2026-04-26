@@ -136,6 +136,8 @@ Keep these files current as the project evolves:
 - `docs/ARCHITECTURE.md` — update when layers or platform strategy changes
 - `docs/DECISIONS.md` — add an ADR for every significant architectural decision
 - `docs/ROADMAP.md` — mark tasks complete, add tasks as scope clarifies
+- `docs/FUTURE_FEATURES.md` — graduate items to `ROADMAP.md` when they get a milestone, add new items as they surface
+- `docs/CAPABILITIES.md` — single-file reference of current user-facing and architectural capabilities; update at every milestone close-out alongside ROADMAP and DECISIONS so it stays the authoritative "what does Meridian do today?" answer
 
 ---
 
