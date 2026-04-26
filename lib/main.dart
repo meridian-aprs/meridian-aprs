@@ -50,13 +50,6 @@ import 'theme/theme_controller.dart';
 /// the widget tree (notification taps, inline reply navigation).
 final navigatorKey = GlobalKey<NavigatorState>();
 
-/// Maps a [ConnectionType] to the [PacketSource] tag used in [StationService].
-PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
-  ConnectionType.aprsIs => PacketSource.aprsIs,
-  ConnectionType.bleTnc => PacketSource.bleTnc,
-  ConnectionType.serialTnc => PacketSource.serialTnc,
-};
-
 /// Resolves the active [Brightness] from [ThemeMode] for [CupertinoApp].
 ///
 /// [ThemeMode.system] reads [WidgetsBinding.instance.platformDispatcher.platformBrightness]
@@ -159,17 +152,7 @@ Future<void> main() async {
 
   final service = StationService();
   await service.loadPersistedHistory(prefs);
-
-  // Wire ingestLine subscriptions: each connection's decoded text lines are
-  // forwarded to StationService with the correct source tag.
-  for (final conn in registry.all) {
-    conn.lines.listen(
-      (line) => service.ingestLine(line, source: _packetSourceFor(conn.type)),
-      onError: (Object e, StackTrace st) {
-        debugPrint('[${conn.id}] stream error: $e\n$st');
-      },
-    );
-  }
+  service.attach(registry);
 
   // Reconnect APRS-IS only if the user chose to connect last session.
   // Defaults to off on first launch so the connection is always opt-in.

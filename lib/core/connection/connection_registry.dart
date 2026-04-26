@@ -34,11 +34,16 @@ class ConnectionRegistry extends ChangeNotifier {
     _connections.add(conn);
     conn.addListener(notifyListeners);
     _lineSubs.add(
-      conn.lines.listen((line) {
-        if (!_linesController.isClosed) {
-          _linesController.add((line: line, source: conn.type));
-        }
-      }),
+      conn.lines.listen(
+        (line) {
+          if (!_linesController.isClosed) {
+            _linesController.add((line: line, source: conn.type));
+          }
+        },
+        onError: (Object e, StackTrace st) {
+          debugPrint('[${conn.id}] stream error: $e\n$st');
+        },
+      ),
     );
   }
 

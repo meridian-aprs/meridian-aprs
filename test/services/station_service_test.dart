@@ -1,9 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:meridian_aprs/core/connection/connection_registry.dart';
 import 'package:meridian_aprs/core/packet/aprs_packet.dart';
 import 'package:meridian_aprs/core/packet/station.dart';
 import 'package:meridian_aprs/services/station_service.dart';
+
+import '../helpers/fake_meridian_connection.dart';
 
 void main() {
   late StationService service;
@@ -339,6 +342,98 @@ void main() {
 
       expect(svc.recentPackets.first.transportSource, PacketSource.tnc);
       await svc.stop();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // attach — single subscription against ConnectionRegistry.lines
+  // ---------------------------------------------------------------------------
+
+  group('attach', () {
+    late ConnectionRegistry registry;
+    late FakeMeridianConnection aprsIs;
+    late FakeMeridianConnection bleTnc;
+    late FakeMeridianConnection serial;
+
+    setUp(() {
+      registry = ConnectionRegistry();
+      aprsIs = FakeMeridianConnection(
+        id: 'aprs_is',
+        displayName: 'APRS-IS',
+        type: ConnectionType.aprsIs,
+      );
+      bleTnc = FakeMeridianConnection(
+        id: 'ble_tnc',
+        displayName: 'BLE TNC',
+        type: ConnectionType.bleTnc,
+      );
+      serial = FakeMeridianConnection(
+        id: 'serial_tnc',
+        displayName: 'Serial TNC',
+        type: ConnectionType.serialTnc,
+      );
+      registry.register(aprsIs);
+      registry.register(bleTnc);
+      registry.register(serial);
+    });
+
+    tearDown(() async {
+      await aprsIs.dispose();
+      await bleTnc.dispose();
+      await serial.dispose();
+      registry.dispose();
+    });
+
+    test('routes lines from each connection with the correct source', () async {
+      final packets = <AprsPacket>[];
+      service.packetStream.listen(packets.add);
+
+      service.attach(registry);
+
+      aprsIs.simulateLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>via IS');
+      bleTnc.simulateLine('W2BLE>APMDN0:!4903.50N/07201.75W>via BLE');
+      serial.simulateLine('W3SER>APMDN0:!4903.50N/07201.75W>via Serial');
+      await Future<void>.delayed(Duration.zero);
+
+      expect(packets, hasLength(3));
+      expect(
+        packets.map((p) => p.transportSource),
+        containsAll(<PacketSource>[
+          PacketSource.aprsIs,
+          PacketSource.bleTnc,
+          PacketSource.serialTnc,
+        ]),
+      );
+      final byCallsign = {
+        for (final p in packets) p.rawLine.split('>').first: p.transportSource,
+      };
+      expect(byCallsign['W1AW'], PacketSource.aprsIs);
+      expect(byCallsign['W2BLE'], PacketSource.bleTnc);
+      expect(byCallsign['W3SER'], PacketSource.serialTnc);
+    });
+
+    test('stop() cancels the registry subscription', () async {
+      service.attach(registry);
+
+      // Capture the active line stream before stop closes packetStream.
+      // After stop, simulating a line must not throw and must not produce
+      // any further side effects.
+      await service.stop();
+
+      // No throw is the assertion: the service has detached cleanly and
+      // late-arriving lines from the registry do not hit the closed
+      // packet controller.
+      expect(
+        () => aprsIs.simulateLine(
+          'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>after stop',
+        ),
+        returnsNormally,
+      );
+    });
+
+    test('calling attach twice throws in debug builds', () {
+      service.attach(registry);
+      expect(() => service.attach(registry), throwsA(isA<AssertionError>()));
     });
   });
 }
