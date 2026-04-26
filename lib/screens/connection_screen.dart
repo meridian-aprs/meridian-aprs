@@ -243,9 +243,9 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InfoRow(label: 'Server', value: 'rotate.aprs2.net'),
+                  _InfoRow(label: 'Server', value: _aprsIsHost(conn)),
                   const SizedBox(height: 8),
-                  _InfoRow(label: 'Port', value: '14580'),
+                  _InfoRow(label: 'Port', value: _aprsIsPort(conn)),
                   const SizedBox(height: 8),
                   _InfoRow(
                     label: 'Callsign',
@@ -360,7 +360,7 @@ class _ActiveConnectionCard extends StatelessWidget {
   };
 
   static String _subtitleFor(MeridianConnection conn) {
-    if (conn.type == ConnectionType.aprsIs) return 'rotate.aprs2.net:14580';
+    if (conn is AprsIsConnection) return conn.serverDisplay;
     if (conn is SerialConnection) {
       return conn.activeConfig?.port ?? 'Serial TNC';
     }
@@ -525,4 +525,18 @@ class _SectionLabel extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Splits `host:port` from [AprsIsConnection.serverDisplay] for the
+/// per-tab info card. Falls back gracefully if the format is unexpected.
+String _aprsIsHost(AprsIsConnection conn) {
+  final s = conn.serverDisplay;
+  final idx = s.lastIndexOf(':');
+  return idx > 0 ? s.substring(0, idx) : s;
+}
+
+String _aprsIsPort(AprsIsConnection conn) {
+  final s = conn.serverDisplay;
+  final idx = s.lastIndexOf(':');
+  return idx > 0 && idx < s.length - 1 ? s.substring(idx + 1) : '';
 }
