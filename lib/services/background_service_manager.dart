@@ -161,6 +161,13 @@ class BackgroundServiceManager extends ChangeNotifier
   bool _needsPermission = false;
   bool _backgroundActivityEnabled = true;
 
+  /// Tracks whether we've sent `start_beaconing` to the background isolate
+  /// for the current "in background AND a transport is connected AND
+  /// beaconing is active" window. Used to debounce the IPC so listener
+  /// churn doesn't spam start/stop messages on every connection-status
+  /// flicker.
+  bool _bgBeaconSignalled = false;
+
   // ---------------------------------------------------------------------------
   // Background reconnect tracking
   // ---------------------------------------------------------------------------
@@ -248,15 +255,21 @@ class BackgroundServiceManager extends ChangeNotifier
   // shouldBeRunning / session predicates
   // ---------------------------------------------------------------------------
 
+  /// FGS gate. Reflects user intent: the FGS exists to keep RX alive (and to
+  /// host beaconing while backgrounded) for connections the user has
+  /// expressed intent to use. Beaconing alone is **not** a reason to keep
+  /// the FGS up — without a connected transport there's nowhere for a
+  /// beacon to land (the BG isolate also gates beacons on connection
+  /// presence; see `_evaluateBgBeaconSignal`).
   bool get _shouldBeRunning =>
-      _backgroundActivityEnabled &&
-      (_registry.available.any(_isSessionActive) ||
-          (_beaconing.isActive && _beaconing.mode != BeaconMode.manual));
+      _backgroundActivityEnabled && _registry.all.any(_isSessionActive);
 
   /// True while a connection is in any active state: connected, connecting,
   /// reconnecting, or waitingForDevice, or while backgrounded and tracked for
-  /// reconnect.
+  /// reconnect. A foreground `disconnected` status is the user-intent signal
+  /// to drop the FGS.
   bool _isSessionActive(MeridianConnection conn) {
+    if (!conn.isAvailable) return false;
     final s = conn.status;
     if (s == ConnectionStatus.connected ||
         s == ConnectionStatus.connecting ||
@@ -330,6 +343,14 @@ class BackgroundServiceManager extends ChangeNotifier
 
   Future<void> stopService() async {
     if (!Platform.isAndroid) return;
+    // Tell the BG isolate to drop its `_wantsBeaconing` gate before the FGS
+    // is torn down. The isolate is about to be destroyed, but explicit
+    // signalling keeps state hygiene readable and protects against any
+    // future path where stopService doesn't fully tear down the isolate.
+    if (_bgBeaconSignalled) {
+      FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
+      _bgBeaconSignalled = false;
+    }
     await _taskApi.stopService();
     _autoStarted = false;
     _setState(BackgroundServiceState.stopped);
@@ -359,12 +380,12 @@ class BackgroundServiceManager extends ChangeNotifier
 
         if (_beaconing.isActive && _beaconing.mode != BeaconMode.manual) {
           _beaconing.suspendTimerForBackground();
-          FlutterForegroundTask.sendDataToTask({
-            'type': 'start_beaconing',
-            'last_beacon_ts':
-                _beaconing.lastBeaconAt?.millisecondsSinceEpoch ?? 0,
-          });
         }
+        // Evaluate BG beaconing IPC against the new (backgrounded) state.
+        // This sends `start_beaconing` only when both intent (beaconing
+        // active) and at least one connected transport are present, and is
+        // re-evaluated on every connection-state change while backgrounded.
+        _evaluateBgBeaconSignal();
 
       case AppLifecycleState.resumed:
         _isInBackground = false;
@@ -384,6 +405,7 @@ class BackgroundServiceManager extends ChangeNotifier
         }
 
         FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
+        _bgBeaconSignalled = false;
         _resumeBeaconingFromBackground();
 
         // Reconnect anything that fully dropped while backgrounded. For
@@ -643,6 +665,15 @@ class BackgroundServiceManager extends ChangeNotifier
       _maybeReconnectInBackground();
     }
 
+    // While backgrounded, decide whether the BG isolate should be beaconing.
+    // The dual-gate design requires both intent (beaconing active, non-
+    // manual) and a connected transport. Re-evaluated on every registry/
+    // beaconing change so a transport drop mid-BG cleanly suspends BG
+    // beaconing and a recovery resumes it.
+    if (_isInBackground && isRunning) {
+      _evaluateBgBeaconSignal();
+    }
+
     _updateDebounce?.cancel();
     if (isRunning) {
       _updateDebounce = Timer(
@@ -653,6 +684,43 @@ class BackgroundServiceManager extends ChangeNotifier
 
     notifyListeners();
   }
+
+  /// Sends `start_beaconing` / `stop_beaconing` IPC to the background isolate
+  /// based on the dual-gate predicate: BG beaconing runs only when the user
+  /// has beaconing active (auto/smart) AND at least one transport is
+  /// currently connected. `_bgBeaconSignalled` debounces so we don't spam
+  /// the IPC channel on every connection-status flicker.
+  ///
+  /// Caller is responsible for ensuring `_isInBackground == true && isRunning`
+  /// before invoking — this method assumes the FGS is alive and the main
+  /// isolate is suspended.
+  void _evaluateBgBeaconSignal() {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final shouldBeacon =
+        _registry.connected.isNotEmpty &&
+        _beaconing.isActive &&
+        _beaconing.mode != BeaconMode.manual;
+
+    if (shouldBeacon && !_bgBeaconSignalled) {
+      FlutterForegroundTask.sendDataToTask({
+        'type': 'start_beaconing',
+        'last_beacon_ts': _beaconing.lastBeaconAt?.millisecondsSinceEpoch ?? 0,
+      });
+      _bgBeaconSignalled = true;
+    } else if (!shouldBeacon && _bgBeaconSignalled) {
+      FlutterForegroundTask.sendDataToTask({'type': 'stop_beaconing'});
+      _bgBeaconSignalled = false;
+    }
+  }
+
+  /// Test-only entrypoint mirroring the BG-beacon evaluator. Production
+  /// callers are guarded by `_isInBackground && isRunning && Platform.is
+  /// Android`; tests on Linux can reach the underlying gate logic this way.
+  @visibleForTesting
+  void debugEvaluateBgBeaconSignal() => _evaluateBgBeaconSignal();
+
+  @visibleForTesting
+  bool get debugBgBeaconSignalled => _bgBeaconSignalled;
 
   void _maybeReconnectInBackground() {
     for (final id in _reconnectIds) {

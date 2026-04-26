@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -49,6 +50,19 @@ class MeridianConnectionTask extends TaskHandler {
   Timer? _bulletinTimer;
   int? _lastBeaconTs; // ms since epoch; null until first beacon this session
 
+  /// Master kill-switch for beaconing in this isolate. `true` between
+  /// `start_beaconing` and `stop_beaconing` IPCs from the main isolate;
+  /// `false` outside that window.
+  ///
+  /// Load-bearing: `_onBeaconTimer` calls `_sendBeacon().whenComplete(
+  /// _scheduleNextBeacon)`. If `stop_beaconing` IPC arrives while
+  /// `_sendBeacon` is in flight, `_scheduleNextBeacon` would otherwise
+  /// re-arm `_beaconTimer` after the IPC tried to clear it — leaving
+  /// the BG isolate firing beacons forever with no way to stop short
+  /// of killing the FGS. Every scheduling and transmission entry
+  /// point is gated on this flag.
+  bool _wantsBeaconing = false;
+
   /// Active beacon mode for this background session. Set on `start_beaconing`
   /// IPC from the main isolate; treated as auto if not yet set.
   BeaconMode _activeMode = BeaconMode.auto;
@@ -58,6 +72,12 @@ class MeridianConnectionTask extends TaskHandler {
 
   /// GPS position stream subscription. Active only in smart mode.
   StreamSubscription<Position>? _positionSub;
+
+  @visibleForTesting
+  bool get debugWantsBeaconing => _wantsBeaconing;
+
+  @visibleForTesting
+  Timer? get debugBeaconTimer => _beaconTimer;
 
   /// Bulletin scheduler tick interval in the background isolate. Matches the
   /// main-isolate `BulletinScheduler` cadence so schedule math is consistent.
@@ -111,9 +131,13 @@ class MeridianConnectionTask extends TaskHandler {
     final type = msg['type'] as String?;
     switch (type) {
       case 'start_beaconing':
+        _wantsBeaconing = true;
         final lastBeaconTsMs = msg['last_beacon_ts'] as int? ?? 0;
         _scheduleFirstBeacon(lastBeaconTsMs);
       case 'stop_beaconing':
+        // Set the gate first so any in-flight `_sendBeacon().whenComplete(
+        // _scheduleNextBeacon)` re-arm path no-ops on its next prefs callback.
+        _wantsBeaconing = false;
         _beaconTimer?.cancel();
         _beaconTimer = null;
         _stopSmartPositionStream();
@@ -146,6 +170,9 @@ class MeridianConnectionTask extends TaskHandler {
     if (lastBeaconTsMs > 0) _lastBeaconTs = lastBeaconTsMs;
     SharedPreferences.getInstance().then((prefs) async {
       await prefs.reload();
+      // A `stop_beaconing` IPC could have landed while the prefs load was
+      // in flight. Re-check before scheduling anything.
+      if (!_wantsBeaconing) return;
       _activeMode = _readBeaconMode(prefs);
 
       // Manual mode never auto-fires. The user explicitly chose to send only
@@ -186,8 +213,13 @@ class MeridianConnectionTask extends TaskHandler {
   }
 
   void _scheduleNextBeacon() {
+    // Load-bearing gate against the `whenComplete` race: if `stop_beaconing`
+    // landed during `_sendBeacon`, this re-arm path is the one that would
+    // otherwise resurrect `_beaconTimer`.
+    if (!_wantsBeaconing) return;
     SharedPreferences.getInstance().then((prefs) async {
       await prefs.reload();
+      if (!_wantsBeaconing) return;
 
       if (_activeMode == BeaconMode.manual) return;
 
@@ -283,6 +315,7 @@ class MeridianConnectionTask extends TaskHandler {
   }
 
   void _onSmartPositionUpdate(Position position) {
+    if (!_wantsBeaconing) return;
     final smart = _smart;
     if (smart == null || _activeMode != BeaconMode.smart) return;
 
@@ -312,6 +345,13 @@ class MeridianConnectionTask extends TaskHandler {
     // started (interval, callsign, beacon targets, etc.). The Dart-side
     // singleton would otherwise serve a stale cached copy indefinitely.
     await prefs.reload();
+
+    // Defense-in-depth: if `stop_beaconing` IPC landed between
+    // `_onBeaconTimer` firing and this point, suppress the actual transmit
+    // and the side-effects (`_lastBeaconTs`, `bg_last_beacon_ts`,
+    // `beacon_sent` IPC, notification body) so the BG isolate doesn't
+    // produce phantom log entries after the user disabled beaconing.
+    if (!_wantsBeaconing) return;
 
     final callsign = (prefs.getString('user_callsign') ?? '').toUpperCase();
     if (callsign.isEmpty) return; // Not configured — skip.
