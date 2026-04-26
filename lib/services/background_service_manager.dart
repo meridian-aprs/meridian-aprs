@@ -33,6 +33,11 @@ abstract interface class ForegroundServiceApi {
   });
 
   Future<ServiceRequestResult> stopService();
+
+  /// True when the OS reports the foreground service is alive. Used by BSM
+  /// to detect cases where Android killed the service (or the user swiped
+  /// the notification away) without notifying the main isolate.
+  Future<bool> isRunningService();
 }
 
 class _DefaultForegroundServiceApi implements ForegroundServiceApi {
@@ -63,6 +68,9 @@ class _DefaultForegroundServiceApi implements ForegroundServiceApi {
   @override
   Future<ServiceRequestResult> stopService() =>
       FlutterForegroundTask.stopService();
+
+  @override
+  Future<bool> isRunningService() => FlutterForegroundTask.isRunningService;
 }
 
 /// State of the Android foreground service keepalive.
@@ -361,6 +369,14 @@ class BackgroundServiceManager extends ChangeNotifier
       case AppLifecycleState.resumed:
         _isInBackground = false;
 
+        // Reconcile BSM state against the OS first. If Android killed the
+        // FGS overnight or the user swiped the notification away, _state
+        // can still be `running` even though no service exists — every
+        // subsequent action (auto-start short-circuit, updateService no-ops)
+        // breaks until we resync. Real-time swipe detection isn't reliable
+        // across Android versions; resume is the load-bearing recovery hook.
+        _reconcileWithOs(); // ignore: unawaited_futures
+
         // Cancel all pending reconnect timers — foreground handles reconnect.
         for (final id in _reconnectTimers.keys.toList()) {
           _reconnectTimers[id]?.cancel();
@@ -499,6 +515,41 @@ class BackgroundServiceManager extends ChangeNotifier
   // Auto-start / auto-stop
   // ---------------------------------------------------------------------------
 
+  /// Resyncs `_state` against the OS's view of the foreground service.
+  ///
+  /// Android can terminate the FGS without notifying the main isolate (Doze,
+  /// memory pressure, OEM throttling), and on Android 14+ swiping the
+  /// notification stops the service the same way. When that happens, BSM's
+  /// in-memory state stays `running`, which:
+  ///   - Short-circuits `_maybeAutoStart()` so no auto-restart happens.
+  ///   - Makes `_pushNotificationUpdate()` call `updateService` on a dead
+  ///     service (silent no-op).
+  ///
+  /// Callers gate this on `isRunning == true` to avoid polling the OS on
+  /// every listener tick. When the OS reports the service is gone, we
+  /// transition to `stopped` and let the normal auto-start path recreate
+  /// everything from scratch — including the notification.
+  Future<void> _reconcileWithOs() async {
+    if (!isRunning) return;
+    final running = await _taskApi.isRunningService();
+    if (running) return;
+    debugPrint(
+      'BackgroundServiceManager: OS reports FGS not running while _state='
+      '$_state — resyncing to stopped and re-attempting auto-start.',
+    );
+    _autoStarted = false;
+    _setState(BackgroundServiceState.stopped);
+    if (_shouldBeRunning) {
+      _maybeAutoStart(); // ignore: unawaited_futures
+    }
+  }
+
+  /// Test-only entrypoint for the OS-reconciliation path. The production
+  /// callers are platform-guarded (`Platform.isAndroid`), so unit tests on
+  /// Linux can't reach `_reconcileWithOs` through them.
+  @visibleForTesting
+  Future<void> debugReconcileWithOs() => _reconcileWithOs();
+
   Future<void> _maybeAutoStart() async {
     if (!Platform.isAndroid) return;
     if (isRunning || !_backgroundActivityEnabled) return;
@@ -550,6 +601,15 @@ class BackgroundServiceManager extends ChangeNotifier
   // ---------------------------------------------------------------------------
 
   void _onServiceStateChanged() {
+    // Defense-in-depth desync check: registry/beaconing events fire often,
+    // so guard the OS poll behind the cheap `isRunning` check — we only
+    // care about the case where BSM thinks the FGS is alive. The main
+    // recovery hook is on `AppLifecycleState.resumed`; this catches events
+    // that arrive before the next resume.
+    if (!kIsWeb && Platform.isAndroid && isRunning) {
+      _reconcileWithOs(); // ignore: unawaited_futures
+    }
+
     if (isRunning) {
       final anyIssue = _registry.all.any((c) {
         if (!c.isAvailable) return false;

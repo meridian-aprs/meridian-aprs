@@ -89,7 +89,11 @@ class MeridianConnectionTask extends TaskHandler {
 
     // Also refreshes the "last beacon: Xm ago" notification text so it stays
     // current while the phone is locked (the main isolate cannot do this
-    // because its event loop is throttled when backgrounded).
+    // because its event loop is throttled when backgrounded). The body is
+    // only refreshed when this isolate is actually scheduling beacons —
+    // otherwise BSM on the main isolate is authoritative for the body
+    // (e.g. "Beaconing off" while only a connection is keeping the FGS up).
+    if (_beaconTimer == null) return;
     final ts = _lastBeaconTs;
     if (ts == null) return;
     final diffMs = DateTime.now().millisecondsSinceEpoch - ts;
