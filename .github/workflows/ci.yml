@@ -103,6 +103,11 @@ jobs:
         with:
           channel: stable
 
+      - name: Install macOS build dependencies
+        # libserialport (transitive native dep of flutter_libserialport) requires
+        # automake + libtool during its CocoaPods prepare step.
+        run: brew install automake libtool
+
       - name: Install dependencies
         run: flutter pub get
 
