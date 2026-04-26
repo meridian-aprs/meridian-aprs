@@ -472,6 +472,12 @@ class StationService extends ChangeNotifier {
       device: incoming.device ?? prev.device,
       positionHistory: history,
       type: incoming.type,
+      // Prefer a known capability over an unknown one. A later Position packet
+      // is authoritative, but we don't want a later Object/Item packet (which
+      // is always "unknown") to erase a prior known value.
+      messageCapability: incoming.messageCapability != MessageCapability.unknown
+          ? incoming.messageCapability
+          : prev.messageCapability,
     );
   }
 
@@ -486,6 +492,9 @@ class StationService extends ChangeNotifier {
     comment: p.comment,
     device: p.device,
     type: classifyStationType(p.symbolTable, p.symbolCode),
+    messageCapability: p.hasMessaging
+        ? MessageCapability.supported
+        : MessageCapability.unsupported,
   );
 
   Station _stationFromMicE(MicEPacket p) => Station(
@@ -499,6 +508,7 @@ class StationService extends ChangeNotifier {
     comment: p.comment,
     device: p.device,
     type: classifyStationType(p.symbolTable, p.symbolCode),
+    messageCapability: MessageCapability.supported,
   );
 
   Station _stationFromObject(ObjectPacket p) => Station(
@@ -610,6 +620,7 @@ class StationService extends ChangeNotifier {
     'lastHeard': s.lastHeard.millisecondsSinceEpoch,
     'rawPacket': s.rawPacket,
     'type': s.type.name,
+    'messageCapability': s.messageCapability.name,
     if (s.device != null) 'device': s.device,
     if (s.positionHistory.isNotEmpty)
       'positionHistory': s.positionHistory
@@ -631,6 +642,12 @@ class StationService extends ChangeNotifier {
         ? StationType.values.where((t) => t.name == typeStr).firstOrNull ??
               classifyStationType(symbolTable, symbolCode)
         : classifyStationType(symbolTable, symbolCode);
+
+    final capStr = json['messageCapability'] as String?;
+    final messageCapability = capStr != null
+        ? MessageCapability.values.where((c) => c.name == capStr).firstOrNull ??
+              MessageCapability.unknown
+        : MessageCapability.unknown;
 
     final historyRaw = json['positionHistory'] as List<dynamic>?;
     final positionHistory =
@@ -655,6 +672,7 @@ class StationService extends ChangeNotifier {
       device: json['device'] as String?,
       type: type,
       positionHistory: positionHistory,
+      messageCapability: messageCapability,
     );
   }
 }

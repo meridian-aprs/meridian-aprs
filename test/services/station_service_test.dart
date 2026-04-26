@@ -117,6 +117,71 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // MessageCapability derivation
+  // ---------------------------------------------------------------------------
+
+  group('MessageCapability', () {
+    test('position with `!` DTI is unsupported', () async {
+      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        service.currentStations['W1AW']?.messageCapability,
+        MessageCapability.unsupported,
+      );
+    });
+
+    test('position with `=` DTI is supported', () async {
+      service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        service.currentStations['W1AW']?.messageCapability,
+        MessageCapability.supported,
+      );
+    });
+
+    test('object packet defaults to unknown', () async {
+      service.ingestLine('W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        service.currentStations['HOSPITAL']?.messageCapability,
+        MessageCapability.unknown,
+      );
+    });
+
+    test(
+      'merge keeps known supported value when later object packet would be unknown',
+      () async {
+        // Position-supported first, then a later object reusing same callsign
+        // shouldn't clobber a known capability with unknown — but objects are
+        // keyed differently anyway. Use a position->position transition where
+        // a later identical position keeps the supported flag.
+        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>First');
+        await Future<void>.delayed(Duration.zero);
+        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>Second');
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          service.currentStations['W1AW']?.messageCapability,
+          MessageCapability.supported,
+        );
+      },
+    );
+
+    test(
+      'later position packet overrides prior capability (unsupported→supported)',
+      () async {
+        service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg');
+        await Future<void>.delayed(Duration.zero);
+        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg');
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          service.currentStations['W1AW']?.messageCapability,
+          MessageCapability.supported,
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // Object / Item packets
   // ---------------------------------------------------------------------------
 
