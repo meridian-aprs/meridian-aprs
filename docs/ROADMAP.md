@@ -26,6 +26,8 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | — |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | — |
 | v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
+| v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
+| v0.22 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
 | v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
 
 > **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
@@ -187,6 +189,49 @@ Pre-launch polish. The same surfaces being touched for accessibility and adaptiv
 
 ---
 
+### v0.21 — Classic Bluetooth SPP
+
+Add Classic Bluetooth SPP as a fourth transport alongside APRS-IS, BLE TNC, and Serial TNC. Unlocks a meaningful slice of installed-base hardware — APRS-capable HTs and mobiles with built-in or add-on classic Bluetooth, and older Bluetooth-equipped TNCs that predate BLE.
+
+**Critical platform caveat — must be documented in this milestone's scope and in an ADR:** iOS does not allow third-party apps to speak Classic Bluetooth SPP to non-MFi-certified accessories. This is a platform restriction, not a Meridian limitation. Practical impact:
+
+- Android, Linux, Windows, macOS — Classic BT SPP is implementable
+- iOS — not possible from the app; iOS users with classic-BT-only hardware need an external BLE↔Classic bridge
+
+Tooling notes:
+
+- The current BLE library is BLE-only — does not cover classic SPP
+- Android: existing third-party packages exist but are lightly maintained; a platform channel may be cleaner
+- Desktop: each platform needs its own classic-BT integration
+- An ADR will document the chosen approach and the iOS exclusion
+
+Deliverables:
+
+- New `ClassicBtTncTransport` implementing `KissTncTransport`, registered as a `MeridianConnection` peer of BLE / Serial
+- Pairing UI in the Connection screen, parallel to `BleScannerSheet`
+- Reuse of existing KISS framing, AX.25 decode, beaconing, and `ReconnectableMixin`
+- Per-platform integration covering Android first, then Linux / Windows / macOS
+- ADR documenting the platform-channel strategy and the iOS exclusion
+- Settings copy / connection screen messaging that explains the iOS limitation rather than hiding it
+
+---
+
+### v0.22 — Offline Maps
+
+Cache map tiles locally for portable / field / SAR use without cell service. The existing `MeridianTileProvider` abstraction was designed forward-looking for this — the current online provider stays as-is and the offline implementation sits alongside it as a separate provider rather than replacing it.
+
+Deliverables:
+
+- New offline `MeridianTileProvider` implementation — tile-storage format and rendering strategy to be decided and recorded in an ADR
+- Per-region cache management UI — pick a bounding region, pick zoom range, download, see disk usage, evict
+- Settings → Map → Offline section for cache policy, download status, and storage cap
+- Online / offline provider selection logic — fall back to cached tiles when network is unreachable; user toggle to force offline
+- Cache schema versioned so format changes don't silently corrupt user storage
+- ADR documenting the tile-format and storage-location choice per platform
+- Documentation entry in CAPABILITIES.md once shipped
+
+---
+
 ### v1.0 — Launch
 
 The release milestone — release pipeline, store readiness, and final field validation. No new features.
@@ -221,4 +266,4 @@ Items that were filed as issues but deferred without scheduling. Each is tracked
 
 ---
 
-*Last updated: 2026-04-25*
+*Last updated: 2026-04-26*
