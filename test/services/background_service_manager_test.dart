@@ -20,11 +20,16 @@ class FakeForegroundServiceApi implements ForegroundServiceApi {
   int startCallCount = 0;
   int updateCallCount = 0;
   int stopCallCount = 0;
+  int isRunningCallCount = 0;
 
   String? lastTitle;
   String? lastBody;
 
   bool startReturnsSuccess;
+
+  /// What `isRunningService()` should return — toggled in tests to simulate
+  /// Android killing the FGS without notifying the main isolate.
+  bool runningOverride = true;
 
   FakeForegroundServiceApi({this.startReturnsSuccess = true});
 
@@ -58,6 +63,12 @@ class FakeForegroundServiceApi implements ForegroundServiceApi {
   Future<ServiceRequestResult> stopService() async {
     stopCallCount++;
     return ServiceRequestSuccess();
+  }
+
+  @override
+  Future<bool> isRunningService() async {
+    isRunningCallCount++;
+    return runningOverride;
   }
 }
 
@@ -447,6 +458,161 @@ void main() {
       expect(fake.stopCallCount, 0);
       expect(manager.state, BackgroundServiceState.stopped);
       manager.dispose();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Issue #99 — state-desync recovery
+  // ---------------------------------------------------------------------------
+  group('BackgroundServiceManager — OS state reconciliation (Issue #99)', () {
+    test(
+      'reconcile transitions running → stopped when OS reports FGS gone',
+      () async {
+        final deps = await _buildDeps();
+        final fake = FakeForegroundServiceApi();
+        final manager = BackgroundServiceManager(
+          registry: deps.registry,
+          beaconing: deps.beaconing,
+          tx: deps.tx,
+          taskApi: fake,
+        );
+
+        // Simulate the bug: BSM thinks the FGS is alive, but the OS killed it.
+        manager.setStateForTest(BackgroundServiceState.running);
+        fake.runningOverride = false;
+
+        await manager.debugReconcileWithOs();
+
+        expect(fake.isRunningCallCount, 1);
+        expect(manager.state, BackgroundServiceState.stopped);
+        manager.dispose();
+      },
+    );
+
+    test('reconcile leaves state alone when OS confirms FGS running', () async {
+      final deps = await _buildDeps();
+      final fake = FakeForegroundServiceApi();
+      final manager = BackgroundServiceManager(
+        registry: deps.registry,
+        beaconing: deps.beaconing,
+        tx: deps.tx,
+        taskApi: fake,
+      );
+
+      manager.setStateForTest(BackgroundServiceState.running);
+      fake.runningOverride = true;
+
+      await manager.debugReconcileWithOs();
+
+      expect(fake.isRunningCallCount, 1);
+      expect(manager.state, BackgroundServiceState.running);
+      manager.dispose();
+    });
+
+    test(
+      'reconcile is a no-op (and does not poll OS) when state is stopped',
+      () async {
+        final deps = await _buildDeps();
+        final fake = FakeForegroundServiceApi();
+        final manager = BackgroundServiceManager(
+          registry: deps.registry,
+          beaconing: deps.beaconing,
+          tx: deps.tx,
+          taskApi: fake,
+        );
+
+        // _state starts as stopped — reconcile should short-circuit before
+        // polling the OS, so listener-tick churn doesn't drive isRunningService
+        // calls in the common case.
+        fake.runningOverride = false;
+
+        await manager.debugReconcileWithOs();
+
+        expect(fake.isRunningCallCount, 0);
+        expect(manager.state, BackgroundServiceState.stopped);
+        manager.dispose();
+      },
+    );
+
+    test(
+      'reconcile transitions reconnecting → stopped when OS reports FGS gone',
+      () async {
+        final deps = await _buildDeps();
+        final fake = FakeForegroundServiceApi();
+        final manager = BackgroundServiceManager(
+          registry: deps.registry,
+          beaconing: deps.beaconing,
+          tx: deps.tx,
+          taskApi: fake,
+        );
+
+        // `reconnecting` is also covered by `isRunning` — the bug was reported
+        // against this state too (the FGS could die mid-reconnect retry).
+        manager.setStateForTest(BackgroundServiceState.reconnecting);
+        fake.runningOverride = false;
+
+        await manager.debugReconcileWithOs();
+
+        expect(manager.state, BackgroundServiceState.stopped);
+        manager.dispose();
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // Issue #99 — BeaconingService.startBeaconing refreshes lastBeaconAt
+  // ---------------------------------------------------------------------------
+  group('BeaconingService — startBeaconing refreshes lastBeaconAt', () {
+    test('startBeaconing overwrites a stale _lastBeaconAt (Bug C)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final settings = StationSettingsService(
+        prefs,
+        store: FakeSecureCredentialStore(),
+      );
+      // Manual location source so beaconNow does not need GPS — the test
+      // platform has no geolocator implementation.
+      await settings.setLocationSource(LocationSource.manual);
+      await settings.setManualPosition(40.0, -74.0);
+      await settings.setCallsign('NOCALL');
+
+      final registry = ConnectionRegistry();
+      final tx = TxService(registry, settings);
+      final beaconing = BeaconingService(settings, tx);
+      await beaconing.setMode(BeaconMode.auto);
+
+      // Set up the bug precondition: a stale _lastBeaconAt from a prior
+      // session. The cleanest way to plant one without exposing internals
+      // is to send a beacon, stop, then verify the stale timestamp persists
+      // until the next startBeaconing() call.
+      await beaconing.beaconNow();
+      final firstBeaconAt = beaconing.lastBeaconAt;
+      expect(firstBeaconAt, isNotNull);
+
+      // Simulate time passing — yield enough microtasks that DateTime.now()
+      // advances past `firstBeaconAt` in millisecond resolution.
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+
+      // startBeaconing must reset _lastBeaconAt to "now" so the notification
+      // body does not lie with a stale "22m ago" value carried over from
+      // before the previous stop.
+      // ignore: unawaited_futures
+      beaconing.startBeaconing();
+      // Yield so the synchronous notifyListeners + assignment chain settles
+      // (the await on _startPositionStream comes after our line of interest).
+      await Future<void>.delayed(Duration.zero);
+
+      final afterStart = beaconing.lastBeaconAt;
+      expect(afterStart, isNotNull);
+      expect(
+        afterStart!.isAfter(firstBeaconAt!),
+        isTrue,
+        reason:
+            'startBeaconing must reset _lastBeaconAt so the notification '
+            'body does not lie about the pre-disable timestamp.',
+      );
+
+      await beaconing.stopBeaconing();
     });
   });
 }

@@ -227,13 +227,17 @@ class BeaconingService extends ChangeNotifier {
   Future<void> startBeaconing() async {
     if (_isActive) return;
     _isActive = true;
+    // Reset _lastBeaconAt on every inactive→active transition so the
+    // notification body doesn't lie with a stale "Last beacon: 22m ago"
+    // value carried over from before the user disabled beaconing. Done
+    // before notifyListeners so the very first BSM rebuild sees a fresh
+    // timestamp. beaconNow() will overwrite this with the real send time
+    // on success.
+    _lastBeaconAt = DateTime.now();
     // Notify immediately so UI and BackgroundServiceManager update the
     // notification before the first beacon send (which may take several
     // seconds waiting for a GPS fix).
     notifyListeners();
-    // Seed _lastBeaconAt so the turn trigger is unblocked from the start.
-    // beaconNow() will overwrite this with the real send time on success.
-    _lastBeaconAt ??= DateTime.now();
     await _startPositionStream();
     await _restartTimer();
     // Send an immediate first beacon (standard APRS practice). On success this
