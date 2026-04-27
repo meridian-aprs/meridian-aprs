@@ -159,7 +159,8 @@ Architecture, testing, and dependency foundations that unblock the subsequent pe
 - ✅ Service-level test coverage for `BeaconingService` (#52)
 - ✅ Service-level test coverage for `TxService` Serial > BLE > APRS-IS routing hierarchy (#60)
 - ✅ BeaconFAB widget regression guard — pin start/stop semantics in auto/smart modes, long-press cooldown, "Xm ago" label (#86, split from #53)
-- Dependency upgrades: `flutter_local_notifications` v18 → v21 paired with `desugar_jdk_libs` refresh (#54, absorbed #66); `flutter_blue_plus` 1.x → 2.x (#55)
+- ✅ Dependency upgrade: `flutter_local_notifications` v18 → v21 paired with `desugar_jdk_libs` refresh (#54, absorbed #66)
+- Dependency upgrade: `flutter_blue_plus` 1.x → 2.x (#55)
 - ✅ CI platform matrix — add Android / iOS / macOS / Windows builds alongside the existing Linux-debug build (#50)
 - ✅ Architecture cleanup: remove double subscription to `conn.lines` between `main.dart` and `ConnectionRegistry` (#56)
 
