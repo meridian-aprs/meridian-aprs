@@ -207,7 +207,7 @@ class NotificationService extends ChangeNotifier {
     );
 
     await _plugin.initialize(
-      settings,
+      settings: settings,
       onDidReceiveNotificationResponse: _onNotificationResponse,
     );
 
@@ -291,7 +291,7 @@ class NotificationService extends ChangeNotifier {
     // Remove pre-v0.12 channels that were registered but never dispatched.
     // Safe on fresh installs — deleteNotificationChannel is a no-op if absent.
     for (final stale in const ['alerts', 'nearby', 'system']) {
-      await androidPlugin.deleteNotificationChannel(stale);
+      await androidPlugin.deleteNotificationChannel(channelId: stale);
     }
   }
 
@@ -324,7 +324,7 @@ class NotificationService extends ChangeNotifier {
             .length;
         if (remaining < 2 && _initialized) {
           _plugin
-              .cancel(_kGroupSummaryId)
+              .cancel(id: _kGroupSummaryId)
               .catchError((_) {}); // ignore: unawaited_futures
         }
 
@@ -364,7 +364,9 @@ class NotificationService extends ChangeNotifier {
   void setActiveThread(String? callsign) {
     if (callsign != null && _initialized) {
       final notifId = callsign.hashCode.abs() % 100000 + 1;
-      _plugin.cancel(notifId).catchError((_) {}); // ignore: unawaited_futures
+      _plugin
+          .cancel(id: notifId)
+          .catchError((_) {}); // ignore: unawaited_futures
       _notifAnchor.remove(callsign);
     }
     _activeThreadCallsign = callsign?.toUpperCase();
@@ -655,10 +657,10 @@ class NotificationService extends ChangeNotifier {
         enableVibration: withVibration,
       );
       await _plugin.show(
-        id,
-        title,
-        preview,
-        NotificationDetails(android: androidDetails),
+        id: id,
+        title: title,
+        body: preview,
+        notificationDetails: NotificationDetails(android: androidDetails),
         payload: payload,
       );
     } else if (Platform.isIOS || Platform.isMacOS) {
@@ -669,10 +671,13 @@ class NotificationService extends ChangeNotifier {
         presentBadge: true,
       );
       await _plugin.show(
-        id,
-        title,
-        preview,
-        NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
+        id: id,
+        title: title,
+        body: preview,
+        notificationDetails: NotificationDetails(
+          iOS: darwinDetails,
+          macOS: darwinDetails,
+        ),
         payload: payload,
       );
     } else if (Platform.isLinux || Platform.isWindows) {
@@ -846,10 +851,13 @@ class NotificationService extends ChangeNotifier {
 
     final preview = text.length > 80 ? '${text.substring(0, 80)}…' : text;
     await _plugin.show(
-      id,
-      displayTitle ?? callsign,
-      preview,
-      NotificationDetails(iOS: darwinDetails, macOS: darwinDetails),
+      id: id,
+      title: displayTitle ?? callsign,
+      body: preview,
+      notificationDetails: NotificationDetails(
+        iOS: darwinDetails,
+        macOS: darwinDetails,
+      ),
       // payload always carries the raw callsign for navigation routing.
       payload: callsign,
     );
@@ -882,10 +890,10 @@ class NotificationService extends ChangeNotifier {
     );
 
     await _plugin.show(
-      _kGroupSummaryId,
-      'Meridian APRS',
-      '$total new messages',
-      NotificationDetails(android: androidDetails),
+      id: _kGroupSummaryId,
+      title: 'Meridian APRS',
+      body: '$total new messages',
+      notificationDetails: NotificationDetails(android: androidDetails),
       payload: '',
     );
   }
@@ -955,7 +963,7 @@ class NotificationService extends ChangeNotifier {
       if (response.actionId == _kMarkReadActionId && payload.isNotEmpty) {
         _messageService.markRead(payload);
         if (_initialized) {
-          _plugin.cancel(_kGroupSummaryId); // ignore: unawaited_futures
+          _plugin.cancel(id: _kGroupSummaryId); // ignore: unawaited_futures
         }
         return;
       }
