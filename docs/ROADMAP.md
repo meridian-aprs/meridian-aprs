@@ -26,8 +26,9 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | — |
 | v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
-| v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
-| v0.22 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
+| v0.21 — BLE Plugin Replacement | Replace `flutter_blue_plus` with a GPL-compatible BLE plugin behind the existing `BleTncTransport` seam (#114, ADR-065) | — |
+| v0.22 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
+| v0.23 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
 | v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
 
 > **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
@@ -191,7 +192,24 @@ Pre-launch polish. The same surfaces being touched for accessibility and adaptiv
 
 ---
 
-### v0.21 — Classic Bluetooth SPP
+### v0.21 — BLE Plugin Replacement
+
+Replace `flutter_blue_plus` with a GPL-compatible BLE plugin. This is the follow-on to ADR-065 — v0.18 pinned `flutter_blue_plus` to v1.x because v2 switched to a proprietary license incompatible with GPL v3, and that pin must not become permanent before v1.0 ships.
+
+The existing `BleDeviceAdapter` interface in `lib/core/transport/ble_tnc_transport_impl.dart` already isolates the bulk of the plugin from production code; the swap is concentrated there plus `lib/ui/widgets/ble_scanner_sheet.dart`.
+
+Deliverables:
+
+- Audit `flutter_blue_plus` type leaks across the `BleTncTransport` seam — identify any remaining direct fbp imports outside the adapter and the scanner sheet
+- Select replacement plugin from candidates: `universal_ble`, `flutter_reactive_ble`, `bluetooth_low_energy` (or community fork of FBP at last BSD-3 commit as fallback)
+- Implement against existing `BleDeviceAdapter` interface — no public API change for downstream callers
+- Hardware test on Mobilinkd TNC4 across Android and iOS — pair, connect, packet RX, packet TX, background reconnect
+- ADR documenting the chosen plugin and any seam adjustments
+- Tracked at #114; pre-1.0 blocker
+
+---
+
+### v0.22 — Classic Bluetooth SPP
 
 Add Classic Bluetooth SPP as a fourth transport alongside APRS-IS, BLE TNC, and Serial TNC. Unlocks a meaningful slice of installed-base hardware — APRS-capable HTs and mobiles with built-in or add-on classic Bluetooth, and older Bluetooth-equipped TNCs that predate BLE.
 
@@ -218,7 +236,7 @@ Deliverables:
 
 ---
 
-### v0.22 — Offline Maps
+### v0.23 — Offline Maps
 
 Cache map tiles locally for portable / field / SAR use without cell service. The existing `MeridianTileProvider` abstraction was designed forward-looking for this — the current online provider stays as-is and the offline implementation sits alongside it as a separate provider rather than replacing it.
 
