@@ -23,7 +23,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.13 — Security | Passcode secure storage, APRS-IS filter configuration | ✅ Complete |
 | v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | ✅ Complete |
 | v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
-| v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | — |
+| v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | — |
 | v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
@@ -160,7 +160,7 @@ Architecture, testing, and dependency foundations that unblock the subsequent pe
 - ✅ Service-level test coverage for `TxService` Serial > BLE > APRS-IS routing hierarchy (#60)
 - ✅ BeaconFAB widget regression guard — pin start/stop semantics in auto/smart modes, long-press cooldown, "Xm ago" label (#86, split from #53)
 - ✅ Dependency upgrade: `flutter_local_notifications` v18 → v21 paired with `desugar_jdk_libs` refresh (#54, absorbed #66)
-- Dependency upgrade: `flutter_blue_plus` 1.x → 2.x (#55)
+- ✅ Pin `flutter_blue_plus` to v1.x — v2 is proprietary-licensed and GPL-incompatible (ADR-065, #55); replacement plugin tracked as a pre-1.0 blocker (#114)
 - ✅ CI platform matrix — add Android / iOS / macOS / Windows builds alongside the existing Linux-debug build (#50)
 - ✅ Architecture cleanup: remove double subscription to `conn.lines` between `main.dart` and `ConnectionRegistry` (#56)
 

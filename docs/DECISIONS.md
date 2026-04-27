@@ -1462,3 +1462,50 @@ class RealGeolocatorAdapter implements GeolocatorAdapter { /* delegates 1:1 */ }
 - `BeaconingService` is now fully covered by `test/services/beaconing_service_test.dart` (12 cases): mode transitions, smart-mode reschedule (shorten-only), suspend/resume handoff, `onBeaconSent` fan-out, and `locationUnsupported` (single-attempt bounded, no retry storm).
 - The `FakeGeolocatorAdapter` helper is the natural template for v0.20's wider widget-test sweep when GPS-dependent UI gets covered.
 - No production wiring change — `lib/main.dart` continues to construct `BeaconingService(settings, tx, onBeaconSent: ...)` and the default `RealGeolocatorAdapter()` preserves identical runtime behavior.
+
+---
+
+## ADR-065: Pin `flutter_blue_plus` to v1.x (license incompatibility)
+
+**Date:** 2026-04-26
+**Status:** Accepted
+
+### Context
+
+`flutter_blue_plus` v2.0.0 (published on pub.dev as part of the 2.x line, current latest 2.2.1) was not an API migration. Its only changelog entry is *"[LICENSE] switch to FlutterBluePlus license."* The new "FlutterBluePlus License v1.3" is dual-tier:
+
+- Free for personal use, registered nonprofits, and accredited educational institutions
+- **Paid commercial license required for any for-profit use**, tiered by employee count (Starter 0–9, Team 10–29, Business 30–99, Enterprise 100+)
+- Treats *"use of the Software during development, testing, or evaluation by a for-profit organization"* as commercial use
+- No open-source-project exemption
+
+Meridian APRS is **GPL v3**. GPL v3 §7 forbids adding restrictions to a covered work beyond GPL's own terms when distributing it as part of a derivative work; a downstream packager or contributor that is a for-profit organization would be required by the FBP license to obtain a paid commercial license, which is precisely the kind of additional restriction GPL v3 forbids. The two licenses cannot co-exist in a redistributed binary.
+
+Issue #55 was filed during the v0.13-pre audit sweep based on the assumption that v2 was a normal API migration. v0.18 was scheduled to absorb that migration. The license discovery during pre-flight investigation reframed the work entirely.
+
+### Decision
+
+Pin `flutter_blue_plus` to `>=1.36.0 <2.0.0` in `pubspec.yaml`. Resolved version stays at `1.36.8` (BSD-3-Clause). Replace the plugin with a permissively licensed alternative in a dedicated pre-1.0 milestone (tracked at #114).
+
+A one-line comment in `pubspec.yaml` references this ADR so the constraint is self-explaining.
+
+### Alternatives considered
+
+- **Migrate to FBP v2 under a paid commercial license.** Rejected. A purchased license authorizes the project's own development but does not relieve downstream recipients of the proprietary terms; GPL v3 redistribution to for-profit recipients remains impossible.
+- **Fork `flutter_blue_plus` at the last BSD-3 commit and maintain it.** Rejected as the v0.18 mitigation. Maintaining a BLE plugin fork is a non-trivial commitment (Android / iOS / desktop platform code, future SDK targets, security fixes). Reserved as a fallback option within the #114 replacement milestone if no maintained alternative meets requirements.
+- **Migrate immediately to `flutter_reactive_ble` (Apache-2.0) or `quick_blue` (MIT).** Rejected for v0.18 — the plugin swap touches the BLE scanner UI, the `BleDeviceAdapter` contract, MTU handling, notify subscription shape, and connect/autoConnect semantics; surface area is larger than the v0.18 budget and warrants its own milestone.
+
+### Consequences
+
+- No upstream fixes (iOS Core Bluetooth backend, Android 14+ permission refinements, security patches) reach Meridian past the v1.36.x line. The risk window grows the longer the pin holds.
+- The `BleDeviceAdapter` interface in `lib/core/transport/ble_tnc_transport_impl.dart` already isolates the bulk of fbp from production code — when the replacement lands, the swap is concentrated there plus `lib/ui/widgets/ble_scanner_sheet.dart` and the `flutter_blue_plus_platform_interface 7.0.0` transitive.
+- Replacement plugin work (#114) is a pre-1.0 blocker. v1.0 cannot ship on a deprecating dependency.
+- This ADR is the canonical reference for any future contributor who notices the upper-bound constraint and wonders why we are not on the latest line.
+
+### References
+
+- Issue #55 (closed by the PR that landed this ADR)
+- Issue #114 (replacement-plugin tracking, pre-1.0 blocker)
+- pub.dev changelog: `https://pub.dev/packages/flutter_blue_plus/changelog`
+- License text: `https://github.com/chipweinberger/flutter_blue_plus/blob/master/LICENSE.md`
+
