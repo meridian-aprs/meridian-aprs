@@ -22,7 +22,8 @@ dependencies:
   flutter_m3shapes: ^1.0.0
   animations: ^2.0.11
   material_symbols_icons: ^4.2906.0
-  flutter_blue_plus: ^1.33.0
+  # v2.x is proprietary-licensed and GPL-incompatible; see ADR-065 (#114)
+  flutter_blue_plus: ">=1.36.0 <2.0.0"
   geolocator: ^13.0.0
   http: ^1.2.0
   flutter_foreground_task: ^8.17.0

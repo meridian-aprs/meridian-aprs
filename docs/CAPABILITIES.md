@@ -4,7 +4,7 @@ A consolidated reference of what Meridian can do today, organized by user-facing
 
 > **Maintenance:** This document is generated and maintained by Claude Code as part of milestone close-out. When a milestone changes user-visible capabilities or platform behavior, update this file alongside `ROADMAP.md` and `DECISIONS.md`. Source of truth is the codebase, not aspiration — partially implemented or untested capabilities are flagged explicitly.
 
-**Last updated:** 2026-04-26 (v0.17 shipped; v0.18 Foundations next)
+**Last updated:** 2026-04-26 (v0.18 Foundations shipped; v0.19 Performance next)
 
 ---
 
@@ -26,7 +26,7 @@ Three concurrent transports, each modeled as a `MeridianConnection` and register
 - **Per-connection beaconing toggle:** each connection has its own `beacon_enabled_<id>` preference
 
 ### Explicit non-support
-- Classic Bluetooth SPP — planned v0.21 (not supported on iOS due to platform restriction)
+- Classic Bluetooth SPP — planned v0.22 (not supported on iOS due to platform restriction)
 - TCP KISS TNC (server software TNCs over LAN) — tracked in `FUTURE_FEATURES.md`
 - AFSK soft-modem (audio over phone speaker / mic) — no plans
 - AGW packet engine, KISS-over-IP variants beyond standard KISS-over-TCP
@@ -78,7 +78,7 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 |---|---|
 | Tile rendering | `flutter_map` 8.x with a pluggable `MeridianTileProvider` abstraction |
 | Online tile provider | Stadia Maps (`alidade_smooth` / `alidade_smooth_dark`); requires `STADIA_MAPS_API_KEY` via `--dart-define` |
-| Offline tile provider | Not implemented (planned v0.22) |
+| Offline tile provider | Not implemented (planned v0.23) |
 | Station rendering | One marker per station; APRS symbol via `AprsSymbolWidget` (Material icons today; sprite sheet at v1.0) |
 | Marker clustering | Not implemented (deferred) |
 | Track history | Per-station `TimestampedPosition` list (capped 500); polylines rendered, time-window-bounded |
@@ -250,7 +250,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 | APRS-IS RX | Y | Y | Y | Y | Y | P (proxy not deployed) |
 | BLE TNC | Y | Y | — | — | — | — |
 | USB Serial TNC | — | — | P | P | Y | — |
-| Classic BT SPP | Planned v0.21 | — (platform restriction) | Planned v0.21 | Planned v0.21 | Planned v0.21 | — |
+| Classic BT SPP | Planned v0.22 | — (platform restriction) | Planned v0.22 | Planned v0.22 | Planned v0.22 | — |
 | TX (beacon + message) | Y | Y | Y | Y | Y | P (depends on transport) |
 | Background packet RX | Y | Y | — | — | — | — |
 | Background beaconing | Y | Y | — | — | — | — |
@@ -260,7 +260,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 | Inline reply from notification | Y | Y | — | — | — | — |
 | Dynamic Color | Y (Android 12+) | — | — | — | — | — |
 | Map (online tiles) | Y | Y | Y | Y | Y | Y |
-| Map (offline tiles) | Planned v0.22 | Planned v0.22 | Planned v0.22 | Planned v0.22 | Planned v0.22 | — |
+| Map (offline tiles) | Planned v0.23 | Planned v0.23 | Planned v0.23 | Planned v0.23 | Planned v0.23 | — |
 | Secure credential storage | Y | Y | Y | Y | Y | P (no hardware element) |
 
 ---
@@ -268,8 +268,8 @@ Y = supported, P = partial / pending validation, — = not supported.
 ## 13. Known Limitations / Explicit Non-Support
 
 ### Tracked, planned, deferred
-- **Classic Bluetooth SPP** — v0.21
-- **Offline maps** — v0.22
+- **Classic Bluetooth SPP** — v0.22
+- **Offline maps** — v0.23
 - **TCP KISS TNC** — `FUTURE_FEATURES.md`
 - **Inter-app API** — `FUTURE_FEATURES.md`
 - **NMEA-GPS bridge** for radios with internal TNCs — `FUTURE_FEATURES.md`
