@@ -133,9 +133,13 @@ class BleTncTransport extends KissTncTransport {
   int _mtu = 20;
 
   // Keepalive: reset on every write; fires if the link is idle for too long.
-  // Mobilinkd (and most BLE TNCs) drop the connection after ~5 s of silence.
-  // 2 s gives comfortable headroom below the 5.12 s supervision timeout.
-  static const _keepaliveInterval = Duration(seconds: 2);
+  // The cadence is purely an application-level self-watchdog — the OS already
+  // surfaces a true link drop via the connection-state stream within the BLE
+  // supervision timeout, so we don't need to race that. 4 s is well under the
+  // 5.12 s supervision timeout, halves radio wakes vs the prior 2 s cadence,
+  // and still gives a fast indicator if the peripheral has wedged its TX path
+  // independent of the OS link state.
+  static const _keepaliveInterval = Duration(seconds: 4);
   Timer? _keepaliveTimer;
 
   final _kissFramer = KissFramer();
@@ -309,9 +313,10 @@ class BleTncTransport extends KissTncTransport {
       );
 
       // 10. Start the idle keepalive timer.
-      //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
-      //    of post-connect silence. The keepalive sends a single TXDELAY frame
-      //    every 2 s to hold the link open.
+      //    Acts as an application-level self-watchdog so a wedged peripheral
+      //    TX path is detected promptly without waiting on the OS supervision
+      //    timeout. The keepalive sends a single TXDELAY frame every
+      //    [_keepaliveInterval] (currently 4 s — see field doc).
       //
       //    NOTE: Do NOT call _sendKissInit() here. Sending the five standard
       //    KISS parameter frames (TXDELAY/PERSIST/SLOTTIME/TXTAIL/FULLDUPLEX)
