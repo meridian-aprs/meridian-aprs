@@ -320,36 +320,24 @@ void main() {
 
     // 8c ----------------------------------------------------------------------
     test(
-      'connect requests HIGH connection priority after adapter.connect',
+      'connect does NOT call requestConnectionPriority (TNC4 supervision-timeout drop guard)',
       () async {
-        // service-not-found path is fine — priority is requested BEFORE
-        // discovery, so the request count is still observable.
+        // Regression guard. The 2026-04-30 drive test showed every cycle
+        // dropping at ~5.4 s when HIGH priority was requested immediately
+        // after connect — same TNC4 firmware quirk that already forbids
+        // requestMtu here. Re-introducing the priority request needs
+        // hardware-specific gating; this test fails loudly if someone wires
+        // it up unconditionally.
         await expectLater(transport.connect(), throwsA(isA<Exception>()));
 
-        expect(fakeAdapter.requestedPriorities, [ConnectionPriority.high]);
+        expect(fakeAdapter.requestedPriorities, isEmpty);
+        // The decision is still recorded in diagnostics so session logs
+        // explain why BALANCED priority is in effect.
         final priorityEvents = BleDiagnostics.I.events
             .where((e) => e.kind == BleEventKind.connectionPriorityRequested)
             .toList();
         expect(priorityEvents, hasLength(1));
-      },
-    );
-
-    // 8d ----------------------------------------------------------------------
-    test(
-      'connect logs connectionPriorityFailed when adapter rejects priority but does not abort',
-      () async {
-        fakeAdapter.requestPriorityThrows = true;
-        // Connect still proceeds and ultimately fails on service discovery
-        // (no service registered) — NOT on the priority refusal.
-        await expectLater(transport.connect(), throwsA(isA<Exception>()));
-
-        final priorityFailed = BleDiagnostics.I.events
-            .where((e) => e.kind == BleEventKind.connectionPriorityFailed)
-            .toList();
-        expect(priorityFailed, hasLength(1));
-        // Discovery still happened — proving the priority refusal was treated
-        // as advisory rather than fatal.
-        expect(fakeAdapter.discoverCallCount, greaterThanOrEqualTo(1));
+        expect(priorityEvents.single.detail, contains('skipped'));
       },
     );
 

@@ -213,25 +213,19 @@ class BleTncTransport extends KissTncTransport {
       //     so that a late OS state event still drives the error path.
       _connStateSub ??= _adapter.connectionState.listen(_onBleConnectionState);
 
-      // 2b. Ask Android to use HIGH connection priority for this link.
-      //     BALANCED (the default) lets the OS lengthen the connection
-      //     interval to ~50 ms, which is fragile under driving RF noise —
-      //     several missed connection events in a row will trip the
-      //     supervision timeout and drop the link. HIGH targets ~7.5–11.25 ms,
-      //     which materially reduces drop frequency in motion.
-      //     Advisory: a failure here is non-fatal (some peripherals refuse).
-      try {
-        await _adapter.requestConnectionPriority(ConnectionPriority.high);
-        BleDiagnostics.I.log(
-          BleEventKind.connectionPriorityRequested,
-          'priority=high',
-        );
-      } catch (e) {
-        BleDiagnostics.I.log(
-          BleEventKind.connectionPriorityFailed,
-          'priority=high error=$e',
-        );
-      }
+      // 2b. Connection-priority request is deliberately skipped.
+      //     `BluetoothDevice.requestConnectionPriority(high)` immediately
+      //     after `connect()` causes the Mobilinkd TNC4 to drop the link
+      //     within the 5.12 s LINK_SUPERVISION_TIMEOUT — the same hardware
+      //     quirk that forbids a fresh `requestMtu()` here (see step 3).
+      //     The 2026-04-30 drive-test diagnostics showed identical 5.4 s
+      //     drop cycles every reconnect with HIGH priority enabled, and a
+      //     stable 110 s keepalive cadence with it disabled. Re-introducing
+      //     this needs hardware-specific gating; track in a follow-up.
+      BleDiagnostics.I.log(
+        BleEventKind.connectionPriorityRequested,
+        'priority=balanced (skipped: TNC4 drops link if renegotiated)',
+      );
 
       // 3. Read the negotiated MTU.
       //    flutter_blue_plus on Android auto-requests MTU 512 inside
