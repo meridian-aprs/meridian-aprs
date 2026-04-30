@@ -13,6 +13,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"
         android:minSdkVersion="33" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets the user opt Meridian out of Doze battery optimization. Required
+         on Android 14+ to keep the BLE TNC reconnect timers + keepalive firing
+         when the screen is off for an extended drive. The permission is only
+         meaningful when the user grants it via the system Settings → Apps →
+         Battery prompt; declaring it here is the gate that allows the prompt
+         to be raised. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <application
         android:label="Meridian APRS"
         android:name="${applicationName}"
