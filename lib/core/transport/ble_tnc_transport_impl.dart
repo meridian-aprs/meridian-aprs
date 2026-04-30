@@ -9,6 +9,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'aprs_transport.dart' show ConnectionStatus;
 import 'ble_constants.dart';
+import 'ble_diagnostics.dart';
 import 'kiss_framer.dart';
 import 'kiss_tnc_transport.dart';
 
@@ -157,6 +158,10 @@ class BleTncTransport extends KissTncTransport {
   Future<void> connect() => _connect(autoConnect: false);
 
   Future<void> _connect({required bool autoConnect}) async {
+    BleDiagnostics.I.log(
+      BleEventKind.connectStart,
+      'device=${_adapter.platformName} autoConnect=$autoConnect',
+    );
     _setStatus(
       autoConnect
           ? ConnectionStatus.waitingForDevice
@@ -211,6 +216,10 @@ class BleTncTransport extends KissTncTransport {
           debugPrint(
             'BleTncTransport: discoverServices attempt $attempt failed: $e',
           );
+          BleDiagnostics.I.log(
+            BleEventKind.serviceDiscoveryRetry,
+            'attempt=$attempt error=$e',
+          );
           if (attempt == 3) rethrow;
           await Future<void>.delayed(const Duration(milliseconds: 500));
         }
@@ -259,6 +268,10 @@ class BleTncTransport extends KissTncTransport {
       debugPrint(
         'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
       );
+      BleDiagnostics.I.log(
+        BleEventKind.connectSuccess,
+        'device=${_adapter.platformName} mtu=$_mtu',
+      );
 
       // 10. Start the idle keepalive timer.
       //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
@@ -277,6 +290,10 @@ class BleTncTransport extends KissTncTransport {
       _resetKeepalive();
     } catch (e) {
       debugPrint('BleTncTransport connect failed: $e');
+      BleDiagnostics.I.log(
+        BleEventKind.connectFailed,
+        'device=${_adapter.platformName} error=$e',
+      );
       _setStatus(ConnectionStatus.error);
       // Best-effort cleanup before rethrowing.
       await _cleanupSubscriptions();
@@ -290,6 +307,10 @@ class BleTncTransport extends KissTncTransport {
   @override
   Future<void> disconnect() async {
     if (_status == ConnectionStatus.disconnected) return;
+    BleDiagnostics.I.log(
+      BleEventKind.disconnectUser,
+      'device=${_adapter.platformName}',
+    );
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _setStatus(ConnectionStatus.disconnected);
@@ -343,10 +364,15 @@ class BleTncTransport extends KissTncTransport {
   }
 
   void _onBleConnectionState(BluetoothConnectionState state) {
+    BleDiagnostics.I.log(BleEventKind.bleStateChanged, state.name);
     if (state == BluetoothConnectionState.disconnected &&
         _status == ConnectionStatus.connected) {
       debugPrint(
         'BleTncTransport: unexpected disconnect from ${_adapter.platformName}',
+      );
+      BleDiagnostics.I.log(
+        BleEventKind.disconnectUnexpected,
+        'device=${_adapter.platformName}',
       );
       // _status is set synchronously before the unawaited cleanup, so a
       // second delivery of this event cannot re-enter (guard is already false).
@@ -394,6 +420,7 @@ class BleTncTransport extends KissTncTransport {
         Uint8List.fromList([0xC0, 0x01, 30, 0xC0]),
         withoutResponse: true,
       );
+      BleDiagnostics.I.log(BleEventKind.keepaliveSent);
       _resetKeepalive();
     } catch (e) {
       // Write failure means the link is gone. Mark as error immediately
@@ -402,7 +429,12 @@ class BleTncTransport extends KissTncTransport {
       debugPrint(
         'BleTncTransport: keepalive write failed, marking link dropped: $e',
       );
+      BleDiagnostics.I.log(BleEventKind.keepaliveFailed, 'error=$e');
       if (_status == ConnectionStatus.connected) {
+        BleDiagnostics.I.log(
+          BleEventKind.disconnectKeepaliveFailed,
+          'device=${_adapter.platformName}',
+        );
         _status = ConnectionStatus.error;
         _stateController.add(ConnectionStatus.error);
         await _cleanupSubscriptions();

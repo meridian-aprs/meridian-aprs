@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/transport/aprs_transport.dart';
+import 'package:meridian_aprs/core/transport/ble_diagnostics.dart';
 import 'package:meridian_aprs/core/transport/ble_tnc_transport_impl.dart';
 import 'package:meridian_aprs/core/transport/kiss_framer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
 // AX.25 / KISS helpers (mirrors serial_kiss_pipeline_test.dart)
@@ -123,14 +125,25 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
 // ---------------------------------------------------------------------------
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('BleTncTransport', () {
     late FakeBleDeviceAdapter fakeAdapter;
     late BleTncTransport transport;
+    late BleDiagnostics savedDiag;
     // A dummy BluetoothDevice — the transport constructor requires one even
     // when an adapter is injected. fromId avoids any platform call.
     final dummyDevice = BluetoothDevice.fromId('AA:BB:CC:DD:EE:FF');
 
-    setUp(() {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      // Swap the global diagnostics singleton for a per-test isolated instance
+      // so assertions don't see leakage from other tests.
+      savedDiag = BleDiagnostics.I;
+      BleDiagnostics.I = BleDiagnostics(
+        prefs: await SharedPreferences.getInstance(),
+        persistDebounce: const Duration(milliseconds: 1),
+      );
       fakeAdapter = FakeBleDeviceAdapter();
       transport = BleTncTransport(dummyDevice, adapter: fakeAdapter);
     });
@@ -141,6 +154,7 @@ void main() {
         await transport.disconnect();
       } catch (_) {}
       await fakeAdapter.close();
+      BleDiagnostics.I = savedDiag;
     });
 
     // 1 -----------------------------------------------------------------------
@@ -261,6 +275,36 @@ void main() {
       final ax25 = Uint8List.fromList([0x01, 0x02, 0x03]);
       expect(() async => transport.sendFrame(ax25), throwsA(isA<StateError>()));
     });
+
+    // 8a ----------------------------------------------------------------------
+    test(
+      'connect failure logs connectStart + connectFailed diagnostics',
+      () async {
+        fakeAdapter.connectThrows = true;
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        final kinds = BleDiagnostics.I.events.map((e) => e.kind).toList();
+        expect(kinds, contains(BleEventKind.connectStart));
+        expect(kinds, contains(BleEventKind.connectFailed));
+      },
+    );
+
+    // 8b ----------------------------------------------------------------------
+    test(
+      'connect failure due to discoverServices logs serviceDiscoveryRetry',
+      () async {
+        fakeAdapter.discoverThrows = true;
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        final retries = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.serviceDiscoveryRetry)
+            .toList();
+        // The transport retries up to 3× before rethrowing.
+        expect(retries, hasLength(3));
+      },
+    );
 
     // 9 -----------------------------------------------------------------------
     group('KISS framer reassembly (BLE chunked delivery)', () {

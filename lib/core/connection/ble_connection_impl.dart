@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ax25/ax25_encoder.dart';
 import '../packet/aprs_parser.dart';
+import '../transport/ble_diagnostics.dart';
 import '../transport/ble_tnc_transport.dart';
 import '../transport/kiss_tnc_transport.dart';
 import '../util/clock.dart';
@@ -212,6 +213,10 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     if (device == null) return; // disconnect() was called
 
     debugPrint('BleConnection: attempting reconnect to ${device.platformName}');
+    BleDiagnostics.I.log(
+      BleEventKind.reconnectAttempt,
+      'device=${device.platformName}',
+    );
     await _tearDownTransport();
     if (_device == null) return; // disconnect() called during teardown
 
@@ -233,6 +238,10 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
 
     debugPrint(
       'BleConnection: entering OS auto-connect waiting phase for ${device.platformName}',
+    );
+    BleDiagnostics.I.log(
+      BleEventKind.waitingPhase,
+      'device=${device.platformName}',
     );
     await _tearDownTransport();
     if (_device == null) return;
@@ -287,10 +296,12 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     notifyListeners();
 
     if (s == ConnectionStatus.connected) {
+      BleDiagnostics.I.log(BleEventKind.sessionConnected);
       markSessionConnected();
     } else if (s == ConnectionStatus.error &&
         shouldAttemptReconnect() &&
         _device != null) {
+      BleDiagnostics.I.log(BleEventKind.reconnectScheduled);
       scheduleReconnect(_emitStatus);
     }
   }
