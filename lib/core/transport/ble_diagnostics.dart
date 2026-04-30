@@ -26,6 +26,12 @@ enum BleEventKind {
   waitingPhase,
   sessionConnected,
   note,
+  // Append-only — adding values above shifts persisted-log indices and breaks
+  // hydration from prior builds.
+  connectionPriorityRequested,
+  connectionPriorityFailed,
+  keepaliveRetried,
+  disconnectInternal,
 }
 
 /// One entry in the BLE diagnostics log.

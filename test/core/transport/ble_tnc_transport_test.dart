@@ -52,6 +52,7 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   // ----- configuration knobs -----
   bool connectThrows = false;
   bool discoverThrows = false;
+  bool requestPriorityThrows = false;
   int fakeMtu = 512;
   List<BluetoothService> services = [];
 
@@ -61,6 +62,7 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   int requestMtuCallCount = 0;
   int discoverCallCount = 0;
   int clearGattCacheCallCount = 0;
+  final List<ConnectionPriority> requestedPriorities = [];
 
   // ----- connection state stream -----
   final _connStateController =
@@ -105,6 +107,16 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   @override
   Future<void> clearGattCache() async {
     clearGattCacheCallCount++;
+  }
+
+  @override
+  Future<void> requestConnectionPriority(ConnectionPriority priority) async {
+    requestedPriorities.add(priority);
+    if (requestPriorityThrows) {
+      throw Exception(
+        'FakeBleDeviceAdapter: requestConnectionPriority refused',
+      );
+    }
   }
 
   @override
@@ -303,6 +315,110 @@ void main() {
             .toList();
         // The transport retries up to 3× before rethrowing.
         expect(retries, hasLength(3));
+      },
+    );
+
+    // 8c ----------------------------------------------------------------------
+    test(
+      'connect requests HIGH connection priority after adapter.connect',
+      () async {
+        // service-not-found path is fine — priority is requested BEFORE
+        // discovery, so the request count is still observable.
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        expect(fakeAdapter.requestedPriorities, [ConnectionPriority.high]);
+        final priorityEvents = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.connectionPriorityRequested)
+            .toList();
+        expect(priorityEvents, hasLength(1));
+      },
+    );
+
+    // 8d ----------------------------------------------------------------------
+    test(
+      'connect logs connectionPriorityFailed when adapter rejects priority but does not abort',
+      () async {
+        fakeAdapter.requestPriorityThrows = true;
+        // Connect still proceeds and ultimately fails on service discovery
+        // (no service registered) — NOT on the priority refusal.
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        final priorityFailed = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.connectionPriorityFailed)
+            .toList();
+        expect(priorityFailed, hasLength(1));
+        // Discovery still happened — proving the priority refusal was treated
+        // as advisory rather than fatal.
+        expect(fakeAdapter.discoverCallCount, greaterThanOrEqualTo(1));
+      },
+    );
+
+    // 8e ----------------------------------------------------------------------
+    test(
+      'connection-state listener survives _cleanupSubscriptions on connect failure',
+      () async {
+        // After a failed connect, the conn-state listener is also cancelled
+        // (no live session for it to observe). Verify that a subsequent state
+        // emission does NOT re-enter the disconnect handler — i.e. we don't
+        // see disconnectUnexpected in the log.
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        BleDiagnostics.I.clear();
+
+        fakeAdapter.emitConnectionState(BluetoothConnectionState.disconnected);
+        await Future<void>.delayed(Duration.zero);
+
+        final unexpected = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUnexpected)
+            .toList();
+        expect(unexpected, isEmpty);
+      },
+    );
+
+    // 8f ----------------------------------------------------------------------
+    test(
+      'markInternalTeardown causes the next disconnect to log as internal',
+      () async {
+        // Force a session so disconnect actually runs (status != disconnected).
+        // We can't reach connected via the fake (characteristic ops need
+        // native), but we can drive a partial state by emitting connecting →
+        // then calling disconnect.
+        fakeAdapter.connectThrows = true;
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        // After a failed connect status is `error`, so disconnect() runs.
+        transport.markInternalTeardown();
+        BleDiagnostics.I.clear();
+
+        await transport.disconnect();
+
+        final internal = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectInternal)
+            .toList();
+        final user = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUser)
+            .toList();
+        expect(internal, hasLength(1));
+        expect(user, isEmpty);
+      },
+    );
+
+    // 8g ----------------------------------------------------------------------
+    test(
+      'disconnect without markInternalTeardown logs as user disconnect',
+      () async {
+        fakeAdapter.connectThrows = true;
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        BleDiagnostics.I.clear();
+
+        await transport.disconnect();
+
+        final internal = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectInternal)
+            .toList();
+        final user = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUser)
+            .toList();
+        expect(internal, isEmpty);
+        expect(user, hasLength(1));
       },
     );
 

@@ -202,13 +202,19 @@ class _EventTile extends StatelessWidget {
       case BleEventKind.disconnectKeepaliveFailed:
         return Symbols.bluetooth_disabled;
       case BleEventKind.disconnectUser:
+      case BleEventKind.disconnectInternal:
         return Symbols.link_off;
       case BleEventKind.bleStateChanged:
         return Symbols.swap_horiz;
       case BleEventKind.serviceDiscoveryRetry:
         return Symbols.refresh;
+      case BleEventKind.connectionPriorityRequested:
+      case BleEventKind.connectionPriorityFailed:
+        return Symbols.speed;
       case BleEventKind.keepaliveSent:
         return Symbols.favorite;
+      case BleEventKind.keepaliveRetried:
+        return Symbols.autorenew;
       case BleEventKind.keepaliveFailed:
         return Symbols.heart_broken;
       case BleEventKind.reconnectScheduled:
