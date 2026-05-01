@@ -4,6 +4,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/connection/aprs_is_connection.dart';
@@ -155,10 +156,26 @@ class _ConnectionPageState extends State<ConnectionPage> {
       );
       if (!mounted) return;
       if (stable) {
+        // The user has just committed to BLE. Prompt for the battery-opt
+        // exemption now while the choice is fresh — without it the link will
+        // drop and stay dropped under Doze. Non-blocking: a denial does not
+        // prevent onboarding from advancing.
+        await _maybeRequestBatteryOptExemption();
+        if (!mounted) return;
         widget.onConnectionResult(true);
         widget.onNext();
       }
     });
+  }
+
+  /// Ensures the user is offered the ignore-battery-optimization grant when
+  /// completing BLE-TNC onboarding on Android. No-op on other platforms or
+  /// when the exemption is already in place.
+  Future<void> _maybeRequestBatteryOptExemption() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final status = await Permission.ignoreBatteryOptimizations.status;
+    if (status.isGranted) return;
+    await Permission.ignoreBatteryOptimizations.request();
   }
 
   void _skipToLater() {

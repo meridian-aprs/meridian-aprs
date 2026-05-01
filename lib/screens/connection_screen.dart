@@ -16,6 +16,7 @@ import '../services/background_service_manager.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../theme/meridian_colors.dart';
+import '../ui/widgets/battery_optimization_card.dart';
 import '../ui/widgets/ble_scanner_sheet.dart';
 import '../ui/widgets/meridian_status_pill.dart';
 import '../ui/widgets/serial_connection_form.dart';
@@ -307,25 +308,31 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         conn.status == ConnectionStatus.reconnecting ||
         conn.status == ConnectionStatus.waitingForDevice;
 
-    if (isSessionActive) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        child: Text(
-          'Connected — disconnect from the card above.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: Theme.of(context).colorScheme.onSurfaceVariant,
-          ),
-        ),
-      );
-    }
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: BleScannerSheet(
-        bleConnection: conn,
-        showDragHandle: false,
-        onBack: () {},
-        showBackButton: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Surfaced whenever the user is on the BLE tab — applies equally
+          // before/after a session is established because the prompt is about
+          // keeping the link alive in the background, not about starting one.
+          const BatteryOptimizationCard(),
+          const SizedBox(height: 12),
+          if (isSessionActive)
+            Text(
+              'Connected — disconnect from the card above.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            )
+          else
+            BleScannerSheet(
+              bleConnection: conn,
+              showDragHandle: false,
+              onBack: () {},
+              showBackButton: false,
+            ),
+        ],
       ),
     );
   }

@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/transport/aprs_transport.dart';
+import 'package:meridian_aprs/core/transport/ble_diagnostics.dart';
 import 'package:meridian_aprs/core/transport/ble_tnc_transport_impl.dart';
 import 'package:meridian_aprs/core/transport/kiss_framer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // ---------------------------------------------------------------------------
 // AX.25 / KISS helpers (mirrors serial_kiss_pipeline_test.dart)
@@ -50,6 +52,7 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   // ----- configuration knobs -----
   bool connectThrows = false;
   bool discoverThrows = false;
+  bool requestPriorityThrows = false;
   int fakeMtu = 512;
   List<BluetoothService> services = [];
 
@@ -59,6 +62,7 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   int requestMtuCallCount = 0;
   int discoverCallCount = 0;
   int clearGattCacheCallCount = 0;
+  final List<ConnectionPriority> requestedPriorities = [];
 
   // ----- connection state stream -----
   final _connStateController =
@@ -106,6 +110,16 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   }
 
   @override
+  Future<void> requestConnectionPriority(ConnectionPriority priority) async {
+    requestedPriorities.add(priority);
+    if (requestPriorityThrows) {
+      throw Exception(
+        'FakeBleDeviceAdapter: requestConnectionPriority refused',
+      );
+    }
+  }
+
+  @override
   Stream<BluetoothConnectionState> get connectionState =>
       _connStateController.stream;
 
@@ -123,14 +137,29 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
 // ---------------------------------------------------------------------------
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('BleTncTransport', () {
     late FakeBleDeviceAdapter fakeAdapter;
     late BleTncTransport transport;
+    late BleDiagnostics savedDiag;
     // A dummy BluetoothDevice — the transport constructor requires one even
     // when an adapter is injected. fromId avoids any platform call.
     final dummyDevice = BluetoothDevice.fromId('AA:BB:CC:DD:EE:FF');
 
-    setUp(() {
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({});
+      // Swap the global diagnostics singleton for a per-test isolated instance
+      // so assertions don't see leakage from other tests.
+      savedDiag = BleDiagnostics.I;
+      BleDiagnostics.I = BleDiagnostics(
+        prefs: await SharedPreferences.getInstance(),
+        persistDebounce: const Duration(milliseconds: 1),
+      );
+      // Production default is OFF so end-users don't pay for capture they
+      // didn't ask for; transport tests need capture ON to assert
+      // instrumentation actually fires.
+      await BleDiagnostics.I.setEnabled(true);
       fakeAdapter = FakeBleDeviceAdapter();
       transport = BleTncTransport(dummyDevice, adapter: fakeAdapter);
     });
@@ -141,6 +170,7 @@ void main() {
         await transport.disconnect();
       } catch (_) {}
       await fakeAdapter.close();
+      BleDiagnostics.I = savedDiag;
     });
 
     // 1 -----------------------------------------------------------------------
@@ -261,6 +291,128 @@ void main() {
       final ax25 = Uint8List.fromList([0x01, 0x02, 0x03]);
       expect(() async => transport.sendFrame(ax25), throwsA(isA<StateError>()));
     });
+
+    // 8a ----------------------------------------------------------------------
+    test(
+      'connect failure logs connectStart + connectFailed diagnostics',
+      () async {
+        fakeAdapter.connectThrows = true;
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        final kinds = BleDiagnostics.I.events.map((e) => e.kind).toList();
+        expect(kinds, contains(BleEventKind.connectStart));
+        expect(kinds, contains(BleEventKind.connectFailed));
+      },
+    );
+
+    // 8b ----------------------------------------------------------------------
+    test(
+      'connect failure due to discoverServices logs serviceDiscoveryRetry',
+      () async {
+        fakeAdapter.discoverThrows = true;
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        final retries = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.serviceDiscoveryRetry)
+            .toList();
+        // The transport retries up to 3× before rethrowing.
+        expect(retries, hasLength(3));
+      },
+    );
+
+    // 8c ----------------------------------------------------------------------
+    test(
+      'connect does NOT call requestConnectionPriority (TNC4 supervision-timeout drop guard)',
+      () async {
+        // Regression guard. The 2026-04-30 drive test showed every cycle
+        // dropping at ~5.4 s when HIGH priority was requested immediately
+        // after connect — same TNC4 firmware quirk that already forbids
+        // requestMtu here. Re-introducing the priority request needs
+        // hardware-specific gating; this test fails loudly if someone wires
+        // it up unconditionally.
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        expect(fakeAdapter.requestedPriorities, isEmpty);
+        // The decision is still recorded in diagnostics so session logs
+        // explain why BALANCED priority is in effect.
+        final priorityEvents = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.connectionPriorityRequested)
+            .toList();
+        expect(priorityEvents, hasLength(1));
+        expect(priorityEvents.single.detail, contains('skipped'));
+      },
+    );
+
+    // 8e ----------------------------------------------------------------------
+    test(
+      'connection-state listener survives _cleanupSubscriptions on connect failure',
+      () async {
+        // After a failed connect, the conn-state listener is also cancelled
+        // (no live session for it to observe). Verify that a subsequent state
+        // emission does NOT re-enter the disconnect handler — i.e. we don't
+        // see disconnectUnexpected in the log.
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        BleDiagnostics.I.clear();
+
+        fakeAdapter.emitConnectionState(BluetoothConnectionState.disconnected);
+        await Future<void>.delayed(Duration.zero);
+
+        final unexpected = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUnexpected)
+            .toList();
+        expect(unexpected, isEmpty);
+      },
+    );
+
+    // 8f ----------------------------------------------------------------------
+    test(
+      'markInternalTeardown causes the next disconnect to log as internal',
+      () async {
+        // Force a session so disconnect actually runs (status != disconnected).
+        // We can't reach connected via the fake (characteristic ops need
+        // native), but we can drive a partial state by emitting connecting →
+        // then calling disconnect.
+        fakeAdapter.connectThrows = true;
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        // After a failed connect status is `error`, so disconnect() runs.
+        transport.markInternalTeardown();
+        BleDiagnostics.I.clear();
+
+        await transport.disconnect();
+
+        final internal = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectInternal)
+            .toList();
+        final user = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUser)
+            .toList();
+        expect(internal, hasLength(1));
+        expect(user, isEmpty);
+      },
+    );
+
+    // 8g ----------------------------------------------------------------------
+    test(
+      'disconnect without markInternalTeardown logs as user disconnect',
+      () async {
+        fakeAdapter.connectThrows = true;
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+        BleDiagnostics.I.clear();
+
+        await transport.disconnect();
+
+        final internal = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectInternal)
+            .toList();
+        final user = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.disconnectUser)
+            .toList();
+        expect(internal, isEmpty);
+        expect(user, hasLength(1));
+      },
+    );
 
     // 9 -----------------------------------------------------------------------
     group('KISS framer reassembly (BLE chunked delivery)', () {

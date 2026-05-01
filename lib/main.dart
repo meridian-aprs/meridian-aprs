@@ -25,6 +25,7 @@ import 'core/credentials/secure_credential_store.dart';
 import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/packet/device_resolver.dart';
 import 'core/transport/aprs_is_transport.dart';
+import 'core/transport/ble_diagnostics.dart';
 import 'map/stadia_tile_provider.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
@@ -81,6 +82,10 @@ Future<void> main() async {
   final themeController = await ThemeController.create();
   final advancedModeController = await AdvancedModeController.create();
   final prefs = await SharedPreferences.getInstance();
+
+  // Restore the BLE diagnostics ring buffer from persistence so the user can
+  // copy a session log even after a process restart.
+  await BleDiagnostics.I.hydrate();
   var onboardingComplete = prefs.getBool('onboarding_complete') ?? false;
 
   // StationSettingsService is the canonical owner of all station identity

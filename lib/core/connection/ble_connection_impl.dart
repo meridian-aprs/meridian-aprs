@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ax25/ax25_encoder.dart';
 import '../packet/aprs_parser.dart';
+import '../transport/ble_diagnostics.dart';
 import '../transport/ble_tnc_transport.dart';
 import '../transport/kiss_tnc_transport.dart';
 import '../util/clock.dart';
@@ -172,7 +173,10 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
         'BleConnection: no device set — call connectToDevice() first',
       );
     }
-    await _tearDownTransport();
+    // Internal: a fresh connect() supersedes any prior session — the teardown
+    // is plumbing, not a user-initiated disconnect, and the diagnostics log
+    // should reflect that.
+    await _tearDownTransport(internal: true);
     _buildAndAttachTransport(device);
     await _transport!.connect();
   }
@@ -181,7 +185,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   Future<void> disconnect() async {
     cancelReconnect();
     _device = null;
-    await _tearDownTransport();
+    await _tearDownTransport(internal: false);
     _emitStatus(ConnectionStatus.disconnected);
     notifyListeners();
   }
@@ -189,7 +193,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   @override
   Future<void> dispose() async {
     cancelReconnect();
-    await _tearDownTransport();
+    await _tearDownTransport(internal: true);
     await _linesController.close();
     await _stateController.close();
     super.dispose();
@@ -212,7 +216,11 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     if (device == null) return; // disconnect() was called
 
     debugPrint('BleConnection: attempting reconnect to ${device.platformName}');
-    await _tearDownTransport();
+    BleDiagnostics.I.log(
+      BleEventKind.reconnectAttempt,
+      'device=${device.platformName}',
+    );
+    await _tearDownTransport(internal: true);
     if (_device == null) return; // disconnect() called during teardown
 
     _buildAndAttachTransport(device);
@@ -234,12 +242,16 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     debugPrint(
       'BleConnection: entering OS auto-connect waiting phase for ${device.platformName}',
     );
-    await _tearDownTransport();
+    BleDiagnostics.I.log(
+      BleEventKind.waitingPhase,
+      'device=${device.platformName}',
+    );
+    await _tearDownTransport(internal: true);
     if (_device == null) return;
 
     _buildAndAttachTransport(device);
     if (_device == null) {
-      await _tearDownTransport();
+      await _tearDownTransport(internal: true);
       return;
     }
 
@@ -271,11 +283,17 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     _frameSub = t.frameStream.listen(_onFrame);
   }
 
-  Future<void> _tearDownTransport() async {
+  Future<void> _tearDownTransport({required bool internal}) async {
     await _transportStateSub?.cancel();
     _transportStateSub = null;
     await _frameSub?.cancel();
     _frameSub = null;
+    final t = _transport;
+    if (internal && t is BleTncTransport) {
+      // Tag the next disconnect as an internal teardown so the diagnostics
+      // log distinguishes reconnect cycles from a real user disconnect.
+      t.markInternalTeardown();
+    }
     try {
       await _transport?.disconnect();
     } catch (_) {}
@@ -287,10 +305,12 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     notifyListeners();
 
     if (s == ConnectionStatus.connected) {
+      BleDiagnostics.I.log(BleEventKind.sessionConnected);
       markSessionConnected();
     } else if (s == ConnectionStatus.error &&
         shouldAttemptReconnect() &&
         _device != null) {
+      BleDiagnostics.I.log(BleEventKind.reconnectScheduled);
       scheduleReconnect(_emitStatus);
     }
   }

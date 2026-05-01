@@ -37,4 +37,8 @@ class BleTncTransport extends KissTncTransport {
   @override
   Future<void> sendFrame(Uint8List ax25Frame) =>
       throw UnsupportedError('BLE TNC not supported on this platform');
+
+  /// No-op on the stub — the impl tags the next disconnect as an internal
+  /// teardown so the diagnostics log records [BleEventKind.disconnectInternal].
+  void markInternalTeardown() {}
 }

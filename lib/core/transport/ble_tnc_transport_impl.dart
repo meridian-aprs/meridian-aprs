@@ -1,14 +1,16 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'aprs_transport.dart' show ConnectionStatus;
 import 'ble_constants.dart';
+import 'ble_diagnostics.dart';
 import 'kiss_framer.dart';
 import 'kiss_tnc_transport.dart';
 
@@ -31,6 +33,13 @@ abstract interface class BleDeviceAdapter {
   /// A no-op on iOS/desktop — implementations should swallow any
   /// platform exception so callers never need to handle it.
   Future<void> clearGattCache();
+
+  /// Asks the OS BLE stack to use [priority] for this connection.
+  ///
+  /// Android only. Implementations on iOS / desktop must silently no-op.
+  /// Returns normally on success; throws when the OS rejects the request —
+  /// callers should treat that as advisory and continue.
+  Future<void> requestConnectionPriority(ConnectionPriority priority);
 
   Stream<BluetoothConnectionState> get connectionState;
   String get platformName;
@@ -68,6 +77,14 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
     } catch (_) {
       // Not supported on iOS/desktop — silently ignore.
     }
+  }
+
+  @override
+  Future<void> requestConnectionPriority(ConnectionPriority priority) async {
+    if (!Platform.isAndroid) return;
+    await _device.requestConnectionPriority(
+      connectionPriorityRequest: priority,
+    );
   }
 
   @override
@@ -116,9 +133,13 @@ class BleTncTransport extends KissTncTransport {
   int _mtu = 20;
 
   // Keepalive: reset on every write; fires if the link is idle for too long.
-  // Mobilinkd (and most BLE TNCs) drop the connection after ~5 s of silence.
-  // 2 s gives comfortable headroom below the 5.12 s supervision timeout.
-  static const _keepaliveInterval = Duration(seconds: 2);
+  // The cadence is purely an application-level self-watchdog — the OS already
+  // surfaces a true link drop via the connection-state stream within the BLE
+  // supervision timeout, so we don't need to race that. 4 s is well under the
+  // 5.12 s supervision timeout, halves radio wakes vs the prior 2 s cadence,
+  // and still gives a fast indicator if the peripheral has wedged its TX path
+  // independent of the OS link state.
+  static const _keepaliveInterval = Duration(seconds: 4);
   Timer? _keepaliveTimer;
 
   final _kissFramer = KissFramer();
@@ -157,6 +178,10 @@ class BleTncTransport extends KissTncTransport {
   Future<void> connect() => _connect(autoConnect: false);
 
   Future<void> _connect({required bool autoConnect}) async {
+    BleDiagnostics.I.log(
+      BleEventKind.connectStart,
+      'device=${_adapter.platformName} autoConnect=$autoConnect',
+    );
     _setStatus(
       autoConnect
           ? ConnectionStatus.waitingForDevice
@@ -182,6 +207,28 @@ class BleTncTransport extends KissTncTransport {
             ? const Duration(hours: 1)
             : const Duration(seconds: 15),
         autoConnect: autoConnect,
+      );
+
+      // 2a. Subscribe to BLE connection-state events as soon as the OS
+      //     considers the link established. The subscription is intentionally
+      //     attached BEFORE the rest of setup so an early adverse event
+      //     (e.g. a peer-side drop during service discovery) is captured.
+      //     It is also intentionally NOT torn down by [_cleanupSubscriptions]
+      //     so that a late OS state event still drives the error path.
+      _connStateSub ??= _adapter.connectionState.listen(_onBleConnectionState);
+
+      // 2b. Connection-priority request is deliberately skipped.
+      //     `BluetoothDevice.requestConnectionPriority(high)` immediately
+      //     after `connect()` causes the Mobilinkd TNC4 to drop the link
+      //     within the 5.12 s LINK_SUPERVISION_TIMEOUT — the same hardware
+      //     quirk that forbids a fresh `requestMtu()` here (see step 3).
+      //     The 2026-04-30 drive-test diagnostics showed identical 5.4 s
+      //     drop cycles every reconnect with HIGH priority enabled, and a
+      //     stable 110 s keepalive cadence with it disabled. Re-introducing
+      //     this needs hardware-specific gating; track in a follow-up.
+      BleDiagnostics.I.log(
+        BleEventKind.connectionPriorityRequested,
+        'priority=balanced (skipped: TNC4 drops link if renegotiated)',
       );
 
       // 3. Read the negotiated MTU.
@@ -210,6 +257,10 @@ class BleTncTransport extends KissTncTransport {
         } catch (e) {
           debugPrint(
             'BleTncTransport: discoverServices attempt $attempt failed: $e',
+          );
+          BleDiagnostics.I.log(
+            BleEventKind.serviceDiscoveryRetry,
+            'attempt=$attempt error=$e',
           );
           if (attempt == 3) rethrow;
           await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -252,18 +303,20 @@ class BleTncTransport extends KissTncTransport {
       // 8. Wire KissFramer output → frameStream.
       _framesSub = _kissFramer.frames.listen(_framesController.add);
 
-      // 9. Monitor for unexpected disconnects.
-      _connStateSub = _adapter.connectionState.listen(_onBleConnectionState);
-
       _setStatus(ConnectionStatus.connected);
       debugPrint(
         'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
       );
+      BleDiagnostics.I.log(
+        BleEventKind.connectSuccess,
+        'device=${_adapter.platformName} mtu=$_mtu',
+      );
 
       // 10. Start the idle keepalive timer.
-      //    Mobilinkd (and most BLE TNCs) will drop the link after a few seconds
-      //    of post-connect silence. The keepalive sends a single TXDELAY frame
-      //    every 2 s to hold the link open.
+      //    Acts as an application-level self-watchdog so a wedged peripheral
+      //    TX path is detected promptly without waiting on the OS supervision
+      //    timeout. The keepalive sends a single TXDELAY frame every
+      //    [_keepaliveInterval] (currently 4 s — see field doc).
       //
       //    NOTE: Do NOT call _sendKissInit() here. Sending the five standard
       //    KISS parameter frames (TXDELAY/PERSIST/SLOTTIME/TXTAIL/FULLDUPLEX)
@@ -277,9 +330,16 @@ class BleTncTransport extends KissTncTransport {
       _resetKeepalive();
     } catch (e) {
       debugPrint('BleTncTransport connect failed: $e');
+      BleDiagnostics.I.log(
+        BleEventKind.connectFailed,
+        'device=${_adapter.platformName} error=$e',
+      );
       _setStatus(ConnectionStatus.error);
-      // Best-effort cleanup before rethrowing.
+      // Best-effort cleanup before rethrowing — including the connection-state
+      // listener, since a failed connect produces no live session for it to
+      // observe.
       await _cleanupSubscriptions();
+      await _cancelConnStateSub();
       try {
         await _adapter.disconnect();
       } catch (_) {}
@@ -287,13 +347,35 @@ class BleTncTransport extends KissTncTransport {
     }
   }
 
+  /// Marks the next [disconnect] call as an internal teardown (e.g. mid-reconnect)
+  /// so the diagnostics log records [BleEventKind.disconnectInternal] instead of
+  /// [BleEventKind.disconnectUser]. The flag is consumed (cleared) by [disconnect].
+  ///
+  /// Used by the [BleConnection] layer when rebuilding the transport during a
+  /// reconnect attempt — without this, the log was misleadingly attributing
+  /// every reconnect cycle's teardown to a user action.
+  void markInternalTeardown() {
+    _internalTeardown = true;
+  }
+
+  bool _internalTeardown = false;
+
   @override
   Future<void> disconnect() async {
     if (_status == ConnectionStatus.disconnected) return;
+    final wasInternal = _internalTeardown;
+    _internalTeardown = false;
+    BleDiagnostics.I.log(
+      wasInternal
+          ? BleEventKind.disconnectInternal
+          : BleEventKind.disconnectUser,
+      'device=${_adapter.platformName}',
+    );
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _setStatus(ConnectionStatus.disconnected);
     await _cleanupSubscriptions();
+    await _cancelConnStateSub();
     try {
       await _txChar?.setNotifyValue(false);
     } catch (_) {}
@@ -343,10 +425,15 @@ class BleTncTransport extends KissTncTransport {
   }
 
   void _onBleConnectionState(BluetoothConnectionState state) {
+    BleDiagnostics.I.log(BleEventKind.bleStateChanged, state.name);
     if (state == BluetoothConnectionState.disconnected &&
         _status == ConnectionStatus.connected) {
       debugPrint(
         'BleTncTransport: unexpected disconnect from ${_adapter.platformName}',
+      );
+      BleDiagnostics.I.log(
+        BleEventKind.disconnectUnexpected,
+        'device=${_adapter.platformName}',
       );
       // _status is set synchronously before the unawaited cleanup, so a
       // second delivery of this event cannot re-enter (guard is already false).
@@ -358,15 +445,24 @@ class BleTncTransport extends KissTncTransport {
     }
   }
 
+  /// Cancels per-session subscriptions (notify / framer / keepalive).
+  ///
+  /// Intentionally does NOT cancel [_connStateSub] — that listener is the
+  /// only path by which a late OS-side disconnect can drive the error stream
+  /// after this method runs, and it must survive session teardown for that to
+  /// work. The listener is cancelled in [disconnect] / [_cancelConnStateSub].
   Future<void> _cleanupSubscriptions() async {
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     await _notifySub?.cancel();
     _notifySub = null;
-    await _connStateSub?.cancel();
-    _connStateSub = null;
     await _framesSub?.cancel();
     _framesSub = null;
+  }
+
+  Future<void> _cancelConnStateSub() async {
+    await _connStateSub?.cancel();
+    _connStateSub = null;
   }
 
   /// Cancels any pending keepalive and schedules a new one.
@@ -380,29 +476,55 @@ class BleTncTransport extends KissTncTransport {
     _keepaliveTimer = Timer(_keepaliveInterval, _onKeepalive);
   }
 
+  // Static so tests can override without making _onKeepalive any wider.
+  @visibleForTesting
+  static Duration keepaliveRetryDelay = const Duration(milliseconds: 200);
+
   /// Fires when the link has been idle for [_keepaliveInterval].
   ///
   /// Sends a single KISS TXDELAY frame — harmless to any KISS TNC and
   /// sufficient to reset the Mobilinkd idle timer. Uses write-without-response
   /// to avoid ATT round-trip latency on a fire-and-forget keepalive.
-  /// A write failure is treated as a link-dropped signal rather than
-  /// silently rescheduling, ensuring the UI reflects the real state promptly.
+  ///
+  /// On write failure the keepalive retries exactly once after a short delay
+  /// before declaring the link dead. This absorbs a single transient stall
+  /// (Doze transition, brief OS scheduling hiccup) without tripping the full
+  /// reconnect cascade. If the retry also fails the link is marked as error.
   Future<void> _onKeepalive() async {
     if (!isConnected) return;
+    final rxChar = _rxChar;
+    if (rxChar == null) return;
+    final payload = Uint8List.fromList([0xC0, 0x01, 30, 0xC0]);
     try {
-      await _rxChar?.write(
-        Uint8List.fromList([0xC0, 0x01, 30, 0xC0]),
-        withoutResponse: true,
-      );
+      await rxChar.write(payload, withoutResponse: true);
+      BleDiagnostics.I.log(BleEventKind.keepaliveSent);
       _resetKeepalive();
+      return;
     } catch (e) {
-      // Write failure means the link is gone. Mark as error immediately
-      // rather than silently rescheduling — don't wait for the BLE stack
-      // to eventually fire an onConnectionStateChange event.
+      BleDiagnostics.I.log(BleEventKind.keepaliveFailed, 'attempt=1 error=$e');
+    }
+
+    // Retry once after a short delay — rebind state in case status changed
+    // mid-delay (e.g. user tapped disconnect).
+    await Future<void>.delayed(keepaliveRetryDelay);
+    if (!isConnected) return;
+    final retryRx = _rxChar;
+    if (retryRx == null) return;
+    try {
+      await retryRx.write(payload, withoutResponse: true);
+      BleDiagnostics.I.log(BleEventKind.keepaliveRetried, 'recovered=true');
+      _resetKeepalive();
+      return;
+    } catch (e) {
       debugPrint(
-        'BleTncTransport: keepalive write failed, marking link dropped: $e',
+        'BleTncTransport: keepalive write failed twice, marking link dropped: $e',
       );
+      BleDiagnostics.I.log(BleEventKind.keepaliveFailed, 'attempt=2 error=$e');
       if (_status == ConnectionStatus.connected) {
+        BleDiagnostics.I.log(
+          BleEventKind.disconnectKeepaliveFailed,
+          'device=${_adapter.platformName}',
+        );
         _status = ConnectionStatus.error;
         _stateController.add(ConnectionStatus.error);
         await _cleanupSubscriptions();
