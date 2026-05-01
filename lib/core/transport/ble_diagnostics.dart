@@ -94,6 +94,11 @@ class BleEvent {
 /// a static [I] singleton for write access. Tests construct fresh instances
 /// directly to avoid global state.
 ///
+/// Capture is **off by default** — users opt in from Settings → Advanced →
+/// BLE Diagnostics. While disabled, [log] is a no-op (the call site cost is
+/// a single boolean check), nothing is persisted, and existing buffered
+/// events are not displayed in the UI.
+///
 /// Persistence: events are written to SharedPreferences on a ~1 s debounce so
 /// a crash mid-session doesn't lose the log, but we don't pay a write per
 /// event during a flurry of state changes.
@@ -109,6 +114,7 @@ class BleDiagnostics extends ChangeNotifier {
 
   static const _defaultMaxEvents = 200;
   static const _prefsKey = 'ble_diagnostics_log_v1';
+  static const _enabledPrefsKey = 'ble_diagnostics_enabled_v1';
 
   /// Process-wide instance. Wired in `main.dart`. Tests should NOT use this —
   /// construct a fresh [BleDiagnostics] directly.
@@ -120,31 +126,52 @@ class BleDiagnostics extends ChangeNotifier {
 
   SharedPreferences? _prefs;
   Timer? _persistTimer;
+  bool _enabled = false;
 
   final Queue<BleEvent> _events = Queue<BleEvent>();
+
+  /// Whether event capture is currently enabled. Defaults to false; the user
+  /// flips this from the BLE Diagnostics screen.
+  bool get enabled => _enabled;
 
   /// Snapshot of all events, oldest first. Cheap (bounded by [maxEvents]).
   List<BleEvent> get events => List.unmodifiable(_events);
 
-  /// Restores any previously-persisted log. Safe to call before [SharedPreferences]
-  /// is otherwise initialised — re-reads on first call.
+  /// Restores any previously-persisted log AND the enabled flag. Safe to call
+  /// before [SharedPreferences] is otherwise initialised — re-reads on first
+  /// call.
   Future<void> hydrate() async {
     _prefs ??= await SharedPreferences.getInstance();
+    _enabled = _prefs!.getBool(_enabledPrefsKey) ?? false;
     final lines = _prefs!.getStringList(_prefsKey);
-    if (lines == null || lines.isEmpty) return;
-    _events.clear();
-    for (final line in lines) {
-      final ev = BleEvent.tryDecode(line);
-      if (ev != null) _events.add(ev);
-    }
-    while (_events.length > maxEvents) {
-      _events.removeFirst();
+    if (lines != null && lines.isNotEmpty) {
+      _events.clear();
+      for (final line in lines) {
+        final ev = BleEvent.tryDecode(line);
+        if (ev != null) _events.add(ev);
+      }
+      while (_events.length > maxEvents) {
+        _events.removeFirst();
+      }
     }
     notifyListeners();
   }
 
-  /// Append a new event. Trims the oldest entry if the buffer is full.
+  /// Toggles event capture. When turning capture off, any buffered events are
+  /// preserved (the user can still copy what was already captured) but no
+  /// further events accumulate.
+  Future<void> setEnabled(bool value) async {
+    if (_enabled == value) return;
+    _enabled = value;
+    notifyListeners();
+    final prefs = _prefs ??= await SharedPreferences.getInstance();
+    await prefs.setBool(_enabledPrefsKey, value);
+  }
+
+  /// Append a new event. No-op when capture is disabled — the buffer is left
+  /// untouched, no listeners notified, no persistence scheduled.
   void log(BleEventKind kind, [String detail = '']) {
+    if (!_enabled) return;
     final event = BleEvent(timestamp: _clock(), kind: kind, detail: detail);
     _events.addLast(event);
     while (_events.length > maxEvents) {

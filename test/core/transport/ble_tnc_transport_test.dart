@@ -156,6 +156,10 @@ void main() {
         prefs: await SharedPreferences.getInstance(),
         persistDebounce: const Duration(milliseconds: 1),
       );
+      // Production default is OFF so end-users don't pay for capture they
+      // didn't ask for; transport tests need capture ON to assert
+      // instrumentation actually fires.
+      await BleDiagnostics.I.setEnabled(true);
       fakeAdapter = FakeBleDeviceAdapter();
       transport = BleTncTransport(dummyDevice, adapter: fakeAdapter);
     });

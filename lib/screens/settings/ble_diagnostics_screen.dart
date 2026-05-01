@@ -82,34 +82,97 @@ class _BleDiagnosticsScreenState extends State<BleDiagnosticsScreen> {
   @override
   Widget build(BuildContext context) {
     final events = _diag.events;
+    final captureEnabled = _diag.enabled;
     return Scaffold(
       appBar: AppBar(
         title: const Text('BLE Diagnostics'),
         actions: [
           IconButton(
             tooltip: 'Copy log',
-            onPressed: events.isEmpty ? null : _copyToClipboard,
+            onPressed: (!captureEnabled || events.isEmpty)
+                ? null
+                : _copyToClipboard,
             icon: const Icon(Symbols.content_copy),
           ),
           IconButton(
             tooltip: 'Clear log',
-            onPressed: events.isEmpty ? null : _confirmClear,
+            onPressed: (!captureEnabled || events.isEmpty)
+                ? null
+                : _confirmClear,
             icon: const Icon(Symbols.delete_sweep),
           ),
         ],
       ),
-      body: events.isEmpty
-          ? const _EmptyState()
-          : ListView.builder(
-              reverse: true,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: events.length,
-              itemBuilder: (context, index) {
-                // Newest at the top → reverse the index.
-                final event = events[events.length - 1 - index];
-                return _EventTile(event: event);
-              },
+      body: Column(
+        children: [
+          SwitchListTile.adaptive(
+            title: const Text('Capture BLE events'),
+            subtitle: const Text(
+              'Off by default. Enable temporarily to debug a connection issue, '
+              'then turn off when finished.',
             ),
+            secondary: const Icon(Symbols.bug_report),
+            value: captureEnabled,
+            onChanged: (v) => _diag.setEnabled(v),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: !captureEnabled
+                ? const _DisabledState()
+                : (events.isEmpty
+                      ? const _EmptyState()
+                      : ListView.builder(
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: events.length,
+                          itemBuilder: (context, index) {
+                            // Newest at the top → reverse the index.
+                            final event = events[events.length - 1 - index];
+                            return _EventTile(event: event);
+                          },
+                        )),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DisabledState extends StatelessWidget {
+  const _DisabledState();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Symbols.toggle_off,
+              size: 64,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Event capture is off',
+              style: theme.textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Turn on the toggle above to start recording BLE TNC events. '
+              'Capture is off by default to keep normal use lightweight.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

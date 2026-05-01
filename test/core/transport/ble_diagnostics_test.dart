@@ -77,6 +77,9 @@ void main() {
         maxEvents: 5,
         persistDebounce: const Duration(milliseconds: 10),
       );
+      // Most tests want the buffer to actually accumulate; the disabled-by-
+      // default contract is exercised by its own dedicated test below.
+      await diag.setEnabled(true);
     });
 
     test('log() appends events in order and notifies listeners', () {
@@ -141,6 +144,42 @@ void main() {
       expect(restored.events, hasLength(1));
       expect(restored.events.single.detail, 'persisted-by-debounce');
     });
+
+    test('log() is a no-op when capture is disabled', () async {
+      await diag.setEnabled(false);
+      var notifyCount = 0;
+      diag.addListener(() => notifyCount++);
+
+      diag.log(BleEventKind.connectStart, 'should-be-dropped');
+
+      expect(diag.events, isEmpty);
+      expect(notifyCount, 0);
+    });
+
+    test('setEnabled() persists across hydrate', () async {
+      // Start with a fresh diag whose default is OFF, flip to ON, persist,
+      // then build a sibling instance against the same prefs and confirm.
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final first = BleDiagnostics(prefs: prefs);
+      expect(first.enabled, isFalse, reason: 'fresh instance should be off');
+      await first.setEnabled(true);
+
+      final second = BleDiagnostics(prefs: prefs);
+      await second.hydrate();
+      expect(second.enabled, isTrue);
+    });
+
+    test(
+      'hydrate() defaults enabled to false when no preference saved',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final prefs = await SharedPreferences.getInstance();
+        final fresh = BleDiagnostics(prefs: prefs);
+        await fresh.hydrate();
+        expect(fresh.enabled, isFalse);
+      },
+    );
 
     test('hydrate() ignores corrupt entries but keeps valid ones', () async {
       final prefs = await SharedPreferences.getInstance();
