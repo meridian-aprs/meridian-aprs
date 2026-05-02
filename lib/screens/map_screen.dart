@@ -15,6 +15,7 @@ import '../core/connection/connection_registry.dart';
 import '../core/connection/lat_lng_box.dart';
 import '../core/packet/station.dart';
 import '../map/meridian_tile_provider.dart';
+import '../services/beaconing_service.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../services/tx_service.dart';
@@ -81,6 +82,7 @@ class _MapScreenState extends State<MapScreen> {
   // current time-window boundary without deleting any underlying data.
   Timer? _slidingWindowTick;
   StreamSubscription<TxEvent>? _txEventSub;
+  StreamSubscription<BeaconingEvent>? _beaconingEventSub;
   bool _northUpLocked = true;
   int _visibleStationCount = 0;
   int _totalStationCount = 0;
@@ -105,6 +107,9 @@ class _MapScreenState extends State<MapScreen> {
       (_) => _rebuildMarkers(),
     );
     _txEventSub = context.read<TxService>().events.listen(_onTxEvent);
+    _beaconingEventSub = context.read<BeaconingService>().events.listen(
+      _onBeaconingEvent,
+    );
 
     // Push the persisted APRS-IS filter config into the connection once at
     // startup, before the first viewport update fires, so the initial
@@ -167,6 +172,7 @@ class _MapScreenState extends State<MapScreen> {
     _reclusterDebounce?.cancel();
     _slidingWindowTick?.cancel();
     _txEventSub?.cancel();
+    _beaconingEventSub?.cancel();
     _service.removeListener(_onServiceSettingChanged);
     _settingsRef?.removeListener(_onFilterSettingsChanged);
     _tileProvider.dispose();
@@ -203,17 +209,67 @@ class _MapScreenState extends State<MapScreen> {
     // Routing is now unconditional Serial > BLE > APRS-IS; the banners just
     // surface the transition so the user knows which path is live.
     // TODO(ios): use Cupertino-styled banner
-    final content = switch (event) {
-      TxEventTncDisconnected() =>
-        _aprsIsConnected()
-            ? 'TNC disconnected — using APRS-IS'
-            : 'TNC disconnected',
-      TxEventTncReconnected() => 'TNC connected — using RF',
-    };
+    switch (event) {
+      case TxEventTncDisconnected():
+        _showBanner(
+          messenger,
+          _aprsIsConnected()
+              ? 'TNC disconnected — using APRS-IS'
+              : 'TNC disconnected',
+        );
+      case TxEventTncReconnected():
+        _showBanner(messenger, 'TNC connected — using RF');
+      case TxEventUnlicensed():
+        _showBanner(
+          messenger,
+          'Transmit blocked: receive-only mode is on. Enable it in '
+          'Settings → My Station to send beacons and messages.',
+          actionLabel: 'Settings',
+          onAction: () {
+            messenger.clearMaterialBanners();
+            Navigator.push(
+              context,
+              buildPlatformRoute((_) => const SettingsScreen()),
+            );
+          },
+        );
+    }
+  }
+
+  void _onBeaconingEvent(BeaconingEvent event) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearMaterialBanners();
+    switch (event) {
+      case BeaconingEventGpsUnsupported():
+        _showBanner(
+          messenger,
+          'GPS isn\'t available on this platform. Switch the position source '
+          'to Manual in Settings → My Station to beacon.',
+          actionLabel: 'Settings',
+          onAction: () {
+            messenger.clearMaterialBanners();
+            Navigator.push(
+              context,
+              buildPlatformRoute((_) => const SettingsScreen()),
+            );
+          },
+        );
+    }
+  }
+
+  void _showBanner(
+    ScaffoldMessengerState messenger,
+    String content, {
+    String? actionLabel,
+    VoidCallback? onAction,
+  }) {
     messenger.showMaterialBanner(
       MaterialBanner(
         content: Text(content),
         actions: [
+          if (actionLabel != null && onAction != null)
+            TextButton(onPressed: onAction, child: Text(actionLabel)),
           TextButton(
             onPressed: messenger.clearMaterialBanners,
             child: const Text('Dismiss'),

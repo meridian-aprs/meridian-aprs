@@ -216,11 +216,12 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
               onPressed: widget.onOpenFilterPanel,
             ),
           ),
-          IconButton(
-            icon: const Icon(Symbols.person_pin),
-            tooltip: 'Find my station',
-            onPressed: _showOwnStation,
-          ),
+          if (context.select<StationSettingsService, bool>((s) => s.isLicensed))
+            IconButton(
+              icon: const Icon(Symbols.person_pin),
+              tooltip: 'Find my station',
+              onPressed: _showOwnStation,
+            ),
           IconButton(
             icon: _locating
                 ? SizedBox(
@@ -421,6 +422,10 @@ class _ConnectionStatusChip extends StatelessWidget {
 class _BeaconToolbarButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
+    final isLicensed = context.select<StationSettingsService, bool>(
+      (s) => s.isLicensed,
+    );
+    if (!isLicensed) return const SizedBox.shrink();
     final svc = context.watch<BeaconingService>();
     final registry = context.watch<ConnectionRegistry>();
     final isActive = svc.isActive;

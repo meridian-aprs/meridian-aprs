@@ -218,11 +218,12 @@ class _TabletScaffoldState extends State<TabletScaffold> {
               onPressed: widget.onOpenFilterPanel,
             ),
           ),
-          IconButton(
-            icon: const Icon(Symbols.person_pin),
-            tooltip: 'Find my station',
-            onPressed: _showOwnStation,
-          ),
+          if (context.select<StationSettingsService, bool>((s) => s.isLicensed))
+            IconButton(
+              icon: const Icon(Symbols.person_pin),
+              tooltip: 'Find my station',
+              onPressed: _showOwnStation,
+            ),
           IconButton(
             icon: _locating
                 ? SizedBox(
