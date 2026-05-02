@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ax25/ax25_encoder.dart';
 import '../packet/aprs_parser.dart';
+import '../transport/ble_constants.dart';
 import '../transport/ble_diagnostics.dart';
 import '../transport/ble_tnc_transport.dart';
 import '../transport/kiss_tnc_transport.dart';
@@ -52,6 +53,13 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // ---------------------------------------------------------------------------
 
   BluetoothDevice? _device;
+
+  /// Optional family hint for the active session, supplied by the scanner via
+  /// [connectToDevice]. When null, the transport autodetects the family from
+  /// the discovered service list — robust across cold reconnects where the
+  /// scan advertisement isn't available.
+  BleKissFamily? _family;
+
   KissTncTransport? _transport;
 
   StreamSubscription<Uint8List>? _frameSub;
@@ -160,8 +168,15 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   /// Set the target device and connect.
   ///
   /// Stores [device] so that automatic reconnect attempts use the same device.
-  Future<void> connectToDevice(BluetoothDevice device) {
+  /// [family] is an optional hint about which BLE-KISS GATT family this device
+  /// implements — supply it from the scanner when known from advertised
+  /// service UUIDs to skip a round of post-discovery autodetection.
+  Future<void> connectToDevice(
+    BluetoothDevice device, {
+    BleKissFamily? family,
+  }) {
     _device = device;
+    _family = family;
     return connect();
   }
 
@@ -185,6 +200,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   Future<void> disconnect() async {
     cancelReconnect();
     _device = null;
+    _family = null;
     await _tearDownTransport(internal: false);
     _emitStatus(ConnectionStatus.disconnected);
     notifyListeners();
@@ -273,7 +289,8 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // ---------------------------------------------------------------------------
 
   KissTncTransport _buildTransport(BluetoothDevice device) =>
-      transportFactory?.call(device) ?? BleTncTransport(device);
+      transportFactory?.call(device) ??
+      BleTncTransport(device, family: _family);
 
   void _buildAndAttachTransport(BluetoothDevice device) {
     final t = _buildTransport(device);

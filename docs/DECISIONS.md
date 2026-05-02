@@ -1509,3 +1509,52 @@ A one-line comment in `pubspec.yaml` references this ADR so the constraint is se
 - pub.dev changelog: `https://pub.dev/packages/flutter_blue_plus/changelog`
 - License text: `https://github.com/chipweinberger/flutter_blue_plus/blob/master/LICENSE.md`
 
+---
+
+## ADR-066: Standards-aware BLE-KISS naming and multi-family TNC support
+
+**Date:** 2026-05-01
+**Status:** Accepted
+
+### Context
+
+Until this change, `lib/core/transport/ble_constants.dart` exposed three constants — `kMobilinkdServiceUuid`, `kMobilinkdTxCharUuid`, `kMobilinkdRxCharUuid` — and the BLE scanner UI filtered to a single "Mobilinkd TNC4" preset. The naming implied a vendor-proprietary GATT service, but the UUID `00000001-ba2a-46c9-ae49-01b0961f68bb` is in fact the standardized [`hessu/aprs-specs` BLE-KISS API](https://github.com/hessu/aprs-specs/blob/master/BLE-KISS-API.md) shared by Mobilinkd TNC3/TNC4, PicoAPRS v4, B.B. Link adapter, RPC ESP32 trackers, CA2RXU LoRa trackers, and any future spec-compliant device. The "Mobilinkd-only" framing was misleading and unnecessarily limiting.
+
+A second, older family also exists. The [`ge0rg/bluetoothle-tnc`](https://github.com/ge0rg/bluetoothle-tnc/blob/master/Bluetooth-LE-TNC.md) spec — Family B — is what BTECH UV-Pro firmware ≥ 0.7.11, Vero VR-N76 / VR-N7500, and Radioddity GA-5WB use for KISS-over-BLE (when KISS mode is enabled in the radio menu). KISS framing on the wire is identical across both families; only the GATT plumbing differs.
+
+A user is bringing a BTECH UV-Pro online, and broader market support is on the v0.20 polish agenda regardless. Doing both — the rename and Family B support — together is cleaner than two staggered passes.
+
+### Decision
+
+Rename the constants to reflect the standard:
+  - `kMobilinkdServiceUuid` → `kBleKissServiceUuid`
+  - `kMobilinkdTxCharUuid` → `kBleKissNotifyCharUuid` (the host's RX, also corrects the inverted Tx/Rx naming the original constants used)
+  - `kMobilinkdRxCharUuid` → `kBleKissWriteCharUuid` (the host's TX)
+
+Add Family B constants alongside (`kBenshiKiss*`).
+
+Introduce `BleKissFamily` enum and `BleKissProfile` value object so the transport, connection, and scanner can speak about the family explicitly. Add `bleKissFamilyForServiceUuids(...)` for resolving advertised UUIDs to a family.
+
+Refactor `BleTncTransport` to autodetect the family at connect time from the discovered service list, with an optional `family` constructor hint when scan advertisement data already names it. The Mobilinkd-specific quirks — no `requestConnectionPriority`, no KISS init frames, no SETHARDWARE 0x06 — remain gated to all families conservatively until each is proven safe per-family on real hardware.
+
+The scanner sheet drops the per-model dropdown in favour of a single "Show all Bluetooth devices" toggle; default scans pass both family service UUIDs to `FlutterBluePlus.startScan(withServices: ...)` so the OS performs advertisement filtering. A small `BleTncKnownDevice` registry in `lib/ui/widgets/` renders friendly labels and icons for known hardware (Mobilinkd TNC3/TNC4, PicoAPRS, B.B. Link, BTECH UV-Pro, Vero VR-N76/VR-N7500, Radioddity GA-5WB, RPC ESP32, CA2RXU).
+
+`@Deprecated` aliases for the three old constant names remain for one release to soften the migration for any in-flight branches.
+
+### Consequences
+
+- BLE TNC support is no longer single-vendor. Users with Family B hardware can connect without code changes — the transport autodetects the family.
+- The "Show all Bluetooth devices" toggle keeps a path for DIY ESP32 builds (Nordic UART) and troubleshooting; users still see those devices when the default filter excludes them.
+- `BleConnection.connectToDevice` gained an optional `family` parameter. Callers that don't pass it (background reconnects from a persisted device id) still work — the transport autodetects.
+- Family-specific quirks are now expressible. The current code intentionally applies Mobilinkd's conservative defaults to every family until per-family hardware data justifies relaxation; future ADRs will narrow this as we learn what each family actually tolerates.
+
+### References
+
+- `lib/core/transport/ble_constants.dart` — family enum, profiles, resolver
+- `lib/core/transport/ble_tnc_transport_impl.dart` — autodetect on connect
+- `lib/ui/widgets/ble_tnc_known_device.dart` — friendly-name registry
+- `lib/ui/widgets/ble_scanner_sheet.dart` — multi-family default scan + advanced toggle
+- [hessu/aprs-specs BLE-KISS API](https://github.com/hessu/aprs-specs/blob/master/BLE-KISS-API.md) — Family A spec
+- [ge0rg/bluetoothle-tnc spec](https://github.com/ge0rg/bluetoothle-tnc/blob/master/Bluetooth-LE-TNC.md) — Family B spec
+- [BTECH UV-Pro firmware 0.7.11 KISS announcement](https://baofengtech.com/btech-uv-pro-firmware-update-0-7-11-kiss-mode-now-built-in/)
+

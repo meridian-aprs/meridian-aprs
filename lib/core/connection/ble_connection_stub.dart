@@ -54,7 +54,7 @@ class BleConnection extends MeridianConnection {
   Future<void> connect() =>
       throw UnsupportedError('BLE not supported on this platform');
 
-  Future<void> connectToDevice(dynamic device) =>
+  Future<void> connectToDevice(dynamic device, {dynamic family}) =>
       throw UnsupportedError('BLE not supported on this platform');
 
   @override

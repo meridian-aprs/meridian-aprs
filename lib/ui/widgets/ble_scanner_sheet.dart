@@ -8,44 +8,20 @@ import 'package:material_symbols_icons/symbols.dart';
 
 import '../../core/connection/ble_connection.dart';
 import '../../core/transport/ble_constants.dart';
-import '../../core/transport/tnc_preset.dart';
-
-/// Filter option for the BLE device scanner.
-///
-/// [_BleFilterOption.all] shows every discovered device. A preset-based
-/// option limits results to devices whose advertised GATT service UUIDs
-/// match the known UUID for that TNC model.
-class _BleFilterOption {
-  const _BleFilterOption({required this.label, this.serviceUuid});
-
-  /// Display name shown in the dropdown.
-  final String label;
-
-  /// If non-null, only devices advertising this service UUID are shown.
-  final String? serviceUuid;
-
-  static const _BleFilterOption all = _BleFilterOption(label: 'All Devices');
-
-  /// One entry per TNC preset with a known BLE service UUID.
-  static final List<_BleFilterOption> presetOptions = [
-    _BleFilterOption(
-      label: TncPreset.mobilinkdTnc4.displayName,
-      serviceUuid: kMobilinkdServiceUuid,
-    ),
-  ];
-
-  static List<_BleFilterOption> get values => [all, ...presetOptions];
-}
+import 'ble_tnc_known_device.dart';
 
 /// Bottom sheet for scanning and connecting to a BLE KISS TNC.
 ///
-/// Scans for nearby BLE devices and optionally filters results by TNC type
-/// selected in the dropdown. "All Devices" shows everything; selecting a
-/// specific TNC model limits results to devices advertising that TNC's GATT
-/// service UUID.
+/// Default behaviour scans only for devices advertising one of the supported
+/// BLE-KISS GATT services (the `aprs-specs` family — Mobilinkd, PicoAPRS,
+/// B.B. Link, RPC, CA2RXU — and the Benshi/BTECH family — UV-Pro, Vero
+/// VR-N76 / VR-N7500, Radioddity GA-5WB). The "Show all Bluetooth devices"
+/// switch lifts the filter for DIY hardware (e.g. ESP32 builds advertising
+/// Nordic UART) or troubleshooting.
 ///
-/// Tapping "Connect" on a device calls [BleConnection.connectToDevice] and
-/// closes the sheet (or calls [onBack] when embedded inline).
+/// Tapping "Connect" on a device calls [BleConnection.connectToDevice] (with
+/// the resolved family hint when known) and closes the sheet (or calls
+/// [onBack] when embedded inline).
 ///
 /// Set [showDragHandle] to false and provide [onBack] when embedding this
 /// widget inside another sheet instead of presenting it as a standalone modal.
@@ -81,7 +57,7 @@ class BleScannerSheet extends StatefulWidget {
 
 class _BleScannerSheetState extends State<BleScannerSheet> {
   bool _scanning = false;
-  _BleFilterOption _filter = _BleFilterOption.presetOptions.first;
+  bool _showAllDevices = false;
   String? _bleError;
   String? _connectingDeviceId;
 
@@ -135,8 +111,18 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
 
     _scanSub?.cancel();
 
+    // When the "show all" toggle is off, ask the OS to filter advertisements
+    // at parse time using the supported family service UUIDs. This is
+    // strictly equivalent to filtering in-app, but cheaper on the radio.
+    final withServices = _showAllDevices
+        ? const <Guid>[]
+        : [Guid(kBleKissServiceUuid), Guid(kBenshiKissServiceUuid)];
+
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 15));
+      await FlutterBluePlus.startScan(
+        timeout: const Duration(seconds: 15),
+        withServices: withServices,
+      );
     } on FlutterBluePlusException catch (e) {
       setState(() {
         _bleError = _friendlyBleError(e.description ?? e.toString());
@@ -149,14 +135,6 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
       if (!mounted) return;
       setState(() {
         for (final r in results) {
-          if (_filter.serviceUuid != null) {
-            final advertisedUuids = r.advertisementData.serviceUuids
-                .map((g) => g.str.toLowerCase())
-                .toList();
-            if (!advertisedUuids.contains(_filter.serviceUuid!.toLowerCase())) {
-              continue;
-            }
-          }
           _deviceMap[r.device.remoteId] = r;
         }
       });
@@ -179,7 +157,14 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
     });
 
     try {
-      await widget.bleConnection.connectToDevice(result.device);
+      // Resolve the GATT family from advertisement data so the transport can
+      // skip post-discovery autodetection. Falls back to null (autodetect)
+      // when the device only advertised an unrelated service.
+      final advertisedUuids = result.advertisementData.serviceUuids.map(
+        (g) => g.str,
+      );
+      final family = bleKissFamilyForServiceUuids(advertisedUuids);
+      await widget.bleConnection.connectToDevice(result.device, family: family);
       if (mounted) {
         if (widget.onBack != null) {
           widget.onBack!();
@@ -301,50 +286,57 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
             const SizedBox(height: 16),
           ],
 
-          // Controls row: scan button + TNC filter dropdown.
+          // Scan controls.
           if (_isBlePlatform && _bleError == null) ...[
             Row(
               children: [
                 FilledButton.icon(
                   onPressed: _scanning ? null : _startScan,
                   icon: Icon(_scanning ? Symbols.stop : Symbols.search),
-                  label: Text(_scanning ? 'Scanning\u2026' : 'Scan'),
+                  label: Text(_scanning ? 'Scanning…' : 'Scan'),
                 ),
                 const SizedBox(width: 12),
-                if (_scanning) ...[
+                if (_scanning)
                   SizedBox(
                     width: 16,
                     height: 16,
                     child: CircularProgressIndicator.adaptive(strokeWidth: 2),
                   ),
-                  const SizedBox(width: 8),
-                ],
-                const Spacer(),
-                // TNC type filter dropdown.
-                DropdownButton<_BleFilterOption>(
-                  value: _filter,
-                  isDense: true,
-                  items: _BleFilterOption.values.map((option) {
-                    return DropdownMenuItem<_BleFilterOption>(
-                      value: option,
-                      child: Text(
-                        option.label,
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: (option) {
-                    if (option != null) {
-                      setState(() {
-                        _filter = option;
-                        _deviceMap.clear();
-                      });
-                    }
-                  },
-                ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
+
+            // "Show all Bluetooth devices" advanced toggle.
+            //
+            // The default scan filters advertisements to known BLE-KISS family
+            // service UUIDs. Lifting the filter is occasionally necessary for
+            // DIY ESP32 builds that advertise Nordic UART (or no service UUID
+            // at all) and for troubleshooting when a TNC isn't appearing.
+            SwitchListTile.adaptive(
+              title: Text(
+                'Show all Bluetooth devices',
+                style: theme.textTheme.bodyMedium,
+              ),
+              subtitle: Text(
+                _showAllDevices
+                    ? 'Showing every BLE device in range.'
+                    : 'Filtering to known TNC families.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              value: _showAllDevices,
+              onChanged: _scanning
+                  ? null
+                  : (value) {
+                      setState(() {
+                        _showAllDevices = value;
+                        _deviceMap.clear();
+                      });
+                    },
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
 
             // Scanning progress indicator.
             if (_scanning) const LinearProgressIndicator(),
@@ -354,21 +346,41 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
           // Device list.
           if (devices.isNotEmpty)
             ...devices.map((result) {
-              final name = result.device.platformName.isNotEmpty
+              final advertisedName = result.device.platformName.isNotEmpty
                   ? result.device.platformName
-                  : result.device.remoteId.str;
+                  : null;
+              final known = BleTncKnownDevice.matchByName(advertisedName);
+              final displayName =
+                  known?.displayName ??
+                  advertisedName ??
+                  result.device.remoteId.str;
+              final subtitle = known != null && advertisedName != null
+                  ? '$advertisedName • RSSI ${result.rssi} dBm'
+                  : 'RSSI: ${result.rssi} dBm';
+              final leadingIcon = known?.icon ?? Symbols.bluetooth;
               final isConnecting =
                   _connectingDeviceId == result.device.remoteId.str;
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
                 child: ListTile(
-                  leading: Icon(_rssiIcon(result.rssi)),
-                  title: Text(name),
-                  subtitle: Text(
-                    'RSSI: ${result.rssi} dBm',
-                    style: theme.textTheme.bodySmall,
+                  leading: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(leadingIcon),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Icon(
+                          _rssiIcon(result.rssi),
+                          size: 12,
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ],
                   ),
+                  title: Text(displayName),
+                  subtitle: Text(subtitle, style: theme.textTheme.bodySmall),
                   trailing: isConnecting
                       ? SizedBox(
                           width: 24,
@@ -406,7 +418,11 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Make sure your TNC is powered on and in range.',
+                      _showAllDevices
+                          ? 'Make sure your device is powered on and advertising.'
+                          : 'Make sure your TNC is powered on and in range. '
+                                'Toggle "Show all Bluetooth devices" if your TNC '
+                                'is not in the supported list.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
