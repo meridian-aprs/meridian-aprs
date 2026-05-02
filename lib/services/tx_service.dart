@@ -28,13 +28,20 @@ class TxEventTncDisconnected extends TxEvent {}
 /// A TNC (BLE or Serial) reconnected — notify the user that RF is live again.
 class TxEventTncReconnected extends TxEvent {}
 
+/// A TX attempt was rejected because the user is not marked as a licensed
+/// amateur. Surfaced once per app session to prompt them to flip the toggle
+/// in Settings → My Station rather than silently dropping packets.
+class TxEventUnlicensed extends TxEvent {}
+
 // ---------------------------------------------------------------------------
 // TxService
 // ---------------------------------------------------------------------------
 
 class TxService extends ChangeNotifier {
-  TxService(this._registry, this._settings, {this.onSent}) {
+  TxService(this._registry, this._settings, {this.onSent})
+    : _wasLicensed = _settings.isLicensed {
     _registry.addListener(_onRegistryChanged);
+    _settings.addListener(_onSettingsChanged);
   }
 
   final ConnectionRegistry _registry;
@@ -52,12 +59,34 @@ class TxService extends ChangeNotifier {
   };
 
   bool _tncWasConnected = false;
+  bool _unlicensedNotified = false;
+  bool _wasLicensed;
+
+  void _rejectUnlicensed(String reason) {
+    debugPrint('[TxService] $reason rejected: unlicensed mode');
+    if (_unlicensedNotified) return;
+    _unlicensedNotified = true;
+    _eventController.add(TxEventUnlicensed());
+  }
+
+  /// Reset the once-per-session unlicensed-banner dedupe whenever the user
+  /// flips Licensed off. The banner should fire again the next time they
+  /// try to TX in receive-only mode — otherwise toggling off → on → off →
+  /// TX silently swallows the rejection.
+  void _onSettingsChanged() {
+    final nowLicensed = _settings.isLicensed;
+    if (_wasLicensed && !nowLicensed) {
+      _unlicensedNotified = false;
+    }
+    _wasLicensed = nowLicensed;
+  }
 
   // ---------------------------------------------------------------------------
   // Public API — routing
   // ---------------------------------------------------------------------------
 
-  /// Stream of [TxEvent]s for UI banner display (TNC connect/disconnect).
+  /// Stream of [TxEvent]s for UI banner display. Surfaces TNC connect /
+  /// disconnect transitions and unlicensed-mode TX rejections.
   Stream<TxEvent> get events => _eventController.stream;
 
   /// Human-readable label for the effective TX path.
@@ -89,7 +118,7 @@ class TxService extends ChangeNotifier {
     List<String>? digipeaterPath,
   }) async {
     if (!_settings.isLicensed) {
-      debugPrint('[TxService] TX rejected: unlicensed mode');
+      _rejectUnlicensed('TX');
       return;
     }
     final conn = _effectiveConnection(forceVia: forceVia);
@@ -114,7 +143,7 @@ class TxService extends ChangeNotifier {
     List<String>? rfPath,
   }) async {
     if (!_settings.isLicensed) {
-      debugPrint('[TxService] bulletin TX rejected: unlicensed mode');
+      _rejectUnlicensed('bulletin TX');
       return;
     }
     if (viaAprsIs) {
@@ -159,7 +188,7 @@ class TxService extends ChangeNotifier {
   /// No-op when the user is unlicensed — TX is unconditionally blocked.
   Future<void> sendBeacon(String aprsLine) async {
     if (!_settings.isLicensed) {
-      debugPrint('[TxService] TX rejected: unlicensed mode');
+      _rejectUnlicensed('beacon TX');
       return;
     }
     for (final conn in _registry.all) {
@@ -212,6 +241,7 @@ class TxService extends ChangeNotifier {
   @override
   void dispose() {
     _registry.removeListener(_onRegistryChanged);
+    _settings.removeListener(_onSettingsChanged);
     _eventController.close();
     super.dispose();
   }

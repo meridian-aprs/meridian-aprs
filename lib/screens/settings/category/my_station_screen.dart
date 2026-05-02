@@ -71,99 +71,132 @@ class _MyStationSettingsContentState extends State<MyStationSettingsContent> {
   Widget build(BuildContext context) {
     final service = context.watch<StationSettingsService>();
 
+    final isLicensed = service.isLicensed;
+
     return ListView(
       children: [
         const SectionHeader('My Station'),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: CallsignField(
-            controller: _callsignCtrl,
-            focusNode: _callsignFocus,
-            label: 'Callsign',
-            onChanged: (_) {},
+        SwitchListTile.adaptive(
+          title: const Text('Licensed amateur radio operator'),
+          subtitle: const Text(
+            'Required to transmit. Turn off to use Meridian in receive-only '
+            'mode (no beacons, messages, or bulletins are sent).',
           ),
+          value: isLicensed,
+          onChanged: (v) =>
+              context.read<StationSettingsService>().setIsLicensed(v),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: DropdownButtonFormField<int>(
-            decoration: const InputDecoration(
-              labelText: 'SSID',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Symbols.tag),
+        // Everything below depends on having a license: identity fields
+        // (callsign, SSID, address) only matter for outgoing packets —
+        // APRS-IS receive-only mode auto-logs in as `N0CALL/-1` per
+        // ADR-045 — and symbol / comment / position source only feed
+        // outgoing beacons. Hide the lot in receive-only mode so the
+        // screen reflects what actually has effect.
+        if (!isLicensed)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Text(
+              'Receive-only mode is on. Turn on the switch above to '
+              'configure your callsign, SSID, symbol, comment, and beacon '
+              'position.',
             ),
-            initialValue: service.ssid,
-            items: List.generate(16, (i) {
-              final label = switch (i) {
-                0 => '0 — No suffix',
-                1 => '1 — Digipeater',
-                2 => '2 — Generic',
-                3 => '3 — Generic',
-                4 => '4 — Generic',
-                5 => '5 — Portable',
-                6 => '6 — Special',
-                7 => '7 — Handheld',
-                8 => '8 — Boat',
-                9 => '9 — Vehicle',
-                10 => '10 — Internet',
-                11 => '11 — Aircraft',
-                12 => '12 — Balloon',
-                13 => '13 — Bike',
-                14 => '14 — ATV/GPS',
-                _ => '15 — Satellite',
-              };
-              return DropdownMenuItem(value: i, child: Text(label));
-            }),
-            onChanged: (v) {
-              if (v != null) {
-                context.read<StationSettingsService>().setSsid(v);
-              }
+          ),
+        if (isLicensed) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: CallsignField(
+              controller: _callsignCtrl,
+              focusNode: _callsignFocus,
+              label: 'Callsign',
+              onChanged: (_) {},
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: DropdownButtonFormField<int>(
+              decoration: const InputDecoration(
+                labelText: 'SSID',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Symbols.tag),
+              ),
+              initialValue: service.ssid,
+              items: List.generate(16, (i) {
+                final label = switch (i) {
+                  0 => '0 — No suffix',
+                  1 => '1 — Digipeater',
+                  2 => '2 — Generic',
+                  3 => '3 — Generic',
+                  4 => '4 — Generic',
+                  5 => '5 — Portable',
+                  6 => '6 — Special',
+                  7 => '7 — Handheld',
+                  8 => '8 — Boat',
+                  9 => '9 — Vehicle',
+                  10 => '10 — Internet',
+                  11 => '11 — Aircraft',
+                  12 => '12 — Balloon',
+                  13 => '13 — Bike',
+                  14 => '14 — ATV/GPS',
+                  _ => '15 — Satellite',
+                };
+                return DropdownMenuItem(value: i, child: Text(label));
+              }),
+              onChanged: (v) {
+                if (v != null) {
+                  context.read<StationSettingsService>().setSsid(v);
+                }
+              },
+            ),
+          ),
+          ListTile(
+            dense: true,
+            title: const Text('Your address'),
+            subtitle: Text(
+              service.fullAddress.isEmpty ? '—' : service.fullAddress,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+          // Symbol, comment, and position source only matter for outgoing
+          // beacons. They live inside the same licensed-only block as the
+          // identity fields so the receive-only view collapses to just the
+          // Licensed switch.
+          _SymbolPickerTile(
+            symbolTable: service.symbolTable,
+            symbolCode: service.symbolCode,
+            onChanged: (table, code) {
+              context.read<StationSettingsService>().setSymbol(table, code);
             },
           ),
-        ),
-        ListTile(
-          dense: true,
-          title: const Text('Your address'),
-          subtitle: Text(
-            service.fullAddress.isEmpty ? '—' : service.fullAddress,
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.primary,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: TextFormField(
+              controller: _commentCtrl,
+              focusNode: _commentFocus,
+              decoration: const InputDecoration(
+                labelText: 'Comment',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Symbols.comment),
+                hintText: 'e.g. Meridian APRS',
+                counterText: '',
+              ),
+              maxLength: 36,
+              onEditingComplete: () => FocusScope.of(context).unfocus(),
+              onChanged: (v) => setState(() {}),
+              buildCounter:
+                  (_, {required currentLength, required isFocused, maxLength}) {
+                    return Text(
+                      '$currentLength / ${maxLength ?? 36}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    );
+                  },
             ),
           ),
-        ),
-        _SymbolPickerTile(
-          symbolTable: service.symbolTable,
-          symbolCode: service.symbolCode,
-          onChanged: (table, code) {
-            context.read<StationSettingsService>().setSymbol(table, code);
-          },
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: TextFormField(
-            controller: _commentCtrl,
-            focusNode: _commentFocus,
-            decoration: const InputDecoration(
-              labelText: 'Comment',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Symbols.comment),
-              hintText: 'e.g. Meridian APRS',
-              counterText: '',
-            ),
-            maxLength: 36,
-            onEditingComplete: () => FocusScope.of(context).unfocus(),
-            onChanged: (v) => setState(() {}),
-            buildCounter:
-                (_, {required currentLength, required isFocused, maxLength}) {
-                  return Text(
-                    '$currentLength / ${maxLength ?? 36}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  );
-                },
-          ),
-        ),
-        const SectionHeader('Position Source'),
-        _LocationSourcePicker(latCtrl: _latCtrl, lonCtrl: _lonCtrl),
+          const SectionHeader('Position Source'),
+          _LocationSourcePicker(latCtrl: _latCtrl, lonCtrl: _lonCtrl),
+        ],
         const SizedBox(height: 16),
       ],
     );

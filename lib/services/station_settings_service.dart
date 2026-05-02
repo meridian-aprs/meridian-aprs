@@ -36,7 +36,7 @@ class StationSettingsService extends ChangeNotifier {
       _manualLon = _prefs.getDouble(_keyManualLon),
       _locationSource =
           LocationSource.values.elementAtOrNull(
-            _prefs.getInt(_keyLocationSource) ?? 0,
+            _prefs.getInt(_keyLocationSource) ?? _defaultLocationSourceIndex(),
           ) ??
           LocationSource.gps,
       _isLicensed = _prefs.getBool(_keyIsLicensed) ?? false,
@@ -274,6 +274,19 @@ class StationSettingsService extends ChangeNotifier {
     );
     // No notifyListeners — the active filter state is [aprsIsFilter], not
     // this remembered slot. Callers typically update both in one operation.
+  }
+
+  /// Default `LocationSource` index for first-run installs.
+  ///
+  /// Linux desktop has no `geolocator` plugin implementation, so defaulting
+  /// to GPS would produce silent beacon failures with no manual coordinates
+  /// to fall back on. Default to manual there. Every other platform keeps
+  /// GPS as the first-run default.
+  static int _defaultLocationSourceIndex() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
+      return LocationSource.manual.index;
+    }
+    return LocationSource.gps.index;
   }
 
   /// Rehydrate the persisted [AprsIsFilterConfig], falling back to
