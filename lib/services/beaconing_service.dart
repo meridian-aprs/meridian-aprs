@@ -40,6 +40,15 @@ enum BeaconError {
   unknown,
 }
 
+/// Events emitted by [BeaconingService] for one-shot UI surfacing (banners,
+/// snackbars). Distinct from [lastError] which is a continuously-observable
+/// state for in-screen warnings — these fire once per occurrence.
+sealed class BeaconingEvent {}
+
+/// A beacon attempt was skipped because the platform has no GPS support
+/// (e.g. Linux desktop) and the user has [LocationSource.gps] selected.
+class BeaconingEventGpsUnsupported extends BeaconingEvent {}
+
 class BeaconingService extends ChangeNotifier {
   BeaconingService(
     this._settings,
@@ -48,7 +57,15 @@ class BeaconingService extends ChangeNotifier {
     Clock clock = DateTime.now,
     GeolocatorAdapter geo = const RealGeolocatorAdapter(),
   }) : _clock = clock,
-       _geo = geo;
+       _geo = geo {
+    // The geolocator package has no Linux federated implementation, so the
+    // first call to any GPS API throws MissingPluginException. Surface that
+    // up front so the My Station UI can show the "switch to Manual" warning
+    // before the user ever wonders why their beacons aren't going out.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.linux) {
+      _gpsUnsupported = true;
+    }
+  }
 
   final StationSettingsService _settings;
   final TxService _tx;
@@ -83,6 +100,15 @@ class BeaconingService extends ChangeNotifier {
   Position? _lastPosition;
   double? _lastHeading;
   StreamSubscription<Position>? _positionSub;
+
+  // One-shot event surfacing (banners). Distinct from notifyListeners so the
+  // UI can showSnackBar/showBanner only when a fresh event arrives instead of
+  // on every rebuild.
+  final _eventController = StreamController<BeaconingEvent>.broadcast();
+  bool _gpsUnsupportedNotified = false;
+
+  /// Stream of one-shot events for UI surfacing.
+  Stream<BeaconingEvent> get events => _eventController.stream;
 
   // ---------------------------------------------------------------------------
   // Public read API
@@ -193,9 +219,21 @@ class BeaconingService extends ChangeNotifier {
     double? lon;
 
     if (_settings.locationSource == LocationSource.gps) {
+      // Fast-path: on platforms with no geolocator implementation we already
+      // know the call will fail. Surface the banner immediately rather than
+      // waiting for the MissingPluginException catch deeper in.
+      if (_gpsUnsupported) {
+        _lastError = BeaconError.locationUnsupported;
+        _emitGpsUnsupportedOnce();
+        notifyListeners();
+        return;
+      }
       final position = await _requestPosition();
       if (position == null) {
         // GPS failed — respect the user's choice and skip the beacon.
+        if (_lastError == BeaconError.locationUnsupported) {
+          _emitGpsUnsupportedOnce();
+        }
         notifyListeners();
         return;
       }
@@ -312,7 +350,16 @@ class BeaconingService extends ChangeNotifier {
   void dispose() {
     _timer?.cancel();
     _positionSub?.cancel();
+    _eventController.close();
     super.dispose();
+  }
+
+  void _emitGpsUnsupportedOnce() {
+    if (_gpsUnsupportedNotified) return;
+    _gpsUnsupportedNotified = true;
+    if (!_eventController.isClosed) {
+      _eventController.add(BeaconingEventGpsUnsupported());
+    }
   }
 
   // ---------------------------------------------------------------------------

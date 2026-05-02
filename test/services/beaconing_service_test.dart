@@ -408,12 +408,16 @@ void main() {
     });
 
     test('failed beacons do not retrigger the timer chain', () {
-      // Each `beaconNow` makes exactly one entry call. When position
-      // resolution fails the early-return path skips `_restartTimer`
-      // (beaconing_service.dart:194-197), so the one-shot timer chain
-      // halts after a single fire. Pinning current behavior — there is
-      // no exponential retry, and there is no infinite "tight loop"
-      // either.
+      // Two invariants are pinned here:
+      //
+      //   1. Each `beaconNow` makes at most one entry call into the geo
+      //      plugin. When position resolution fails the early-return path
+      //      skips `_restartTimer`, so the one-shot timer chain halts
+      //      after a single fire.
+      //   2. Once a `MissingPluginException` is observed, subsequent
+      //      `beaconNow` calls take the `_gpsUnsupported` fast-path and
+      //      do *not* re-enter the plugin at all — a separate guard
+      //      against thrash on platforms with no GPS.
       _runFakeAsync((f, async) async {
         f.geo.throwMissingPlugin = true;
 
@@ -421,20 +425,61 @@ void main() {
         await f.svc.setAutoInterval(120);
         unawaited(f.svc.startBeaconing());
         async.flushMicrotasks();
-        // Initial beaconNow inside startBeaconing.
+        // Initial beaconNow inside startBeaconing — the first call sets
+        // `_gpsUnsupported = true` after the catch.
         expect(f.geo.isLocationServiceEnabledCalls, 1);
 
         // The 120 s one-shot timer scheduled before that first beaconNow
-        // still fires once; it then dies because the failed beacon did
-        // not reschedule.
+        // still fires once; it now hits the fast-path and bails without
+        // calling into the geo plugin again.
         async.elapse(const Duration(seconds: 120));
-        expect(f.geo.isLocationServiceEnabledCalls, 2);
+        expect(f.geo.isLocationServiceEnabledCalls, 1);
 
         // No further fires for hours — confirms there is no hidden retry
         // loop.
         async.elapse(const Duration(hours: 1));
-        expect(f.geo.isLocationServiceEnabledCalls, 2);
+        expect(f.geo.isLocationServiceEnabledCalls, 1);
         expect(f.tx.sentBeacons, isEmpty);
+      });
+    });
+
+    test('fires BeaconingEventGpsUnsupported once per session', () {
+      _runFakeAsync((f, async) async {
+        f.geo.throwMissingPlugin = true;
+
+        final events = <BeaconingEvent>[];
+        final sub = f.svc.events.listen(events.add);
+
+        await f.svc.beaconNow();
+        async.flushMicrotasks();
+        await f.svc.beaconNow();
+        async.flushMicrotasks();
+        await f.svc.beaconNow();
+        async.flushMicrotasks();
+
+        expect(
+          events.whereType<BeaconingEventGpsUnsupported>().toList(),
+          hasLength(1),
+          reason:
+              'banner is once-per-session — three failed beacons must produce '
+              'one event, not three',
+        );
+
+        await sub.cancel();
+      });
+    });
+
+    test('no BeaconingEvent fires before any beacon attempt is made', () {
+      _runFakeAsync((f, async) async {
+        // Even with the geo plugin set to throw, simply constructing the
+        // service and listening must not produce events — events are only
+        // emitted on actual beaconNow attempts.
+        f.geo.throwMissingPlugin = true;
+        final events = <BeaconingEvent>[];
+        final sub = f.svc.events.listen(events.add);
+        async.flushMicrotasks();
+        expect(events, isEmpty);
+        await sub.cancel();
       });
     });
   });

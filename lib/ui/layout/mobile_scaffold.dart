@@ -325,13 +325,17 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                                     : Symbols.explore,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            FloatingActionButton.small(
-                              heroTag: 'my_station_fab',
-                              onPressed: _showOwnStation,
-                              tooltip: 'Find my station',
-                              child: const Icon(Symbols.person_pin),
-                            ),
+                            if (context.select<StationSettingsService, bool>(
+                              (s) => s.isLicensed,
+                            )) ...[
+                              const SizedBox(width: 8),
+                              FloatingActionButton.small(
+                                heroTag: 'my_station_fab',
+                                onPressed: _showOwnStation,
+                                tooltip: 'Find my station',
+                                child: const Icon(Symbols.person_pin),
+                              ),
+                            ],
                             const SizedBox(width: 8),
                             FloatingActionButton.small(
                               heroTag: 'center_fab',
@@ -350,9 +354,16 @@ class _MobileScaffoldState extends State<MobileScaffold> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        // Primary beacon FAB.
+                        // Primary beacon FAB — hidden in receive-only mode
+                        // since every tap would be silently rejected at the
+                        // TX gate.
                         Builder(
                           builder: (ctx) {
+                            final isLicensed = ctx
+                                .select<StationSettingsService, bool>(
+                                  (s) => s.isLicensed,
+                                );
+                            if (!isLicensed) return const SizedBox.shrink();
                             final beaconing = ctx.watch<BeaconingService>();
                             final reg = ctx.watch<ConnectionRegistry>();
                             final noTarget =

@@ -144,6 +144,108 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // TxEventUnlicensed event-stream behavior
+  // ---------------------------------------------------------------------------
+
+  group('TxService — TxEventUnlicensed event stream', () {
+    late SharedPreferences prefs;
+    late StationSettingsService settings;
+    late ConnectionRegistry registry;
+    late FakeMeridianConnection conn;
+    late TxService tx;
+    late List<TxEvent> events;
+    late StreamSubscription<TxEvent> sub;
+
+    setUp(() async {
+      SharedPreferences.setMockInitialValues({
+        'user_callsign': 'W1AW',
+        'user_ssid': 9,
+      });
+      prefs = await SharedPreferences.getInstance();
+      settings = StationSettingsService(
+        prefs,
+        store: FakeSecureCredentialStore(),
+      );
+      registry = ConnectionRegistry();
+      conn = _TrackingFakeConnection(
+        id: 'aprs_is',
+        displayName: 'APRS-IS',
+        type: ConnectionType.aprsIs,
+        sentLines: [],
+      );
+      registry.register(conn);
+      conn.setStatus(ConnectionStatus.connected);
+
+      tx = TxService(registry, settings);
+      events = [];
+      sub = tx.events.listen(events.add);
+    });
+
+    tearDown(() async {
+      await sub.cancel();
+      tx.dispose();
+      await conn.dispose();
+    });
+
+    test('first unlicensed TX emits a TxEventUnlicensed', () async {
+      await tx.sendBeacon('=1234.56N/12345.67W>test');
+      // Events fire on the broadcast stream's microtask queue.
+      await Future<void>.delayed(Duration.zero);
+      expect(events, hasLength(1));
+      expect(events.first, isA<TxEventUnlicensed>());
+    });
+
+    test('repeat unlicensed TX in the same session does NOT re-emit', () async {
+      await tx.sendBeacon('=1234.56N/12345.67W>a');
+      await tx.sendLine('=1234.56N/12345.67W>b');
+      await tx.sendBulletin(
+        '=1234.56N/12345.67W>c',
+        viaRf: false,
+        viaAprsIs: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.whereType<TxEventUnlicensed>().toList(),
+        hasLength(1),
+        reason:
+            'banner is once-per-session — the user has been told and we should '
+            'not spam them on every subsequent TX attempt',
+      );
+    });
+
+    test('flipping Licensed off after on resets the dedupe', () async {
+      // First reject — fires the banner.
+      await tx.sendBeacon('=a');
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<TxEventUnlicensed>().toList(), hasLength(1));
+
+      // User flips Licensed on, then back off (e.g. they're testing).
+      await settings.setIsLicensed(true);
+      await settings.setIsLicensed(false);
+      await Future<void>.delayed(Duration.zero);
+
+      // Next reject should fire the banner again — they've been off, on, off,
+      // and the next TX needs the reminder.
+      await tx.sendBeacon('=b');
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.whereType<TxEventUnlicensed>().toList(),
+        hasLength(2),
+        reason:
+            'TxService listens to settings and resets the once-per-session '
+            'flag on every licensed → unlicensed transition',
+      );
+    });
+
+    test('licensed TX does not emit TxEventUnlicensed', () async {
+      await settings.setIsLicensed(true);
+      await tx.sendBeacon('=1234.56N/12345.67W>ok');
+      await Future<void>.delayed(Duration.zero);
+      expect(events.whereType<TxEventUnlicensed>(), isEmpty);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // AprsIsConnection — N0CALL/-1 login substitution
   // ---------------------------------------------------------------------------
 
