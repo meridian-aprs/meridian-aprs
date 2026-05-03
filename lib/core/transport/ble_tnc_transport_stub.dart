@@ -11,7 +11,7 @@ import 'kiss_tnc_transport.dart';
 /// Stub [BleTncTransport] for platforms where BLE is not available (web).
 class BleTncTransport extends KissTncTransport {
   // ignore: avoid_unused_constructor_parameters
-  BleTncTransport(BluetoothDevice device, {dynamic adapter});
+  BleTncTransport(BluetoothDevice device, {dynamic adapter, dynamic family});
 
   @override
   Stream<Uint8List> get frameStream =>

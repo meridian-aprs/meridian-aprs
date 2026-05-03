@@ -234,10 +234,11 @@ All three tiers fully implemented. iOS pending simulator validation.
 | `lib/core/transport/kiss_framer.dart` | `KissFramer` | Pure Dart KISS framer; stateful `addBytes` stream processor; static `encode` method |
 | `lib/core/ax25/ax25_parser.dart` | `Ax25Parser` | Pure Dart AX.25 UI frame decoder; sealed `Ax25ParseResult` (`Ax25Ok` \| `Ax25Err`); never throws |
 | `lib/core/transport/serial_kiss_transport.dart` | `SerialKissTransport` | Implements `KissTncTransport`; platform-conditional export; desktop only (Linux/macOS/Windows) |
-| `lib/core/transport/ble_tnc_transport.dart` | `BleTncTransport` | Implements `KissTncTransport`; platform-conditional export; mobile only (iOS/Android); Mobilinkd-compatible |
-| `lib/core/transport/ble_constants.dart` | `kMobilinkdServiceUuid` etc. | Mobilinkd UART-over-BLE GATT service/characteristic UUIDs |
+| `lib/core/transport/ble_tnc_transport.dart` | `BleTncTransport` | Implements `KissTncTransport`; platform-conditional export; mobile only (iOS/Android); supports both BLE-KISS GATT families (`aprs-specs` standard + Benshi/BTECH); autodetects family at connect time |
+| `lib/core/transport/ble_constants.dart` | `kBleKiss*`, `kBenshiKiss*`, `BleKissFamily`, `BleKissProfile` | BLE-KISS GATT service/characteristic UUIDs for both supported families (aprs-specs + Benshi); family enum + resolver helper |
 | `lib/services/tnc_service.dart` | `TncService` | ChangeNotifier; owns `TransportManager`; parses AX.25 frames via `AprsParser`; bridges to `StationService.ingestLine` |
-| `lib/ui/widgets/ble_scanner_sheet.dart` | `BleScannerSheet` | BLE scan + connect UI; filters to Mobilinkd devices; device list with RSSI icons |
+| `lib/ui/widgets/ble_scanner_sheet.dart` | `BleScannerSheet` | BLE scan + connect UI; default filters to known BLE-KISS family service UUIDs (aprs-specs + Benshi); "Show all Bluetooth devices" advanced toggle; friendly model labels via `BleTncKnownDevice` registry |
+| `lib/ui/widgets/ble_tnc_known_device.dart` | `BleTncKnownDevice` | Static registry of known BLE TNC models (Mobilinkd TNC3/TNC4, PicoAPRS, B.B. Link, BTECH UV-Pro, Vero VR-N76/N7500, Radioddity GA-5WB, RPC ESP32, CA2RXU); name-regex match → display name + icon + family |
 
 ### Notification files (v0.11)
 

@@ -102,8 +102,12 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
 /// BLE KISS TNC transport.
 ///
 /// Implements [KissTncTransport], emitting raw AX.25 frame payloads on
-/// [frameStream]. Connects to Mobilinkd-compatible BLE TNCs via a UART-
-/// over-BLE GATT service.
+/// [frameStream]. Connects to BLE TNCs from either supported GATT family —
+/// the `aprs-specs` BLE-KISS API (Mobilinkd, PicoAPRS, B.B. Link, RPC,
+/// CA2RXU) and the older Benshi/BTECH family (UV-Pro, Vero VR-N76, VR-N7500,
+/// Radioddity GA-5WB). The family is autodetected at connect time from the
+/// discovered service list, or selected explicitly via the `family`
+/// constructor argument when known from advertisement data.
 ///
 /// Connection flow:
 ///   scan → connect → discoverServices
@@ -113,21 +117,31 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
 /// existing [KissFramer]. Outgoing frames are KISS-encoded and split into
 /// MTU-sized chunks before writing to the RX characteristic.
 class BleTncTransport extends KissTncTransport {
+  /// Construct a transport for a given device.
+  ///
+  /// [family] selects the BLE-KISS GATT family. When `null` (default), the
+  /// transport autodetects the family at connect time by scanning the
+  /// discovered service list. Pass a non-null value when the family is already
+  /// known from advertisement data — it skips one round of service-list
+  /// inspection and produces clearer error messages on mismatch.
   BleTncTransport(
     BluetoothDevice device, {
     BleDeviceAdapter? adapter,
-    String serviceUuid = kMobilinkdServiceUuid,
-    String txCharUuid = kMobilinkdTxCharUuid,
-    String rxCharUuid = kMobilinkdRxCharUuid,
+    BleKissFamily? family,
   }) : _adapter = adapter ?? DefaultBleDeviceAdapter(device),
-       _serviceUuid = serviceUuid,
-       _txCharUuid = txCharUuid,
-       _rxCharUuid = rxCharUuid;
+       _hintedFamily = family;
 
   final BleDeviceAdapter _adapter;
-  final String _serviceUuid;
-  final String _txCharUuid;
-  final String _rxCharUuid;
+  final BleKissFamily? _hintedFamily;
+
+  /// The active GATT profile, resolved either from [_hintedFamily] or by
+  /// scanning the post-discovery service list. Null until [connect] succeeds
+  /// far enough to pick one. Exposed as [activeFamily] for diagnostics.
+  BleKissProfile? _profile;
+
+  /// Which BLE-KISS family the live session is using, or `null` when not
+  /// connected. Useful for diagnostics and family-aware UI hints.
+  BleKissFamily? get activeFamily => _profile?.family;
 
   // Effective MTU for outgoing chunk size (payload bytes, not ATT frame size).
   int _mtu = 20;
@@ -217,15 +231,15 @@ class BleTncTransport extends KissTncTransport {
       //     so that a late OS state event still drives the error path.
       _connStateSub ??= _adapter.connectionState.listen(_onBleConnectionState);
 
-      // 2b. Connection-priority request is deliberately skipped.
-      //     `BluetoothDevice.requestConnectionPriority(high)` immediately
-      //     after `connect()` causes the Mobilinkd TNC4 to drop the link
-      //     within the 5.12 s LINK_SUPERVISION_TIMEOUT — the same hardware
-      //     quirk that forbids a fresh `requestMtu()` here (see step 3).
-      //     The 2026-04-30 drive-test diagnostics showed identical 5.4 s
-      //     drop cycles every reconnect with HIGH priority enabled, and a
-      //     stable 110 s keepalive cadence with it disabled. Re-introducing
-      //     this needs hardware-specific gating; track in a follow-up.
+      // 2b. Connection-priority request is deliberately skipped for all
+      //     families. The Mobilinkd TNC4 drops the link within the 5.12 s
+      //     LINK_SUPERVISION_TIMEOUT if `requestConnectionPriority(high)` is
+      //     called immediately after `connect()` (2026-04-30 drive-test
+      //     diagnostics showed identical 5.4 s drop cycles with HIGH priority
+      //     enabled, stable 110 s keepalive cadence with it disabled). The
+      //     Benshi family is untested here — apply the same conservative
+      //     default until proven safe per-family. Re-introducing the priority
+      //     request needs family-aware gating; track in a follow-up.
       BleDiagnostics.I.log(
         BleEventKind.connectionPriorityRequested,
         'priority=balanced (skipped: TNC4 drops link if renegotiated)',
@@ -267,32 +281,37 @@ class BleTncTransport extends KissTncTransport {
         }
       }
 
-      // 5. Find the TNC GATT service.
-      final targetServiceGuid = Guid(_serviceUuid);
-      final service = services!
-          .where((s) => s.serviceUuid == targetServiceGuid)
-          .firstOrNull;
-      if (service == null) {
+      // 5. Resolve the GATT profile (which BLE-KISS family this device speaks)
+      //    and find the matching service. When [_hintedFamily] was provided we
+      //    look for that exact service; otherwise we scan the discovered list
+      //    for the first known family service and adopt it.
+      final profile = _resolveProfile(services!);
+      if (profile == null) {
         throw Exception(
-          'BleTncTransport: service $_serviceUuid not found on ${_adapter.platformName}. '
-          'Is this a Mobilinkd-compatible TNC?',
+          'BleTncTransport: no supported BLE-KISS service found on '
+          '${_adapter.platformName}. Make sure KISS mode is enabled — '
+          'BTECH/Vero radios require enabling KISS in the radio menu.',
         );
       }
+      _profile = profile;
+      final service = services
+          .where((s) => s.serviceUuid == Guid(profile.serviceUuid))
+          .first;
 
-      // 6. Find TX (notify) and RX (write) characteristics.
-      final txGuid = Guid(_txCharUuid);
-      final rxGuid = Guid(_rxCharUuid);
+      // 6. Find the notify (host RX) and write (host TX) characteristics.
+      final notifyGuid = Guid(profile.notifyCharUuid);
+      final writeGuid = Guid(profile.writeCharUuid);
       _txChar = service.characteristics
-          .where((c) => c.characteristicUuid == txGuid)
+          .where((c) => c.characteristicUuid == notifyGuid)
           .firstOrNull;
       _rxChar = service.characteristics
-          .where((c) => c.characteristicUuid == rxGuid)
+          .where((c) => c.characteristicUuid == writeGuid)
           .firstOrNull;
 
       if (_txChar == null || _rxChar == null) {
         throw Exception(
-          'BleTncTransport: TX or RX characteristic not found. '
-          'TX found: ${_txChar != null}, RX found: ${_rxChar != null}',
+          'BleTncTransport: notify or write characteristic not found for '
+          '${profile.family.name}. notify=${_txChar != null} write=${_rxChar != null}',
         );
       }
 
@@ -309,7 +328,7 @@ class BleTncTransport extends KissTncTransport {
       );
       BleDiagnostics.I.log(
         BleEventKind.connectSuccess,
-        'device=${_adapter.platformName} mtu=$_mtu',
+        'device=${_adapter.platformName} family=${profile.family.name} mtu=$_mtu',
       );
 
       // 10. Start the idle keepalive timer.
@@ -318,15 +337,18 @@ class BleTncTransport extends KissTncTransport {
       //    timeout. The keepalive sends a single TXDELAY frame every
       //    [_keepaliveInterval] (currently 4 s — see field doc).
       //
-      //    NOTE: Do NOT call _sendKissInit() here. Sending the five standard
-      //    KISS parameter frames (TXDELAY/PERSIST/SLOTTIME/TXTAIL/FULLDUPLEX)
-      //    causes the Mobilinkd TNC4 to reinitialise its modem, which takes its
-      //    BLE radio dark for ~5 s — long enough for the supervision timeout
-      //    (5.12 s) to expire and drop the connection. The Mobilinkd retains its
-      //    own configuration persistently; the host does not need to reprogram
-      //    these values on every connect.
-      //    DO NOT use command 0x06 (SETHARDWARE) either — that is Mobilinkd's
-      //    proprietary config protocol and also causes an immediate disconnect.
+      //    NOTE: Do NOT call _sendKissInit() here on any family. On the
+      //    Mobilinkd TNC4 (aprs-specs family), sending the five standard KISS
+      //    parameter frames (TXDELAY/PERSIST/SLOTTIME/TXTAIL/FULLDUPLEX)
+      //    causes the modem to reinitialise — its BLE radio goes dark for
+      //    ~5 s, long enough for the supervision timeout (5.12 s) to expire
+      //    and drop the connection. The Mobilinkd retains its own
+      //    configuration persistently. The Benshi family is untested for KISS
+      //    init behaviour; default to skipping until proven safe.
+      //    DO NOT use command 0x06 (SETHARDWARE) on any family either — it is
+      //    Mobilinkd's proprietary config protocol and causes an immediate
+      //    disconnect on aprs-specs hardware. Benshi devices ignore unknown
+      //    KISS commands today but that's incidental, not contractual.
       _resetKeepalive();
     } catch (e) {
       debugPrint('BleTncTransport connect failed: $e');
@@ -381,6 +403,7 @@ class BleTncTransport extends KissTncTransport {
     } catch (_) {}
     _txChar = null;
     _rxChar = null;
+    _profile = null;
     try {
       await _adapter.disconnect();
     } catch (_) {}
@@ -419,6 +442,33 @@ class BleTncTransport extends KissTncTransport {
   // ---------------------------------------------------------------------------
   // Internal
   // ---------------------------------------------------------------------------
+
+  /// Pick the GATT profile to use for this connection.
+  ///
+  /// Honours [_hintedFamily] when provided — that's the path scan-driven
+  /// connects take, since the family is already known from advertisement data.
+  /// When no hint is provided (cold reconnect from persisted device id),
+  /// scan the discovered service list for the first known family.
+  BleKissProfile? _resolveProfile(List<BluetoothService> services) {
+    final advertised = services
+        .map((s) => s.serviceUuid.str.toLowerCase())
+        .toSet();
+    if (_hintedFamily != null) {
+      final hinted = BleKissProfile.forFamily(_hintedFamily);
+      if (advertised.contains(hinted.serviceUuid.toLowerCase())) {
+        return hinted;
+      }
+      // Hint was wrong — fall through to autodetect rather than fail outright.
+      // This is forgiving when a user's saved device ID belongs to a model
+      // whose family they later changed (e.g. firmware swap).
+    }
+    for (final profile in BleKissProfile.all) {
+      if (advertised.contains(profile.serviceUuid.toLowerCase())) {
+        return profile;
+      }
+    }
+    return null;
+  }
 
   void _onBleChunk(List<int> chunk) {
     _kissFramer.addBytes(chunk);
@@ -483,7 +533,7 @@ class BleTncTransport extends KissTncTransport {
   /// Fires when the link has been idle for [_keepaliveInterval].
   ///
   /// Sends a single KISS TXDELAY frame — harmless to any KISS TNC and
-  /// sufficient to reset the Mobilinkd idle timer. Uses write-without-response
+  /// sufficient to reset the peripheral's idle timer. Uses write-without-response
   /// to avoid ATT round-trip latency on a fire-and-forget keepalive.
   ///
   /// On write failure the keepalive retries exactly once after a short delay
