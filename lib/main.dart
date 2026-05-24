@@ -26,6 +26,12 @@ import 'core/packet/aprs_packet.dart' show PacketSource;
 import 'core/packet/device_resolver.dart';
 import 'core/transport/aprs_is_transport.dart';
 import 'core/transport/ble_diagnostics.dart';
+import 'database/daos/bulletin_dao.dart';
+import 'database/daos/message_dao.dart';
+import 'database/daos/packet_dao.dart';
+import 'database/daos/station_dao.dart';
+import 'database/database_provider.dart';
+import 'database/meridian_database.dart';
 import 'map/stadia_tile_provider.dart';
 import 'screens/map_screen.dart';
 import 'screens/onboarding/onboarding_screen.dart';
@@ -77,6 +83,12 @@ Future<void> main() async {
     // Initialise Android notification channel options for the background service.
     BackgroundServiceManager.initOptions();
   }
+
+  // Open the SQLite database (drift). On non-web platforms this spawns a
+  // dedicated drift isolate and registers its connect port via
+  // `IsolateNameServer` so the Android foreground-service isolate can share
+  // the same database connection. See ADR-062.
+  final database = await openMeridianDatabase();
 
   // Load theme preference and onboarding state before the first frame.
   final themeController = await ThemeController.create();
@@ -155,8 +167,11 @@ Future<void> main() async {
   // Build service layer
   // ---------------------------------------------------------------------------
 
-  final service = StationService();
-  await service.loadPersistedHistory(prefs);
+  final service = StationService(
+    stationDao: database.stationDao,
+    packetDao: database.packetDao,
+  );
+  await service.loadPersistedSettings(prefs);
   service.attach(registry);
 
   // Reconnect APRS-IS only if the user chose to connect last session.
@@ -197,6 +212,7 @@ Future<void> main() async {
 
   final bulletinService = BulletinService(
     subscriptions: bulletinSubscriptions,
+    bulletinDao: database.bulletinDao,
     prefs: prefs,
   );
   await bulletinService.load();
@@ -234,6 +250,7 @@ Future<void> main() async {
     service,
     groupSubscriptions: groupSubscriptions,
     bulletins: bulletinService,
+    messageDao: database.messageDao,
   );
   await messageService.loadHistory();
 
@@ -267,6 +284,7 @@ Future<void> main() async {
     tx: txService,
     onPacketLogged: (line) =>
         service.ingestLine(line, source: PacketSource.aprsIs),
+    onResumed: bulletinService.refreshOutgoing,
   );
 
   // ---------------------------------------------------------------------------
@@ -308,6 +326,11 @@ Future<void> main() async {
         ChangeNotifierProvider<AdvancedModeController>.value(
           value: advancedModeController,
         ),
+        Provider<MeridianDatabase>.value(value: database),
+        Provider<StationDao>.value(value: database.stationDao),
+        Provider<PacketDao>.value(value: database.packetDao),
+        Provider<MessageDao>.value(value: database.messageDao),
+        Provider<BulletinDao>.value(value: database.bulletinDao),
         ChangeNotifierProvider<StationService>.value(value: service),
         ChangeNotifierProvider<ConnectionRegistry>.value(value: registry),
         ChangeNotifierProvider<StationSettingsService>.value(

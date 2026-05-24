@@ -1,9 +1,10 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
+import 'package:meridian_aprs/database/meridian_database.dart'
+    show ConversationsCompanion, MessageEntriesCompanion;
+import 'package:meridian_aprs/models/message_category.dart';
 import 'package:meridian_aprs/services/bulletin_service.dart';
 import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
 import 'package:meridian_aprs/services/group_subscription_service.dart';
@@ -13,6 +14,7 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Test fixture
@@ -55,7 +57,11 @@ class _Fixture {
       prefs,
       store: FakeSecureCredentialStore(),
     );
-    final stationService = StationService();
+    final db = buildTestDatabase();
+    final stationService = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
     final registry = ConnectionRegistry();
     final sentLines = <String>[];
     final txService = _RecordingTxService(registry, settings, sentLines);
@@ -65,6 +71,7 @@ class _Fixture {
     await bulletinSubs.load();
     final bulletins = BulletinService(
       subscriptions: bulletinSubs,
+      bulletinDao: db.bulletinDao,
       prefs: prefs,
     );
     await bulletins.load();
@@ -74,7 +81,13 @@ class _Fixture {
       stationService,
       groupSubscriptions: groupSubs,
       bulletins: bulletins,
+      messageDao: db.messageDao,
     );
+    addTearDown(() async {
+      messageService.dispose(); // cancels retry timers
+      await stationService.stop();
+      await db.close();
+    });
     return _Fixture._(
       service: messageService,
       stationService: stationService,
@@ -440,44 +453,48 @@ void main() {
     );
   });
 
-  // --- Legacy addressee=null deserialization ------------------------------
+  // --- Null-addressee entry round-trips from drift ------------------------
 
-  group('legacy serialization', () {
+  group('drift persistence', () {
     test(
-      'entry without addressee key deserializes with null, isCrossSsid false',
+      'entry with null addressee loads back with null, isCrossSsid false',
       () async {
-        // Seed SharedPreferences with a persisted conversation whose message
-        // has no 'addressee' key (simulating data written before this feature).
-        final legacyEntry = {
-          'localId': 'KB1XYZ:Hello',
-          'wireId': null,
-          'text': 'Hello',
-          'timestamp': DateTime.now().millisecondsSinceEpoch,
-          'isOutgoing': false,
-          'status': 'acked',
-          'retryCount': 0,
-          // No 'addressee' key.
-        };
-        final legacyConv = {
-          'peer': 'KB1XYZ',
-          'unreadCount': 0,
-          'lastActivity': DateTime.now().millisecondsSinceEpoch,
-          'messages': [legacyEntry],
-        };
-
         SharedPreferences.setMockInitialValues({
           'user_callsign': 'W1AW',
           'user_ssid': 9,
           'message_id_counter': 0,
-          'msg_peers': jsonEncode(['KB1XYZ']),
-          'msg_conv_KB1XYZ': jsonEncode(legacyConv),
         });
         final prefs = await SharedPreferences.getInstance();
         final settings = StationSettingsService(
           prefs,
           store: FakeSecureCredentialStore(),
         );
-        final stationService = StationService();
+        final db = buildTestDatabase();
+
+        // Seed the database directly with a conversation + entry whose
+        // addressee is null (mirrors data captured before cross-SSID support).
+        await db.messageDao.upsertConversation(
+          ConversationsCompanion.insert(
+            peerCallsign: 'KB1XYZ',
+            lastMessageAt: DateTime.now().millisecondsSinceEpoch,
+          ),
+        );
+        await db.messageDao.insertEntry(
+          MessageEntriesCompanion.insert(
+            id: 'KB1XYZ:Hello',
+            conversationPeer: 'KB1XYZ',
+            body: 'Hello',
+            timestamp: DateTime.now().millisecondsSinceEpoch,
+            isOutgoing: false,
+            status: MessageStatus.acked,
+            category: MessageCategory.direct,
+          ),
+        );
+
+        final stationService = StationService(
+          stationDao: db.stationDao,
+          packetDao: db.packetDao,
+        );
         final registry = ConnectionRegistry();
         final sentLines = <String>[];
         final txService = _RecordingTxService(registry, settings, sentLines);
@@ -487,6 +504,7 @@ void main() {
         await bulletinSubs.load();
         final bulletins = BulletinService(
           subscriptions: bulletinSubs,
+          bulletinDao: db.bulletinDao,
           prefs: prefs,
         );
         await bulletins.load();
@@ -496,6 +514,7 @@ void main() {
           stationService,
           groupSubscriptions: groupSubs,
           bulletins: bulletins,
+          messageDao: db.messageDao,
         );
         await service.loadHistory();
 
@@ -504,6 +523,168 @@ void main() {
         final entry = conv!.messages.first;
         expect(entry.addressee, isNull);
         expect(entry.isCrossSsid(service.myFullAddress), isFalse);
+        await stationService.stop();
+        await db.close();
+      },
+    );
+
+    test('a sent message survives a service restart on the same DB', () async {
+      SharedPreferences.setMockInitialValues({
+        'user_callsign': 'W1AW',
+        'user_ssid': 9,
+        'message_id_counter': 0,
+      });
+      final prefs = await SharedPreferences.getInstance();
+      final settings = StationSettingsService(
+        prefs,
+        store: FakeSecureCredentialStore(),
+      );
+      final db = buildTestDatabase();
+      final registry = ConnectionRegistry();
+      final groupSubs = GroupSubscriptionService(prefs: prefs);
+      await groupSubs.load();
+      final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+      await bulletinSubs.load();
+      final bulletins = BulletinService(
+        subscriptions: bulletinSubs,
+        bulletinDao: db.bulletinDao,
+        prefs: prefs,
+      );
+      await bulletins.load();
+
+      MessageService buildService(StationService stations) => MessageService(
+        settings,
+        _RecordingTxService(registry, settings, <String>[]),
+        stations,
+        groupSubscriptions: groupSubs,
+        bulletins: bulletins,
+        messageDao: db.messageDao,
+      );
+
+      final stations1 = StationService(
+        stationDao: db.stationDao,
+        packetDao: db.packetDao,
+      );
+      final svc1 = buildService(stations1);
+      await svc1.sendMessage('KB1XYZ', 'persisted hello');
+      expect(svc1.conversationWith('KB1XYZ')?.messages, hasLength(1));
+      svc1.dispose();
+      await stations1.stop();
+
+      // New service instance against the same database.
+      final stations2 = StationService(
+        stationDao: db.stationDao,
+        packetDao: db.packetDao,
+      );
+      final svc2 = buildService(stations2);
+      await svc2.loadHistory();
+
+      final conv = svc2.conversationWith('KB1XYZ');
+      expect(conv, isNotNull);
+      expect(conv!.messages.single.text, 'persisted hello');
+      // In-flight (pending) outgoing send was demoted to failed on reload.
+      expect(conv.messages.single.status, MessageStatus.failed);
+
+      svc2.dispose();
+      await stations2.stop();
+      await db.close();
+    });
+
+    test(
+      'setMessageHistoryDays prunes aged direct + group entries from drift',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'user_callsign': 'W1AW',
+          'user_ssid': 9,
+          'message_id_counter': 0,
+        });
+        final prefs = await SharedPreferences.getInstance();
+        final settings = StationSettingsService(
+          prefs,
+          store: FakeSecureCredentialStore(),
+        );
+        final db = buildTestDatabase();
+
+        final now = DateTime.now();
+        final oldTs = now.subtract(const Duration(days: 60));
+        final freshTs = now.subtract(const Duration(days: 2));
+
+        // Seed: an old direct thread, an old group thread, a fresh direct
+        // thread. Default retention (90 d) keeps all on load; 30 d prunes the
+        // two 60-day-old threads and drops their now-empty conversation rows.
+        Future<void> seed(
+          String peer,
+          String id,
+          DateTime ts,
+          MessageCategory category,
+        ) async {
+          await db.messageDao.upsertConversation(
+            ConversationsCompanion.insert(
+              peerCallsign: peer,
+              lastMessageAt: ts.millisecondsSinceEpoch,
+            ),
+          );
+          await db.messageDao.insertEntry(
+            MessageEntriesCompanion.insert(
+              id: id,
+              conversationPeer: peer,
+              body: 'body',
+              timestamp: ts.millisecondsSinceEpoch,
+              isOutgoing: false,
+              status: MessageStatus.acked,
+              category: category,
+            ),
+          );
+        }
+
+        await seed('KB1XYZ', 'KB1XYZ:old', oldTs, MessageCategory.direct);
+        await seed('#GROUP:WX', 'group_WX_old', oldTs, MessageCategory.group);
+        await seed('W2ABC', 'W2ABC:fresh', freshTs, MessageCategory.direct);
+
+        final stations = StationService(
+          stationDao: db.stationDao,
+          packetDao: db.packetDao,
+        );
+        final registry = ConnectionRegistry();
+        final groupSubs = GroupSubscriptionService(prefs: prefs);
+        await groupSubs.load();
+        final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
+        await bulletinSubs.load();
+        final bulletins = BulletinService(
+          subscriptions: bulletinSubs,
+          bulletinDao: db.bulletinDao,
+          prefs: prefs,
+        );
+        await bulletins.load();
+        final service = MessageService(
+          settings,
+          _RecordingTxService(registry, settings, <String>[]),
+          stations,
+          groupSubscriptions: groupSubs,
+          bulletins: bulletins,
+          messageDao: db.messageDao,
+        );
+        await service.loadHistory();
+
+        // Default retention keeps everything.
+        expect(service.conversationWith('KB1XYZ'), isNotNull);
+        expect(service.conversationWith('#GROUP:WX'), isNotNull);
+        expect(service.conversationWith('W2ABC'), isNotNull);
+
+        await service.setMessageHistoryDays(30);
+
+        // Aged direct + group threads gone (in memory and in drift); fresh kept.
+        expect(service.conversationWith('KB1XYZ'), isNull);
+        expect(service.conversationWith('#GROUP:WX'), isNull);
+        expect(service.conversationWith('W2ABC'), isNotNull);
+
+        // Empty conversation rows were swept from drift.
+        final convRows = await db.messageDao.getAllConversations();
+        expect(convRows.map((c) => c.peerCallsign), ['W2ABC']);
+
+        service.dispose();
+        await stations.stop();
+        await db.close();
       },
     );
   });

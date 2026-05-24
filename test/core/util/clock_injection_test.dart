@@ -13,6 +13,8 @@ import 'package:meridian_aprs/core/packet/aprs_packet.dart';
 import 'package:meridian_aprs/services/station_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../helpers/test_database.dart';
+
 class _MutableClock {
   _MutableClock(this._now);
   DateTime _now;
@@ -29,10 +31,18 @@ void main() {
       final clock = _MutableClock(DateTime.utc(2026, 1, 1, 12));
       SharedPreferences.setMockInitialValues({});
 
-      final service = StationService(clock: clock.call);
-      await service.loadPersistedHistory(await SharedPreferences.getInstance());
+      final db = buildTestDatabase();
+      addTearDown(db.close);
+      final service = StationService(
+        stationDao: db.stationDao,
+        packetDao: db.packetDao,
+        clock: clock.call,
+      );
+      await service.loadPersistedSettings(
+        await SharedPreferences.getInstance(),
+      );
 
-      service.ingestLine(
+      await service.ingestLine(
         'N0CALL>APRS:!4903.50N/07201.75W-clock-injection-test',
       );
 
@@ -41,11 +51,15 @@ void main() {
       expect(service.recentPackets.first, isA<PositionPacket>());
 
       // Advance 2 days, then narrow the retention window to 1 day.
-      // `_withinAge` uses _clock(); after the advance, the entry is stale.
+      // Drift prune uses _clock(); after the advance, the entry is stale.
       clock.advance(const Duration(days: 2));
       await service.setPacketHistoryDays(1);
 
+      // Allow the watch stream to re-emit after the prune delete.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
       expect(service.recentPackets, isEmpty);
+      await service.stop();
     },
   );
 }

@@ -98,6 +98,9 @@ class BulletinScheduler extends ChangeNotifier {
   /// isolate). Handles expiry first, then transmission.
   Future<void> tick() async {
     final now = _clock();
+    // Re-read outgoing bulletins from the shared DB so background-isolate
+    // transmission updates are observed on resume (ADR-057/061).
+    await _bulletins.refreshOutgoing();
     for (final ob in _bulletins.outgoingBulletins.toList()) {
       if (!ob.enabled) continue;
 

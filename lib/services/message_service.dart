@@ -10,8 +10,8 @@
 library;
 
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,16 +21,23 @@ import '../core/callsign/message_classification.dart';
 import '../core/packet/aprs_encoder.dart';
 import '../core/packet/aprs_packet.dart';
 import '../core/util/clock.dart';
+import '../database/daos/message_dao.dart';
+import '../database/meridian_database.dart'
+    show ConversationsCompanion, MessageEntriesCompanion, MessageEntryRow;
 import '../models/group_subscription.dart';
 import '../models/message_category.dart';
+import '../models/message_status.dart';
 import 'bulletin_service.dart';
 import 'group_subscription_service.dart';
 import 'station_service.dart';
 import 'station_settings_service.dart';
 import 'tx_service.dart';
 
-/// Delivery state of an outgoing message.
-enum MessageStatus { pending, acked, retrying, failed, rejected, cancelled }
+// Re-exported so existing consumers that import this service keep seeing
+// `MessageStatus`; the enum itself now lives in the model layer
+// (`models/message_status.dart`) so the persistence layer can reference it
+// without depending on this service.
+export '../models/message_status.dart';
 
 /// A single message in a conversation thread.
 class MessageEntry {
@@ -106,6 +113,15 @@ class Conversation {
   MessageEntry? get lastMessage => messages.isEmpty ? null : messages.last;
 }
 
+/// Persistence note (ADR-062): unlike [StationService], MessageService keeps
+/// [_conversations] as the authoritative in-memory working set and treats
+/// drift as a *write-through persistence layer* via targeted [MessageDao]
+/// calls. It deliberately does NOT subscribe to drift `watch()` streams —
+/// the retry scheduler holds direct references to [MessageEntry] objects and
+/// mutates them in place, so rebuilding entries from a watch emission would
+/// orphan those references and break ACK→timer cancellation. Messages are
+/// main-isolate-only writes, so the cross-isolate watch benefit does not
+/// apply here. Do not "add watch for consistency with StationService."
 class MessageService extends ChangeNotifier {
   MessageService(
     this._settings,
@@ -113,10 +129,12 @@ class MessageService extends ChangeNotifier {
     StationService stations, {
     required GroupSubscriptionService groupSubscriptions,
     required BulletinService bulletins,
+    required MessageDao messageDao,
     Clock clock = DateTime.now,
   }) : _stations = stations,
        _groupSubscriptions = groupSubscriptions,
        _bulletins = bulletins,
+       _messageDao = messageDao,
        _clock = clock {
     _incomingSub = stations.packetStream.listen(_onPacket);
   }
@@ -128,9 +146,9 @@ class MessageService extends ChangeNotifier {
   final StationService _stations;
   final GroupSubscriptionService _groupSubscriptions;
   final BulletinService _bulletins;
+  final MessageDao _messageDao;
 
   static const _keyCounter = 'message_id_counter';
-  static const _keyPeers = 'msg_peers';
   static const _keyMessageDays = 'history_message_days';
   static const _keyShowOtherSsids = 'msg_show_other_ssids';
   static const _retryDelays = [30, 60, 120, 240, 480]; // seconds (APRS spec)
@@ -140,8 +158,6 @@ class MessageService extends ChangeNotifier {
 
   int _messageHistoryDays = 90;
   bool _showOtherSsids = false;
-
-  static String _convKey(String peer) => 'msg_conv_$peer';
 
   // Active conversations keyed by peer callsign (uppercase, no padding).
   final _conversations = <String, Conversation>{};
@@ -252,9 +268,8 @@ class MessageService extends ChangeNotifier {
     _messageHistoryDays = days;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_keyMessageDays, days);
-    _pruneByAge(days);
+    await _pruneByAge(days);
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
   }
 
   Future<void> setShowOtherSsids(bool v) async {
@@ -265,7 +280,7 @@ class MessageService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Restore persisted conversations from [SharedPreferences].
+  /// Restore persisted conversations from the drift database (ADR-062).
   ///
   /// Call once after construction (before [runApp]). Messages that were
   /// [MessageStatus.pending] or [MessageStatus.retrying] when the app was last
@@ -276,23 +291,27 @@ class MessageService extends ChangeNotifier {
     _messageHistoryDays = prefs.getInt(_keyMessageDays) ?? 90;
     _showOtherSsids = prefs.getBool(_keyShowOtherSsids) ?? false;
 
-    final peersRaw = prefs.getString(_keyPeers);
-    if (peersRaw == null) return;
+    // Demote in-flight messages FIRST so the rows we read back are already
+    // consistent (no transient pending/retrying state in the in-memory map).
+    await _messageDao.demoteInFlightToFailed();
 
-    final peers = (jsonDecode(peersRaw) as List<dynamic>).cast<String>();
-    for (final peer in peers) {
-      final convRaw = prefs.getString(_convKey(peer));
-      if (convRaw == null) continue;
-      try {
-        final conv = _convFromJson(jsonDecode(convRaw) as Map<String, dynamic>);
-        _conversations[peer] = conv;
-      } catch (e) {
-        debugPrint('MessageService: failed to load conversation $peer: $e');
+    final convRows = await _messageDao.getAllConversations();
+    for (final row in convRows) {
+      final conv = Conversation(peerCallsign: row.peerCallsign)
+        ..unreadCount = row.unreadCount
+        ..lastActivity = DateTime.fromMillisecondsSinceEpoch(row.lastMessageAt);
+      _conversations[row.peerCallsign] = conv;
+    }
+
+    for (final conv in _conversations.values) {
+      final entryRows = await _messageDao.getEntriesForPeer(conv.peerCallsign);
+      for (final er in entryRows) {
+        conv.messages.add(_rowToEntry(er));
       }
     }
 
     // Drop messages that exceed the configured age limit.
-    _pruneByAge(_messageHistoryDays);
+    await _pruneByAge(_messageHistoryDays);
     notifyListeners();
   }
 
@@ -340,7 +359,7 @@ class MessageService extends ChangeNotifier {
     conv.messages.add(entry);
     conv.lastActivity = entry.timestamp;
     notifyListeners();
-    await _persist();
+    await _persistNewEntry(conv, entry);
   }
 
   /// Send a message to [toCallsign].
@@ -366,7 +385,7 @@ class MessageService extends ChangeNotifier {
     await _transmitMessage(peer, text, wireId);
     _scheduleRetry(entry, peer, attempt: 0);
     notifyListeners();
-    await _persist();
+    await _persistNewEntry(conv, entry);
   }
 
   /// Cancel a pending or retrying outgoing message.
@@ -385,11 +404,11 @@ class MessageService extends ChangeNotifier {
           (entry.status == MessageStatus.pending ||
               entry.status == MessageStatus.retrying)) {
         entry.status = MessageStatus.cancelled;
+        _persistStatus(entry); // ignore: unawaited_futures
         break;
       }
     }
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
   }
 
   /// Re-send a message that has reached [MessageStatus.failed].
@@ -405,11 +424,11 @@ class MessageService extends ChangeNotifier {
         entry.status = MessageStatus.pending;
         entry.retryCount = 0;
         notifyListeners();
+        await _persistStatus(entry);
         if (entry.wireId != null) {
           await _transmitMessage(peer, entry.text, entry.wireId!);
         }
         _scheduleRetry(entry, peer, attempt: 0);
-        await _persist();
         break;
       }
     }
@@ -417,12 +436,13 @@ class MessageService extends ChangeNotifier {
 
   /// Mark all messages in [peerCallsign]'s thread as read.
   void markRead(String peerCallsign) {
-    final conv = _conversations[peerCallsign.toUpperCase()];
+    final peer = peerCallsign.toUpperCase();
+    final conv = _conversations[peer];
     if (conv == null) return;
     if (conv.unreadCount == 0) return;
     conv.unreadCount = 0;
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
+    _messageDao.markRead(peer); // ignore: unawaited_futures
   }
 
   @override
@@ -547,7 +567,7 @@ class MessageService extends ChangeNotifier {
     }
 
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
+    _persistNewEntry(conv, entry); // ignore: unawaited_futures
   }
 
   void _handleGroup({
@@ -589,7 +609,7 @@ class MessageService extends ChangeNotifier {
     conv.unreadCount++;
 
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
+    _persistNewEntry(conv, entry); // ignore: unawaited_futures
   }
 
   /// Conversation-key prefix for group threads. Keeps group conversations in
@@ -620,6 +640,7 @@ class MessageService extends ChangeNotifier {
         _retryTimers[entry.localId]?.cancel();
         _retryTimers.remove(entry.localId);
         entry.status = MessageStatus.acked;
+        _persistStatus(entry); // ignore: unawaited_futures
         matched = true;
         break;
       }
@@ -631,7 +652,6 @@ class MessageService extends ChangeNotifier {
       );
     }
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
   }
 
   void _handleRej(String peer, String rejId) {
@@ -643,11 +663,11 @@ class MessageService extends ChangeNotifier {
         _retryTimers[entry.localId]?.cancel();
         _retryTimers.remove(entry.localId);
         entry.status = MessageStatus.rejected;
+        _persistStatus(entry); // ignore: unawaited_futures
         break;
       }
     }
     notifyListeners();
-    _persist(); // ignore: unawaited_futures
   }
 
   // ---------------------------------------------------------------------------
@@ -657,8 +677,8 @@ class MessageService extends ChangeNotifier {
   void _scheduleRetry(MessageEntry entry, String peer, {required int attempt}) {
     if (attempt >= _retryDelays.length) {
       entry.status = MessageStatus.failed;
+      _persistStatus(entry); // ignore: unawaited_futures
       notifyListeners();
-      _persist(); // ignore: unawaited_futures
       return;
     }
 
@@ -673,6 +693,7 @@ class MessageService extends ChangeNotifier {
 
       entry.status = MessageStatus.retrying;
       entry.retryCount = attempt + 1;
+      _persistStatus(entry); // ignore: unawaited_futures
       notifyListeners();
 
       if (entry.wireId != null) {
@@ -723,114 +744,78 @@ class MessageService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // Internal — persistence
+  // Internal — drift persistence (write-through; see class-level note)
   // ---------------------------------------------------------------------------
 
-  /// Persist all conversations to [SharedPreferences]. Fire-and-forget; callers
-  /// do not need to await this.
-  Future<void> _persist() async {
-    final prefs = await SharedPreferences.getInstance();
-    final peers = _conversations.keys.toList();
-    await prefs.setString(_keyPeers, jsonEncode(peers));
-    for (final entry in _conversations.entries) {
-      await prefs.setString(
-        _convKey(entry.key),
-        jsonEncode(_convToJson(entry.value)),
+  /// Persist a newly-added entry plus its (possibly new) conversation row.
+  /// The conversation is upserted first to satisfy the `conversation_peer`
+  /// foreign key.
+  Future<void> _persistNewEntry(Conversation conv, MessageEntry entry) async {
+    await _messageDao.upsertConversation(_convToCompanion(conv));
+    await _messageDao.insertEntry(_entryToCompanion(entry, conv.peerCallsign));
+  }
+
+  /// Persist a status/retry transition for an existing entry.
+  Future<void> _persistStatus(MessageEntry entry) =>
+      _messageDao.updateEntryStatus(
+        localId: entry.localId,
+        status: entry.status,
+        retryCount: entry.retryCount,
       );
-    }
-  }
 
-  Map<String, dynamic> _convToJson(Conversation c) {
-    // Omit messages older than the configured age limit before serialising.
-    final msgs = _messageHistoryDays == forever
-        ? c.messages
-        : c.messages
-              .where((e) => _withinAge(e.timestamp, _messageHistoryDays))
-              .toList();
-    return {
-      'peer': c.peerCallsign,
-      'unreadCount': c.unreadCount,
-      'lastActivity': c.lastActivity.millisecondsSinceEpoch,
-      'messages': msgs.map(_entryToJson).toList(),
-    };
-  }
+  ConversationsCompanion _convToCompanion(Conversation c) =>
+      ConversationsCompanion.insert(
+        peerCallsign: c.peerCallsign,
+        lastMessageAt: c.lastActivity.millisecondsSinceEpoch,
+        unreadCount: Value(c.unreadCount),
+      );
 
-  Conversation _convFromJson(Map<String, dynamic> json) {
-    final conv = Conversation(peerCallsign: json['peer'] as String);
-    conv.unreadCount = (json['unreadCount'] as int?) ?? 0;
-    conv.lastActivity = DateTime.fromMillisecondsSinceEpoch(
-      json['lastActivity'] as int,
-    );
-    final msgs = (json['messages'] as List<dynamic>?) ?? [];
-    for (final m in msgs) {
-      conv.messages.add(_entryFromJson(m as Map<String, dynamic>));
-    }
-    return conv;
-  }
+  MessageEntriesCompanion _entryToCompanion(MessageEntry e, String peer) =>
+      MessageEntriesCompanion.insert(
+        id: e.localId,
+        conversationPeer: peer,
+        body: e.text,
+        timestamp: e.timestamp.millisecondsSinceEpoch,
+        isOutgoing: e.isOutgoing,
+        status: e.status,
+        category: e.category,
+        fromCallsign: Value(e.fromCallsign),
+        addressee: Value(e.addressee),
+        wireId: Value(e.wireId),
+        retryCount: Value(e.retryCount),
+        groupName: Value(e.groupName),
+      );
 
-  Map<String, dynamic> _entryToJson(MessageEntry e) => {
-    'localId': e.localId,
-    'wireId': e.wireId,
-    'text': e.text,
-    'timestamp': e.timestamp.millisecondsSinceEpoch,
-    'isOutgoing': e.isOutgoing,
-    'addressee': e.addressee,
-    'fromCallsign': e.fromCallsign,
-    'category': e.category.name,
-    'groupName': e.groupName,
-    'status': e.status.name,
-    'retryCount': e.retryCount,
-  };
+  MessageEntry _rowToEntry(MessageEntryRow row) => MessageEntry(
+    localId: row.id,
+    wireId: row.wireId,
+    text: row.body,
+    timestamp: DateTime.fromMillisecondsSinceEpoch(row.timestamp),
+    isOutgoing: row.isOutgoing,
+    addressee: row.addressee,
+    fromCallsign: row.fromCallsign,
+    category: row.category,
+    groupName: row.groupName,
+    status: row.status,
+    retryCount: row.retryCount,
+  );
 
-  /// Remove messages older than [days] from all conversations, then drop
-  /// conversations that become empty as a result.
-  void _pruneByAge(int days) {
+  /// Remove messages older than [days] from the in-memory map and the drift
+  /// tables, then drop conversations that become empty as a result.
+  Future<void> _pruneByAge(int days) async {
     if (days == forever) return;
     _conversations.removeWhere((_, conv) {
       conv.messages.removeWhere((e) => !_withinAge(e.timestamp, days));
       return conv.messages.isEmpty;
     });
+    await _messageDao.pruneOlderThan(_clock().subtract(Duration(days: days)));
+    await _messageDao.pruneEmptyConversations();
   }
 
   /// Returns true if [dt] is within [days] days of now.
   bool _withinAge(DateTime dt, int days) {
     if (days == forever) return true;
     return _clock().difference(dt).inDays < days;
-  }
-
-  MessageEntry _entryFromJson(Map<String, dynamic> json) {
-    final statusName = (json['status'] as String?) ?? 'failed';
-    var status = MessageStatus.values.firstWhere(
-      (s) => s.name == statusName,
-      orElse: () => MessageStatus.failed,
-    );
-    // Timers can't be resumed after a restart — treat as failed so the user
-    // can explicitly resend if needed.
-    if (status == MessageStatus.pending || status == MessageStatus.retrying) {
-      status = MessageStatus.failed;
-    }
-    // Legacy-safe: entries saved before v0.17 lack `category`/`groupName`.
-    // They are all direct messages (cross-SSID handled via `addressee`).
-    final categoryName = json['category'] as String?;
-    final category = categoryName == null
-        ? MessageCategory.direct
-        : MessageCategory.values.firstWhere(
-            (c) => c.name == categoryName,
-            orElse: () => MessageCategory.direct,
-          );
-    return MessageEntry(
-      localId: json['localId'] as String,
-      wireId: json['wireId'] as String?,
-      text: json['text'] as String,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(json['timestamp'] as int),
-      isOutgoing: (json['isOutgoing'] as bool?) ?? false,
-      addressee: json['addressee'] as String?,
-      fromCallsign: json['fromCallsign'] as String?,
-      category: category,
-      groupName: json['groupName'] as String?,
-      status: status,
-      retryCount: (json['retryCount'] as int?) ?? 0,
-    );
   }
 
   // ---------------------------------------------------------------------------

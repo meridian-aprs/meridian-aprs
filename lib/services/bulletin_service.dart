@@ -1,25 +1,44 @@
-/// Receive-side bulletin store.
+/// Receive-side bulletin store + outgoing-bulletin registry (ADR-062).
 ///
-/// Ingests classified bulletin packets from [MessageService] and upserts
-/// them into a `(sourceCallsign, addressee)`-keyed store. Retransmissions
-/// update the existing row: body replaces (marking unread if changed),
-/// `lastHeardAt` bumps, `heardCount` increments, `transports` union-merges.
+/// Ingests classified bulletin packets from [MessageService] and upserts them
+/// into a `(sourceCallsign, addressee)`-keyed store. Retransmissions update
+/// the existing row: body replaces (marking unread if changed), `lastHeardAt`
+/// bumps, `heardCount` increments, `transports` union-merges.
 ///
-/// For v0.17 PR 1 this service only applies the named-group subscription
-/// filter (unsubscribed `BLNxNAME` dropped). General `BLN0`–`BLN9` scope
-/// filtering (distance, station-location-null banner) lands in PR 5 along
-/// with the APRS-IS filter extension. See ADR-057, ADR-058.
+/// Persistence (ADR-062):
+///   - **Incoming** bulletins are an in-memory working set written through to
+///     drift (`bulletins` table, keyed by source|addressee). The model's `id`
+///     is a session-scoped navigation handle assigned in memory — it is NOT
+///     persisted (the table is keyed by source+addressee). The background
+///     isolate never ingests incoming bulletins, so no watch is needed here.
+///   - **Outgoing** bulletins use the drift autoincrement `id`. The in-memory
+///     `_outgoing` cache is updated by main-isolate write-through and re-read
+///     fresh from the shared DB by [refreshOutgoing] (called at the start of
+///     every [BulletinScheduler] tick). Because the background isolate writes
+///     transmission updates to the *same* `meridian.db`, the next main-isolate
+///     tick observes them without the operator triggering anything — this is
+///     the ADR-057/061 fix. The mechanism is polled (bounded by the 30 s tick),
+///     not a drift `watch()`: a continuous watch raced with write-through
+///     (a lagging emission carrying a pre-mutation snapshot could revert the
+///     cache), so it was deliberately dropped.
 library;
 
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/packet/aprs_packet.dart';
 import '../core/util/clock.dart';
+import '../database/daos/bulletin_dao.dart';
+import '../database/meridian_database.dart'
+    show
+        BulletinRow,
+        BulletinsCompanion,
+        OutgoingBulletinRow,
+        OutgoingBulletinsCompanion;
 import '../models/bulletin.dart';
 import '../models/outgoing_bulletin.dart';
 import 'bulletin_subscription_service.dart';
@@ -33,34 +52,30 @@ enum BulletinIngestOutcome {
   updated,
 
   /// Dropped before upsert — named group not subscribed, or other future
-  /// scope filter (PR 5).
+  /// scope filter.
   dropped,
 }
 
 class BulletinService extends ChangeNotifier {
   BulletinService({
     required BulletinSubscriptionService subscriptions,
+    required BulletinDao bulletinDao,
     SharedPreferences? prefs,
     Clock clock = DateTime.now,
   }) : _subscriptions = subscriptions,
+       _bulletinDao = bulletinDao,
        _prefsOverride = prefs,
        _clock = clock;
 
   final BulletinSubscriptionService _subscriptions;
+  final BulletinDao _bulletinDao;
   final SharedPreferences? _prefsOverride;
   final Clock _clock;
 
-  static const _keyBulletins = 'bulletins_v1';
-  static const _keyNextId = 'bulletins_next_id_v1';
+  // Settings keys (stay in SharedPreferences — structured data is in drift).
   static const _keyShowBulletins = 'bulletins_show';
   static const _keyRadiusKm = 'bulletins_radius_km';
   static const _keyRetentionHours = 'bulletins_retention_hours';
-
-  /// SharedPreferences key holding the JSON-encoded list of
-  /// [OutgoingBulletin]s. Read directly by the background isolate's bulletin
-  /// timer (same pattern as beacon settings), so the key name is public.
-  static const keyOutgoingBulletins = 'outgoing_bulletins_v1';
-  static const _keyOutgoingNextId = 'outgoing_bulletins_next_id_v1';
 
   /// Allowed TX-interval options (seconds). `0` = one-shot.
   static const List<int> intervalOptionsSeconds = [
@@ -75,30 +90,25 @@ class BulletinService extends ChangeNotifier {
   /// Allowed expiry options (hours since creation).
   static const List<int> expiryOptionsHours = [2, 6, 12, 24, 48];
 
-  /// Allowed radius options (km). `0` is a sentinel for "Map area only" (no
-  /// client-side distance filter — the APRS-IS area filter handles it).
-  /// The `-1` sentinel means "Global" (no distance filter at all).
+  /// Allowed radius options (km). `0` = "Map area only"; `-1` = "Global".
   static const List<int> radiusOptionsKm = [0, 100, 500, 1000, -1];
 
-  /// Allowed retention options (hours). Default is 48h (APRSIS32 convention).
+  /// Allowed retention options (hours). Default 48h (APRSIS32 convention).
   static const List<int> retentionOptionsHours = [24, 48, 72];
 
-  // Keyed by "SOURCE|ADDRESSEE" for stable lookup.
+  // Incoming bulletins keyed by "SOURCE|ADDRESSEE". In-memory working set,
+  // written through to drift. `id` assigned in-memory (session-scoped).
   final Map<String, Bulletin> _bulletins = {};
   int _nextId = 1;
 
-  // Outgoing bulletins by id. Scheduler iterates this in-order per tick.
+  // Outgoing bulletins by drift id. Updated by main-isolate write-through and
+  // by [refreshOutgoing] (fresh DB read each scheduler tick).
   final Map<int, OutgoingBulletin> _outgoing = {};
-  int _outgoingNextId = 1;
 
   bool _showBulletins = true;
   int _radiusKm = 500;
   int _retentionHours = 48;
 
-  /// Operator's current position (optional). Pushed in by the owning app
-  /// layer when station settings or beacon location change. Used as the
-  /// origin for client-side distance filtering of general APRS-IS bulletins
-  /// (ADR-058).
   double? _operatorLat;
   double? _operatorLon;
 
@@ -108,20 +118,10 @@ class BulletinService extends ChangeNotifier {
     if (_operatorLat == lat && _operatorLon == lon) return;
     _operatorLat = lat;
     _operatorLon = lon;
-    // No notifyListeners — position does not affect rendered state, only
-    // future ingest decisions.
   }
 
-  /// Master toggle for bulletin display. When false, the Bulletins tab hides
-  /// all received rows (ingest keeps storing — ADR-054 capture-always parity).
   bool get showBulletins => _showBulletins;
-
-  /// Distance-filter radius in km for APRS-IS-received general bulletins.
-  /// `0` = "map area only" (area filter alone); `-1` = "global" (no filter).
-  /// Actual distance-filtering logic lands in PR 5 along with the filter
-  /// builder; this getter only stores the user preference for now.
   int get radiusKm => _radiusKm;
-
   int get retentionHours => _retentionHours;
 
   /// All stored bulletins, newest `lastHeardAt` first.
@@ -133,48 +133,35 @@ class BulletinService extends ChangeNotifier {
 
   int get unreadCount => _bulletins.values.where((b) => !b.isRead).length;
 
-  /// All outgoing bulletins in insertion order (oldest first). The scheduler
-  /// iterates this list on each tick; the "My bulletins" UI renders it.
-  List<OutgoingBulletin> get outgoingBulletins =>
-      List.unmodifiable(_outgoing.values);
+  /// All outgoing bulletins in insertion order (oldest first).
+  List<OutgoingBulletin> get outgoingBulletins {
+    final list = _outgoing.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return List.unmodifiable(list);
+  }
 
   OutgoingBulletin? outgoingById(int id) => _outgoing[id];
 
   Future<void> load() async {
     final prefs = await _prefs();
-    _nextId = prefs.getInt(_keyNextId) ?? 1;
-    _outgoingNextId = prefs.getInt(_keyOutgoingNextId) ?? 1;
     _showBulletins = prefs.getBool(_keyShowBulletins) ?? true;
     _radiusKm = prefs.getInt(_keyRadiusKm) ?? 500;
     _retentionHours = prefs.getInt(_keyRetentionHours) ?? 48;
-    final raw = prefs.getString(_keyBulletins);
-    if (raw != null) {
-      try {
-        final list = (jsonDecode(raw) as List<dynamic>)
-            .cast<Map<String, dynamic>>()
-            .map(Bulletin.fromJson);
-        _bulletins.clear();
-        for (final b in list) {
-          _bulletins[_key(b.sourceCallsign, b.addressee)] = b;
-        }
-      } catch (e) {
-        debugPrint('BulletinService: failed to decode bulletins: $e');
-      }
+
+    // Incoming — assign session-scoped ids as we hydrate.
+    _bulletins.clear();
+    _nextId = 1;
+    for (final row in await _bulletinDao.getAllIncoming()) {
+      final b = _rowToBulletin(row, _nextId++);
+      _bulletins[_key(b.sourceCallsign, b.addressee)] = b;
     }
-    final outgoingRaw = prefs.getString(keyOutgoingBulletins);
-    if (outgoingRaw != null) {
-      try {
-        final list = (jsonDecode(outgoingRaw) as List<dynamic>)
-            .cast<Map<String, dynamic>>()
-            .map(OutgoingBulletin.fromJson);
-        _outgoing.clear();
-        for (final ob in list) {
-          _outgoing[ob.id] = ob;
-        }
-      } catch (e) {
-        debugPrint('BulletinService: failed to decode outgoing: $e');
-      }
+
+    // Outgoing — explicit read (don't depend on the watch's first emission).
+    _outgoing.clear();
+    for (final row in await _bulletinDao.getAllOutgoing()) {
+      _outgoing[row.id] = _rowToOutgoing(row);
     }
+
     notifyListeners();
   }
 
@@ -200,12 +187,6 @@ class BulletinService extends ChangeNotifier {
     }
 
     // Client-side distance filter for general APRS-IS bulletins (ADR-058).
-    // Only applies when: category is general, transport is APRS-IS, the user
-    // has a non-sentinel radius configured, and both endpoints have known
-    // positions. If either position is unknown the bulletin is kept — the
-    // operator sees it and a banner (UI-only) prompts them to set their
-    // location. RF bulletins are never distance-filtered (short-range
-    // already). Named groups are never distance-filtered (explicit subscribe).
     if (info.category == BulletinCategory.general &&
         transport == PacketSource.aprsIs &&
         _radiusKm > 0 &&
@@ -226,9 +207,10 @@ class BulletinService extends ChangeNotifier {
     final key = _key(source, info.addressee);
     final existing = _bulletins[key];
     final BulletinIngestOutcome outcome;
+    final Bulletin stored;
 
     if (existing == null) {
-      _bulletins[key] = Bulletin(
+      stored = Bulletin(
         id: _nextId++,
         sourceCallsign: source,
         addressee: info.addressee,
@@ -251,18 +233,29 @@ class BulletinService extends ChangeNotifier {
         ...existing.transports,
         transport.asBulletinTransport,
       };
-      _bulletins[key] = existing.copyWith(
+      stored = existing.copyWith(
         body: bodyChanged ? body : existing.body,
         lastHeardAt: receivedAt,
         heardCount: existing.heardCount + 1,
         transports: mergedTransports,
-        // If the body has changed, re-mark as unread (new information).
         isRead: bodyChanged ? false : existing.isRead,
       );
       outcome = BulletinIngestOutcome.updated;
     }
 
-    _persist(); // ignore: unawaited_futures
+    _bulletins[key] = stored;
+    // Fire-and-forget so ingest stays synchronous for its callers. drift runs
+    // operations on its connection in submission order (FIFO), so sequential
+    // upserts for the same key can't reorder; we only need to keep a write
+    // failure from surfacing as an unhandled async error.
+    unawaited(
+      _bulletinDao
+          .upsertIncoming(_bulletinToCompanion(stored))
+          .catchError(
+            (Object e) =>
+                debugPrint('BulletinService: upsertIncoming failed: $e'),
+          ),
+    );
     notifyListeners();
     return outcome;
   }
@@ -280,7 +273,10 @@ class BulletinService extends ChangeNotifier {
     final current = _bulletins[matchKey]!;
     if (current.isRead) return;
     _bulletins[matchKey] = current.copyWith(isRead: true);
-    await _persist();
+    await _bulletinDao.markIncomingRead(
+      current.sourceCallsign,
+      current.addressee,
+    );
     notifyListeners();
   }
 
@@ -319,15 +315,12 @@ class BulletinService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // OutgoingBulletin CRUD (v0.17, ADR-057)
+  // OutgoingBulletin CRUD (ADR-057)
   // ---------------------------------------------------------------------------
 
   /// Create a new outgoing bulletin. Starts enabled with `lastTransmittedAt`
-  /// null, so the scheduler fires an initial pulse on its next tick.
-  ///
-  /// [intervalSeconds] must be one of [intervalOptionsSeconds] (0 = one-shot).
-  /// [expiresAt] defaults to `createdAt + 24h` when not supplied.
-  /// Throws [ArgumentError] on invalid addressee or interval.
+  /// null, so the scheduler fires an initial pulse on its next tick. The id is
+  /// assigned by drift (autoincrement).
   Future<OutgoingBulletin> createOutgoing({
     required String addressee,
     required String body,
@@ -352,26 +345,36 @@ class BulletinService extends ChangeNotifier {
       );
     }
     final now = _clock();
+    final resolvedExpiry = expiresAt ?? now.add(const Duration(hours: 24));
+    final id = await _bulletinDao.insertOutgoing(
+      OutgoingBulletinsCompanion.insert(
+        addressee: normalized,
+        body: body,
+        intervalSeconds: intervalSeconds,
+        createdAt: now.millisecondsSinceEpoch,
+        expiresAt: Value(resolvedExpiry.millisecondsSinceEpoch),
+        viaRf: Value(viaRf),
+        viaAprsIs: Value(viaAprsIs),
+      ),
+    );
     final ob = OutgoingBulletin(
-      id: _outgoingNextId++,
+      id: id,
       addressee: normalized,
       body: body,
       intervalSeconds: intervalSeconds,
-      expiresAt: expiresAt ?? now.add(const Duration(hours: 24)),
+      expiresAt: resolvedExpiry,
       createdAt: now,
       viaRf: viaRf,
       viaAprsIs: viaAprsIs,
       enabled: true,
     );
-    _outgoing[ob.id] = ob;
-    await _persist();
+    _outgoing[id] = ob;
     notifyListeners();
     return ob;
   }
 
-  /// Update the body and/or addressee of an outgoing bulletin. Per ADR-057
-  /// this resets `lastTransmittedAt` and `transmissionCount` so the scheduler
-  /// fires a fresh initial pulse on its next tick.
+  /// Update body/addressee. Resets `lastTransmittedAt` and `transmissionCount`
+  /// so the scheduler fires a fresh initial pulse (ADR-057).
   Future<void> updateOutgoingContent(
     int id, {
     String? addressee,
@@ -387,19 +390,22 @@ class BulletinService extends ChangeNotifier {
       }
       nextAddressee = normalized;
     }
+    await _bulletinDao.updateOutgoingContent(
+      id: id,
+      addressee: nextAddressee,
+      body: body,
+    );
     _outgoing[id] = current.copyWith(
       addressee: nextAddressee,
       body: body,
       clearLastTransmittedAt: true,
       transmissionCount: 0,
     );
-    await _persist();
     notifyListeners();
   }
 
   /// Update the schedule (interval, expiry, transport flags). Does NOT reset
-  /// `lastTransmittedAt` or `transmissionCount` — this is the explicit contract
-  /// per ADR-057 (changing when/where to retransmit ≠ re-sending the body).
+  /// `lastTransmittedAt`/`transmissionCount` (ADR-057).
   Future<void> updateOutgoingSchedule(
     int id, {
     int? intervalSeconds,
@@ -417,13 +423,19 @@ class BulletinService extends ChangeNotifier {
         'not a supported interval',
       );
     }
+    await _bulletinDao.updateOutgoingSchedule(
+      id: id,
+      intervalSeconds: intervalSeconds,
+      expiresAt: expiresAt,
+      viaRf: viaRf,
+      viaAprsIs: viaAprsIs,
+    );
     _outgoing[id] = current.copyWith(
       intervalSeconds: intervalSeconds,
       expiresAt: expiresAt,
       viaRf: viaRf,
       viaAprsIs: viaAprsIs,
     );
-    await _persist();
     notifyListeners();
   }
 
@@ -432,15 +444,16 @@ class BulletinService extends ChangeNotifier {
     final current = _outgoing[id];
     if (current == null) return;
     if (current.enabled == enabled) return;
+    await _bulletinDao.setOutgoingEnabled(id, enabled);
     _outgoing[id] = current.copyWith(enabled: enabled);
-    await _persist();
     notifyListeners();
   }
 
   /// Delete an outgoing bulletin permanently.
   Future<void> deleteOutgoing(int id) async {
-    if (_outgoing.remove(id) == null) return;
-    await _persist();
+    if (!_outgoing.containsKey(id)) return;
+    await _bulletinDao.deleteOutgoing(id);
+    _outgoing.remove(id);
     notifyListeners();
   }
 
@@ -449,18 +462,15 @@ class BulletinService extends ChangeNotifier {
   Future<void> recordOutgoingTransmission(int id, DateTime timestamp) async {
     final current = _outgoing[id];
     if (current == null) return;
+    await _bulletinDao.recordOutgoingTransmission(id, timestamp);
     _outgoing[id] = current.copyWith(
       lastTransmittedAt: timestamp,
       transmissionCount: current.transmissionCount + 1,
     );
-    await _persist();
     notifyListeners();
   }
 
-  /// Matches bulletin addressees per APRS spec §3.2.16 — `BLN` + a line
-  /// number (`0`–`9` or `A`–`Z`), optionally followed by a 1–5 char group
-  /// name. Total length capped at 9 by the wire format (matcher further
-  /// enforces this via padding/truncation in [AprsEncoder]).
+  /// Matches bulletin addressees per APRS spec §3.2.16.
   static final RegExp _bulletinAddresseePattern = RegExp(
     r'^BLN[0-9A-Z][A-Z0-9]{0,5}$',
   );
@@ -469,25 +479,93 @@ class BulletinService extends ChangeNotifier {
   // Retention sweeper
   // ---------------------------------------------------------------------------
 
-  /// Drop all bulletins whose `lastHeardAt` is older than [retention].
-  /// Call from a periodic sweeper (added in PR 5 along with the notification
-  /// pipeline).
+  /// Drop all incoming bulletins whose `lastHeardAt` is older than [retention].
   Future<void> pruneOlderThan(Duration retention) async {
     final cutoff = _clock().subtract(retention);
     final before = _bulletins.length;
     _bulletins.removeWhere((_, b) => b.lastHeardAt.isBefore(cutoff));
+    await _bulletinDao.pruneIncomingOlderThan(cutoff);
     if (_bulletins.length == before) return;
-    await _persist();
     notifyListeners();
   }
+
+  // ---------------------------------------------------------------------------
+  // Fresh re-read (absorbs background-isolate outgoing writes via shared DB)
+  // ---------------------------------------------------------------------------
+
+  /// Rebuild the outgoing cache from the shared database. Called at the start
+  /// of every [BulletinScheduler] tick so background-isolate transmission
+  /// updates surface in the main isolate without the operator triggering
+  /// anything (ADR-057/061). Also safe to call from a resume handler.
+  Future<void> refreshOutgoing() async {
+    final rows = await _bulletinDao.getAllOutgoing();
+    _outgoing
+      ..clear()
+      ..addEntries(rows.map((r) => MapEntry(r.id, _rowToOutgoing(r))));
+    notifyListeners();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Row <-> model conversion
+  // ---------------------------------------------------------------------------
+
+  Bulletin _rowToBulletin(BulletinRow row, int id) => Bulletin(
+    id: id,
+    sourceCallsign: row.sourceCallsign,
+    addressee: row.addressee,
+    category: row.category,
+    lineNumber: row.lineNumber,
+    groupName: row.groupName,
+    body: row.body,
+    firstHeardAt: DateTime.fromMillisecondsSinceEpoch(row.firstHeardAt),
+    lastHeardAt: DateTime.fromMillisecondsSinceEpoch(row.lastHeardAt),
+    heardCount: row.heardCount,
+    transports: row.transports,
+    receivedLat: row.receivedLat,
+    receivedLon: row.receivedLon,
+    isRead: row.isRead,
+  );
+
+  BulletinsCompanion _bulletinToCompanion(Bulletin b) =>
+      BulletinsCompanion.insert(
+        sourceCallsign: b.sourceCallsign,
+        addressee: b.addressee,
+        body: b.body,
+        firstHeardAt: b.firstHeardAt.millisecondsSinceEpoch,
+        lastHeardAt: b.lastHeardAt.millisecondsSinceEpoch,
+        category: b.category,
+        lineNumber: b.lineNumber,
+        groupName: Value(b.groupName),
+        heardCount: Value(b.heardCount),
+        transports: Value(b.transports),
+        receivedLat: Value(b.receivedLat),
+        receivedLon: Value(b.receivedLon),
+        isRead: Value(b.isRead),
+      );
+
+  OutgoingBulletin _rowToOutgoing(OutgoingBulletinRow row) => OutgoingBulletin(
+    id: row.id,
+    addressee: row.addressee,
+    body: row.body,
+    intervalSeconds: row.intervalSeconds,
+    expiresAt: row.expiresAt != null
+        ? DateTime.fromMillisecondsSinceEpoch(row.expiresAt!)
+        : DateTime.fromMillisecondsSinceEpoch(
+            row.createdAt,
+          ).add(const Duration(hours: 24)),
+    createdAt: DateTime.fromMillisecondsSinceEpoch(row.createdAt),
+    lastTransmittedAt: row.lastTransmittedAt != null
+        ? DateTime.fromMillisecondsSinceEpoch(row.lastTransmittedAt!)
+        : null,
+    transmissionCount: row.transmissionCount,
+    viaRf: row.viaRf,
+    viaAprsIs: row.viaAprsIs,
+    enabled: row.enabled,
+  );
 
   String _key(String source, String addressee) =>
       '${source.toUpperCase()}|${addressee.toUpperCase()}';
 
-  /// Great-circle distance in kilometres between two lat/lon pairs. Flat-
-  /// earth approximation would have been enough at hundreds-of-km radii, but
-  /// haversine is <10 lines and avoids latitude-dependent error near the
-  /// poles or for very large radii.
   static double _haversineKm(
     double lat1,
     double lon1,
@@ -511,18 +589,4 @@ class BulletinService extends ChangeNotifier {
 
   Future<SharedPreferences> _prefs() async =>
       _prefsOverride ?? await SharedPreferences.getInstance();
-
-  Future<void> _persist() async {
-    final prefs = await _prefs();
-    await prefs.setString(
-      _keyBulletins,
-      jsonEncode(_bulletins.values.map((b) => b.toJson()).toList()),
-    );
-    await prefs.setInt(_keyNextId, _nextId);
-    await prefs.setString(
-      keyOutgoingBulletins,
-      jsonEncode(_outgoing.values.map((ob) => ob.toJson()).toList()),
-    );
-    await prefs.setInt(_keyOutgoingNextId, _outgoingNextId);
-  }
 }

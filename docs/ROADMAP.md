@@ -174,7 +174,7 @@ Performance pass — measurable baselines and the structural fixes that move the
 - MapScreen rebuild fix — stop the entire scaffold from rebuilding on every packet (#51)
 - Selector convention — establish the `Selector<>` pattern across `Provider`-driven UI rather than the current single-site usage (#57)
 - Non-builder `ListView` sweep — convert eager-inflate sites in SettingsScreen, PacketDetailSheet, and the PacketLogScreen filter bar (#58, absorbed #64)
-- SQLite / drift evaluation spike — decision doc on persistence for stations, packets, and (follow-on) bulletins (#87)
+- ✅ SQLite / drift evaluation spike (#87) — graduated from a decision doc into a full implementation (ADR-067). drift now backs stations, position history, packet log, conversations + message entries, and incoming + outgoing bulletins; multi-isolate access via `DriftIsolate` + `IsolateNameServer` resolves the ADR-057/061 foreground/background state drift. Configurable message/packet/station retention; per-DAO + cross-isolate integration tests.
 - Background service battery drain — profiling report on Android + iOS, plus go/no-go on optimization sub-tasks (#88)
 - Memory audit — stress-test station count target (5k stable), identify allocation hotspots, document baseline (#89)
 - Packet processing throughput — establish baseline at ≥5 packets/second sustained, identify bottlenecks (#90)

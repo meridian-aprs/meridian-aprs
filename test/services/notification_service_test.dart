@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
+import 'package:meridian_aprs/database/meridian_database.dart';
 import 'package:meridian_aprs/models/notification_preferences.dart';
 import 'package:meridian_aprs/services/bulletin_service.dart';
 import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
@@ -17,6 +18,7 @@ import 'package:meridian_aprs/services/tx_service.dart';
 import 'package:meridian_aprs/ui/widgets/in_app_banner_overlay.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,12 +32,14 @@ class _Fixture {
     required this.notificationService,
     required this.bannerController,
     required this.stationService,
+    required this.db,
   });
 
   final MessageService messageService;
   final NotificationService notificationService;
   final InAppBannerController bannerController;
   final StationService stationService;
+  final MeridianDatabase db;
 
   static Future<_Fixture> create({
     String callsign = 'W1AW',
@@ -54,7 +58,11 @@ class _Fixture {
       prefs,
       store: FakeSecureCredentialStore(),
     );
-    final stationService = StationService();
+    final db = buildTestDatabase();
+    final stationService = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
     final registry = ConnectionRegistry();
     final txService = _SilentTxService(registry, settings);
     final groupSubs = GroupSubscriptionService(prefs: prefs);
@@ -63,6 +71,7 @@ class _Fixture {
     await bulletinSubs.load();
     final bulletins = BulletinService(
       subscriptions: bulletinSubs,
+      bulletinDao: db.bulletinDao,
       prefs: prefs,
     );
     await bulletins.load();
@@ -72,6 +81,7 @@ class _Fixture {
       stationService,
       groupSubscriptions: groupSubs,
       bulletins: bulletins,
+      messageDao: db.messageDao,
     );
     final bannerController = InAppBannerController();
 
@@ -97,15 +107,18 @@ class _Fixture {
       notificationService: notificationService,
       bannerController: bannerController,
       stationService: stationService,
+      db: db,
     );
   }
 
-  void dispose() {
+  Future<void> dispose() async {
     messageService.removeListener(
       notificationService.handleMessageServiceChange,
     );
     notificationService.dispose();
     messageService.dispose();
+    await stationService.stop();
+    await db.close();
   }
 
   void injectInbound(String from, String text, {String msgId = '042'}) {
