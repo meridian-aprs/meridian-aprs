@@ -26,5 +26,7 @@ class BulletinTransportsConverter
 
   @override
   String toSql(Set<BulletinTransport> value) =>
-      value.map((t) => t.name).join(',');
+      // Sort for a canonical serialization so semantically identical sets
+      // always produce the same SQL string (set iteration order is undefined).
+      (value.map((t) => t.name).toList()..sort()).join(',');
 }

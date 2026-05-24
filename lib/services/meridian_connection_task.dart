@@ -580,7 +580,10 @@ class MeridianConnectionTask extends TaskHandler {
     try {
       outgoing = await db.bulletinDao.getAllOutgoing();
     } catch (e) {
-      debugPrint('BG bulletin: read failed: $e');
+      // The cached client connection is likely stale (main isolate recycled
+      // its DriftIsolate). Drop it so _ensureBgDatabase() re-opens next tick.
+      debugPrint('BG bulletin: read failed, resetting DB handle: $e');
+      _bgDb = null;
       return;
     }
     if (outgoing.isEmpty) return;

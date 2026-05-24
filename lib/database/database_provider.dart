@@ -5,7 +5,7 @@ import 'package:drift/drift.dart';
 import 'package:drift/isolate.dart';
 import 'package:drift/native.dart';
 import 'package:drift_flutter/drift_flutter.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:path_provider/path_provider.dart';
 
 import 'meridian_database.dart';
@@ -37,10 +37,19 @@ Future<MeridianDatabase> openMeridianDatabase() async {
     () => DatabaseConnection(NativeDatabase(File(dbPath))),
   );
 
-  IsolateNameServer.registerPortWithName(
+  final registered = IsolateNameServer.registerPortWithName(
     isolate.connectPort,
     meridianDriftPortName,
   );
+  if (!registered) {
+    // The main-isolate DB still works, but the Android background isolate
+    // won't find the shared port — background bulletin/transmission writes
+    // would silently stop syncing. Surface it rather than failing quietly.
+    debugPrint(
+      'openMeridianDatabase: failed to register "$meridianDriftPortName" '
+      'with IsolateNameServer — background DB sharing is disabled.',
+    );
+  }
 
   return MeridianDatabase.connect(await isolate.connect());
 }

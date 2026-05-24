@@ -19,12 +19,6 @@ class BulletinDao extends DatabaseAccessor<MeridianDatabase>
   Future<void> upsertIncoming(BulletinsCompanion bulletin) =>
       into(bulletins).insertOnConflictUpdate(bulletin);
 
-  Stream<List<BulletinRow>> watchIncoming() {
-    return (select(
-      bulletins,
-    )..orderBy([(b) => OrderingTerm.desc(b.lastHeardAt)])).watch();
-  }
-
   /// One-shot read of all incoming bulletins, newest `last_heard_at` first.
   Future<List<BulletinRow>> getAllIncoming() {
     return (select(
@@ -117,20 +111,6 @@ class BulletinDao extends DatabaseAccessor<MeridianDatabase>
 
   Future<int> deleteOutgoing(int id) =>
       (delete(outgoingBulletins)..where((o) => o.id.equals(id))).go();
-
-  Stream<List<OutgoingBulletinRow>> watchAllOutgoing() {
-    return (select(
-      outgoingBulletins,
-    )..orderBy([(o) => OrderingTerm.asc(o.createdAt)])).watch();
-  }
-
-  /// All currently-active outgoing bulletins (enabled, not yet expired).
-  /// Drives `BulletinScheduler` (replaces the SharedPreferences per-tick read).
-  Stream<List<OutgoingBulletinRow>> watchActiveOutgoing() {
-    return (select(
-      outgoingBulletins,
-    )..where((o) => o.enabled.equals(true))).watch();
-  }
 
   /// One-shot read of all outgoing bulletins, oldest first. Used by `load()`
   /// on the main isolate and by the background isolate's bulletin timer.

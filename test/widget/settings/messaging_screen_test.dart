@@ -64,6 +64,10 @@ class _Harness {
       stationDao: db.stationDao,
       packetDao: db.packetDao,
     );
+    addTearDown(() async {
+      await stationService.stop();
+      await db.close();
+    });
     final tx = TxService(registry, settings);
 
     final groups = GroupSubscriptionService(prefs: prefs);

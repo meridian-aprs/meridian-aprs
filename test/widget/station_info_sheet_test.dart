@@ -27,6 +27,9 @@ Future<void> _pumpSheet(WidgetTester tester, {required Station station}) async {
     stationDao: db.stationDao,
     packetDao: db.packetDao,
   );
+  // Registered after db.close so it runs first (LIFO): stop the service's
+  // subscriptions/timers before the database they touch is closed.
+  addTearDown(stationService.stop);
   final stationSettings = StationSettingsService(
     prefs,
     store: FakeSecureCredentialStore(),

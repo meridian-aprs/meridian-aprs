@@ -89,6 +89,12 @@ class _Fixture {
       messageDao: db.messageDao,
     );
 
+    addTearDown(() async {
+      service.dispose(); // cancels retry timers
+      await stationService.stop();
+      await db.close();
+    });
+
     return _Fixture._(
       service: service,
       stationService: stationService,

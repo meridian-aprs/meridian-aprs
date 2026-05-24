@@ -39,9 +39,13 @@ void main() {
         await driftIsolate.shutdownAll();
         IsolateNameServer.removePortNameMapping(_portName);
       });
-      IsolateNameServer.registerPortWithName(
-        driftIsolate.connectPort,
-        _portName,
+      expect(
+        IsolateNameServer.registerPortWithName(
+          driftIsolate.connectPort,
+          _portName,
+        ),
+        isTrue,
+        reason: 'failed to register drift connect port',
       );
 
       final mainDb = MeridianDatabase.connect(await driftIsolate.connect());
@@ -67,6 +71,7 @@ void main() {
 
       // Worker isolate (acting as the background service) bumps it.
       final workerDone = ReceivePort();
+      addTearDown(workerDone.close);
       await Isolate.spawn(_workerEntry, [workerDone.sendPort, ob.id]);
       final ack = await workerDone.first.timeout(const Duration(seconds: 5));
       expect(

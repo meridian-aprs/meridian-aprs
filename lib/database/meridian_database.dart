@@ -4,7 +4,7 @@ import '../core/packet/aprs_packet.dart';
 import '../core/packet/station.dart';
 import '../models/bulletin.dart';
 import '../models/message_category.dart';
-import '../services/message_service.dart' show MessageStatus;
+import '../models/message_status.dart';
 import 'converters/bulletin_transports_converter.dart';
 import 'daos/bulletin_dao.dart';
 import 'daos/message_dao.dart';

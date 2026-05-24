@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:meridian_aprs/database/meridian_database.dart';
 import 'package:meridian_aprs/models/message_category.dart';
-import 'package:meridian_aprs/services/message_service.dart' show MessageStatus;
+import 'package:meridian_aprs/models/message_status.dart';
 
 import '../helpers/test_database.dart';
 

@@ -244,9 +244,18 @@ class BulletinService extends ChangeNotifier {
     }
 
     _bulletins[key] = stored;
-    _bulletinDao.upsertIncoming(
-      _bulletinToCompanion(stored),
-    ); // ignore: unawaited_futures
+    // Fire-and-forget so ingest stays synchronous for its callers. drift runs
+    // operations on its connection in submission order (FIFO), so sequential
+    // upserts for the same key can't reorder; we only need to keep a write
+    // failure from surfacing as an unhandled async error.
+    unawaited(
+      _bulletinDao
+          .upsertIncoming(_bulletinToCompanion(stored))
+          .catchError(
+            (Object e) =>
+                debugPrint('BulletinService: upsertIncoming failed: $e'),
+          ),
+    );
     notifyListeners();
     return outcome;
   }

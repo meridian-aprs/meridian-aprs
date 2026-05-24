@@ -60,9 +60,14 @@ class StationService extends ChangeNotifier {
   }) : _stationDao = stationDao,
        _packetDao = packetDao,
        _clock = clock {
-    _stationsSub = _stationDao.watchAllStations().listen(
-      _onStationsRowsChanged,
-    );
+    // asyncMap serialises handling: _onStationsRowsChanged awaits a position-
+    // history read, so a plain listen() would let two close-spaced emissions
+    // overlap and a slow earlier handler could clobber _stationCache with stale
+    // data. asyncMap waits for each handler before delivering the next event.
+    _stationsSub = _stationDao
+        .watchAllStations()
+        .asyncMap(_onStationsRowsChanged)
+        .listen((_) {});
     _packetsSub = _packetDao
         .watchRecent(limit: _kMaxInMemoryPackets)
         .listen(_onPacketsRowsChanged);
@@ -87,7 +92,7 @@ class StationService extends ChangeNotifier {
   final _stationController = StreamController<Map<String, Station>>.broadcast();
 
   // Active drift watch subscriptions.
-  StreamSubscription<List<StationRow>>? _stationsSub;
+  StreamSubscription<void>? _stationsSub;
   StreamSubscription<List<PacketRow>>? _packetsSub;
 
   // Single in-flight ingest serialises the "read prev → merge → write" chain

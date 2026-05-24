@@ -69,10 +69,19 @@ Future<MessageService> _buildService({
   );
   await bulletins.load();
 
+  final stationService = StationService(
+    stationDao: db.stationDao,
+    packetDao: db.packetDao,
+  );
+  addTearDown(() async {
+    await stationService.stop();
+    await db.close();
+  });
+
   return MessageService(
     settings,
     tx,
-    StationService(stationDao: db.stationDao, packetDao: db.packetDao),
+    stationService,
     groupSubscriptions: groups,
     bulletins: bulletins,
     messageDao: db.messageDao,

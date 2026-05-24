@@ -1,6 +1,6 @@
 import 'package:drift/drift.dart';
 
-import '../../services/message_service.dart' show MessageStatus;
+import '../../models/message_status.dart';
 import '../meridian_database.dart';
 import '../tables/conversations.dart';
 import '../tables/group_message_entries.dart';

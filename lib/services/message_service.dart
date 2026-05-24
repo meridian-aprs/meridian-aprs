@@ -26,14 +26,18 @@ import '../database/meridian_database.dart'
     show ConversationsCompanion, MessageEntriesCompanion, MessageEntryRow;
 import '../models/group_subscription.dart';
 import '../models/message_category.dart';
+import '../models/message_status.dart';
 import 'bulletin_service.dart';
 import 'group_subscription_service.dart';
 import 'station_service.dart';
 import 'station_settings_service.dart';
 import 'tx_service.dart';
 
-/// Delivery state of an outgoing message.
-enum MessageStatus { pending, acked, retrying, failed, rejected, cancelled }
+// Re-exported so existing consumers that import this service keep seeing
+// `MessageStatus`; the enum itself now lives in the model layer
+// (`models/message_status.dart`) so the persistence layer can reference it
+// without depending on this service.
+export '../models/message_status.dart';
 
 /// A single message in a conversation thread.
 class MessageEntry {

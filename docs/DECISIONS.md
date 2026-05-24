@@ -1560,7 +1560,7 @@ The scanner sheet drops the per-model dropdown in favour of a single "Show all B
 
 ---
 
-## ADR-062: SQLite persistence via drift
+## ADR-067: SQLite persistence via drift
 
 **Date:** 2026-05-23
 **Status:** Accepted
@@ -1568,7 +1568,7 @@ The scanner sheet drops the per-model dropdown in favour of a single "Show all B
 **Closes:** #87 (SQLite/drift evaluation spike)
 **Related:** ADR-025 (Android background isolate), ADR-032 (iOS background model), ADR-057 (BulletinService retransmission), ADR-061 (APRS-IS background RX)
 
-> This is the **as-built** record. The pre-implementation design sketch lives at `docs/adrs/ADR-062-sqlite-drift.md`; where the two differ, this entry is authoritative.
+> This is the **as-built** record of the persistence layer delivered for #87.
 
 ### Context
 
@@ -1604,6 +1604,5 @@ Key as-built decisions:
 - `lib/database/` — database, tables, DAOs, provider
 - `lib/services/{station,message,bulletin}_service.dart`, `lib/services/bulletin_scheduler.dart`, `lib/services/meridian_connection_task.dart`
 - `lib/services/background_service_manager.dart` — `onResumed` → `refreshOutgoing()`
-- `docs/adrs/ADR-062-sqlite-drift.md` — pre-implementation design sketch
 - [drift documentation](https://drift.simonbinder.eu/)
 

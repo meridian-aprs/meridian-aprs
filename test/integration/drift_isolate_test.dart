@@ -38,9 +38,13 @@ void main() {
         IsolateNameServer.removePortNameMapping(_portName);
       });
 
-      IsolateNameServer.registerPortWithName(
-        driftIsolate.connectPort,
-        _portName,
+      expect(
+        IsolateNameServer.registerPortWithName(
+          driftIsolate.connectPort,
+          _portName,
+        ),
+        isTrue,
+        reason: 'failed to register drift connect port',
       );
 
       final mainDb = MeridianDatabase.connect(await driftIsolate.connect());
@@ -58,6 +62,7 @@ void main() {
       addTearDown(sub.cancel);
 
       final workerDone = ReceivePort();
+      addTearDown(workerDone.close);
       await Isolate.spawn(_workerEntry, workerDone.sendPort);
 
       // Worker signals when its insert has been awaited.

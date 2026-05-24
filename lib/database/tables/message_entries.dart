@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 import '../../models/message_category.dart';
-import '../../services/message_service.dart';
+import '../../models/message_status.dart';
 import 'conversations.dart';
 
 /// Direct and group messages.
