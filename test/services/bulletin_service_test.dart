@@ -6,6 +6,8 @@ import 'package:meridian_aprs/models/bulletin.dart';
 import 'package:meridian_aprs/services/bulletin_service.dart';
 import 'package:meridian_aprs/services/bulletin_subscription_service.dart';
 
+import '../helpers/test_database.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -19,7 +21,13 @@ void main() {
     for (final g in subscribedGroups) {
       await subs.add(groupName: g, notify: false);
     }
-    final bulletins = BulletinService(subscriptions: subs, prefs: prefs);
+    final db = buildTestDatabase();
+    addTearDown(db.close);
+    final bulletins = BulletinService(
+      subscriptions: subs,
+      bulletinDao: db.bulletinDao,
+      prefs: prefs,
+    );
     await bulletins.load();
     return (bulletins, subs);
   }
@@ -185,13 +193,23 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       final subs = BulletinSubscriptionService(prefs: prefs);
       await subs.load();
-      final first = BulletinService(subscriptions: subs, prefs: prefs);
+      final db = buildTestDatabase();
+      addTearDown(db.close);
+      final first = BulletinService(
+        subscriptions: subs,
+        bulletinDao: db.bulletinDao,
+        prefs: prefs,
+      );
       await first.load();
       await first.setShowBulletins(false);
       await first.setRadiusKm(1000);
       await first.setRetentionHours(72);
 
-      final reloaded = BulletinService(subscriptions: subs, prefs: prefs);
+      final reloaded = BulletinService(
+        subscriptions: subs,
+        bulletinDao: db.bulletinDao,
+        prefs: prefs,
+      );
       await reloaded.load();
       expect(reloaded.showBulletins, isFalse);
       expect(reloaded.radiusKm, 1000);
@@ -200,12 +218,18 @@ void main() {
   });
 
   group('persistence + retention', () {
-    test('bulletins round-trip through SharedPreferences', () async {
+    test('incoming bulletins round-trip through drift', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
       final subs = BulletinSubscriptionService(prefs: prefs);
       await subs.load();
-      final first = BulletinService(subscriptions: subs, prefs: prefs);
+      final db = buildTestDatabase();
+      addTearDown(db.close);
+      final first = BulletinService(
+        subscriptions: subs,
+        bulletinDao: db.bulletinDao,
+        prefs: prefs,
+      );
       await first.load();
 
       first.ingest(
@@ -215,10 +239,14 @@ void main() {
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
       );
-      // Let persistence flush.
-      await Future<void>.delayed(Duration.zero);
+      // Let the write-through upsert flush to drift.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      final reloaded = BulletinService(subscriptions: subs, prefs: prefs);
+      final reloaded = BulletinService(
+        subscriptions: subs,
+        bulletinDao: db.bulletinDao,
+        prefs: prefs,
+      );
       await reloaded.load();
       expect(reloaded.bulletins, hasLength(1));
       expect(reloaded.bulletins.first.body, 'Alert');

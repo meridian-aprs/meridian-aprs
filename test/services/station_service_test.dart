@@ -4,20 +4,28 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:meridian_aprs/core/connection/connection_registry.dart';
 import 'package:meridian_aprs/core/packet/aprs_packet.dart';
 import 'package:meridian_aprs/core/packet/station.dart';
+import 'package:meridian_aprs/database/meridian_database.dart';
 import 'package:meridian_aprs/services/station_service.dart';
 
 import '../helpers/fake_meridian_connection.dart';
+import '../helpers/test_database.dart';
 
 void main() {
+  late MeridianDatabase db;
   late StationService service;
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
-    service = StationService();
+    db = buildTestDatabase();
+    service = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
   });
 
   tearDown(() async {
     await service.stop();
+    await db.close();
   });
 
   // ---------------------------------------------------------------------------
@@ -29,8 +37,9 @@ void main() {
       final packets = <AprsPacket>[];
       service.packetStream.listen(packets.add);
 
-      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment',
+      );
 
       expect(packets, hasLength(1));
       expect(packets.first.rawLine, contains('W1AW'));
@@ -40,8 +49,7 @@ void main() {
       final packets = <AprsPacket>[];
       service.packetStream.listen(packets.add);
 
-      service.ingestLine('# logresp W1AW unverified');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('# logresp W1AW unverified');
 
       expect(packets, isEmpty);
     });
@@ -50,8 +58,7 @@ void main() {
       final packets = <AprsPacket>[];
       service.packetStream.listen(packets.add);
 
-      service.ingestLine('');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('');
 
       expect(packets, isEmpty);
     });
@@ -62,18 +69,18 @@ void main() {
         final stationMaps = <Map<String, dynamic>>[];
         service.stationUpdates.listen((m) => stationMaps.add(m));
 
-        service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment');
-        await Future<void>.delayed(Duration.zero);
+        await service.ingestLine(
+          'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Comment',
+        );
 
-        expect(stationMaps, hasLength(1));
+        expect(stationMaps, isNotEmpty);
         expect(service.currentStations, contains('W1AW'));
       },
     );
 
     test('adds to recentPackets with newest first', () async {
-      service.ingestLine('W1AW>APMDN0:!4903.50N/07201.75W>A');
-      service.ingestLine('W2XY>APMDN0:!3234.00N/08901.00W>B');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1AW>APMDN0:!4903.50N/07201.75W>A');
+      await service.ingestLine('W2XY>APMDN0:!3234.00N/08901.00W>B');
 
       expect(service.recentPackets, hasLength(2));
       expect(service.recentPackets.first.rawLine, contains('W2XY'));
@@ -83,11 +90,10 @@ void main() {
       final packets = <AprsPacket>[];
       service.packetStream.listen(packets.add);
 
-      service.ingestLine(
+      await service.ingestLine(
         'W1AW>APMDN0:!4903.50N/07201.75W>TNC test',
         source: PacketSource.tnc,
       );
-      await Future<void>.delayed(Duration.zero);
 
       expect(packets.first.transportSource, PacketSource.tnc);
     });
@@ -99,22 +105,19 @@ void main() {
 
   group('StationType classification', () {
     test('position packet with car symbol is classified as mobile', () async {
-      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Car');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>Car');
       expect(service.currentStations['W1AW']?.type, StationType.mobile);
     });
 
     test('position packet with house symbol is classified as fixed', () async {
-      // Primary table '-' is a house/home
-      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W-Fixed');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W-Fixed');
       expect(service.currentStations['W1AW']?.type, StationType.fixed);
     });
 
     test('position packet with wx symbol is classified as weather', () async {
-      // Primary table '_' is a weather station
-      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W_Weather');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W_Weather',
+      );
       expect(service.currentStations['W1AW']?.type, StationType.weather);
     });
   });
@@ -125,8 +128,7 @@ void main() {
 
   group('MessageCapability', () {
     test('position with `!` DTI is unsupported', () async {
-      service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg');
       expect(
         service.currentStations['W1AW']?.messageCapability,
         MessageCapability.unsupported,
@@ -134,8 +136,9 @@ void main() {
     });
 
     test('position with `=` DTI is supported', () async {
-      service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg',
+      );
       expect(
         service.currentStations['W1AW']?.messageCapability,
         MessageCapability.supported,
@@ -143,39 +146,33 @@ void main() {
     });
 
     test('object packet defaults to unknown', () async {
-      service.ingestLine('W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/',
+      );
       expect(
         service.currentStations['HOSPITAL']?.messageCapability,
         MessageCapability.unknown,
       );
     });
 
-    test(
-      'merge keeps known supported value when later object packet would be unknown',
-      () async {
-        // Position-supported first, then a later object reusing same callsign
-        // shouldn't clobber a known capability with unknown — but objects are
-        // keyed differently anyway. Use a position->position transition where
-        // a later identical position keeps the supported flag.
-        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>First');
-        await Future<void>.delayed(Duration.zero);
-        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>Second');
-        await Future<void>.delayed(Duration.zero);
-        expect(
-          service.currentStations['W1AW']?.messageCapability,
-          MessageCapability.supported,
-        );
-      },
-    );
+    test('two consecutive supported positions retain supported', () async {
+      await service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>First');
+      await service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>Second');
+      expect(
+        service.currentStations['W1AW']?.messageCapability,
+        MessageCapability.supported,
+      );
+    });
 
     test(
       'later position packet overrides prior capability (unsupported→supported)',
       () async {
-        service.ingestLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg');
-        await Future<void>.delayed(Duration.zero);
-        service.ingestLine('W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg');
-        await Future<void>.delayed(Duration.zero);
+        await service.ingestLine(
+          'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>NoMsg',
+        );
+        await service.ingestLine(
+          'W1AW>APMDN0,TCPIP*:=4903.50N/07201.75W>WithMsg',
+        );
         expect(
           service.currentStations['W1AW']?.messageCapability,
           MessageCapability.supported,
@@ -190,22 +187,23 @@ void main() {
 
   group('ObjectPacket handling', () {
     test('alive object adds a station keyed by object name', () async {
-      service.ingestLine('W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/',
+      );
 
       expect(service.currentStations, contains('HOSPITAL'));
       expect(service.currentStations['HOSPITAL']?.type, StationType.object);
     });
 
     test('killed object removes the station', () async {
-      // Add the object first
-      service.ingestLine('W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1ABC>APRS:;HOSPITAL *092345z4903.50N/07201.75W/',
+      );
       expect(service.currentStations, contains('HOSPITAL'));
 
-      // Then kill it
-      service.ingestLine('W1ABC>APRS:;HOSPITAL _092345z4903.50N/07201.75W/');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine(
+        'W1ABC>APRS:;HOSPITAL _092345z4903.50N/07201.75W/',
+      );
 
       expect(service.currentStations, isNot(contains('HOSPITAL')));
     });
@@ -213,20 +211,17 @@ void main() {
 
   group('ItemPacket handling', () {
     test('alive item adds a station keyed by item name', () async {
-      service.ingestLine('W1ABC>APRS:)RELAY !4903.50N/07201.75W-');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1ABC>APRS:)RELAY !4903.50N/07201.75W-');
 
       expect(service.currentStations, contains('RELAY'));
       expect(service.currentStations['RELAY']?.type, StationType.object);
     });
 
     test('killed item removes the station', () async {
-      service.ingestLine('W1ABC>APRS:)RELAY !4903.50N/07201.75W-');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1ABC>APRS:)RELAY !4903.50N/07201.75W-');
       expect(service.currentStations, contains('RELAY'));
 
-      service.ingestLine('W1ABC>APRS:)RELAY _4903.50N/07201.75W-');
-      await Future<void>.delayed(Duration.zero);
+      await service.ingestLine('W1ABC>APRS:)RELAY _4903.50N/07201.75W-');
 
       expect(service.currentStations, isNot(contains('RELAY')));
     });
@@ -252,36 +247,79 @@ void main() {
     test('setHiddenTypes persists to SharedPreferences', () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
-      final svc = StationService();
-      await svc.loadPersistedHistory(prefs);
+      final localDb = buildTestDatabase();
+      final svc = StationService(
+        stationDao: localDb.stationDao,
+        packetDao: localDb.packetDao,
+      );
+      await svc.loadPersistedSettings(prefs);
 
       await svc.setHiddenTypes({StationType.fixed});
 
       final stored = prefs.getStringList('station_hidden_types');
       expect(stored, contains('fixed'));
       await svc.stop();
+      await localDb.close();
     });
 
-    test('loadPersistedHistory restores hiddenTypes', () async {
+    test('loadPersistedSettings restores hiddenTypes', () async {
       SharedPreferences.setMockInitialValues({
         'station_hidden_types': ['weather', 'mobile'],
-        'station_history_v1': '[]',
       });
       final prefs = await SharedPreferences.getInstance();
-      final svc = StationService();
-      await svc.loadPersistedHistory(prefs);
+      final localDb = buildTestDatabase();
+      final svc = StationService(
+        stationDao: localDb.stationDao,
+        packetDao: localDb.packetDao,
+      );
+      await svc.loadPersistedSettings(prefs);
 
       expect(
         svc.hiddenTypes,
         containsAll([StationType.weather, StationType.mobile]),
       );
       await svc.stop();
+      await localDb.close();
     });
 
     test('hiddenTypes getter returns unmodifiable set', () async {
       await service.setHiddenTypes({StationType.fixed});
       final types = service.hiddenTypes;
       expect(() => types.add(StationType.other), throwsUnsupportedError);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Drift persistence (ADR-062) — what was previously the
+  // `loadPersistedHistory` group is replaced by these tests.
+  // ---------------------------------------------------------------------------
+
+  group('drift persistence', () {
+    test('ingested packets survive service restart with the same DB', () async {
+      await service.ingestLine('W1AW>APMDN0:!4903.50N/07201.75W>Hello');
+      await service.stop();
+
+      final svc2 = StationService(
+        stationDao: db.stationDao,
+        packetDao: db.packetDao,
+      );
+      // The watch-stream cache hydrates on first emission; await one stream
+      // tick so the snapshot is populated before reading.
+      await svc2.stationUpdates.first;
+
+      expect(svc2.currentStations, contains('W1AW'));
+      await svc2.stop();
+    });
+
+    test('clearPacketLog wipes underlying drift rows', () async {
+      await service.ingestLine('W1AW>APMDN0:!4903.50N/07201.75W>Hello');
+      expect(service.recentPackets, hasLength(1));
+
+      await service.clearPacketLog();
+
+      expect(service.recentPackets, isEmpty);
+      final rows = await db.packetDao.watchRecent(limit: 10).first;
+      expect(rows, isEmpty);
     });
   });
 
@@ -307,41 +345,6 @@ void main() {
 
     test('disconnectAprsIs() is a no-op', () async {
       await expectLater(service.disconnectAprsIs(), completes);
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // history persistence
-  // ---------------------------------------------------------------------------
-
-  group('loadPersistedHistory', () {
-    test('restores packets from shared preferences', () async {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      SharedPreferences.setMockInitialValues({
-        'packet_log_v1':
-            '[{"raw":"W1AW>APMDN0:>Test","src":"aprs_is","ts":$now}]',
-        'station_history_v1': '[]',
-      });
-      final prefs = await SharedPreferences.getInstance();
-      final svc = StationService();
-      await svc.loadPersistedHistory(prefs);
-
-      expect(svc.recentPackets, hasLength(1));
-      await svc.stop();
-    });
-
-    test('maps legacy "tnc" source to PacketSource.tnc', () async {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      SharedPreferences.setMockInitialValues({
-        'packet_log_v1': '[{"raw":"W1AW>APMDN0:>Test","src":"tnc","ts":$now}]',
-        'station_history_v1': '[]',
-      });
-      final prefs = await SharedPreferences.getInstance();
-      final svc = StationService();
-      await svc.loadPersistedHistory(prefs);
-
-      expect(svc.recentPackets.first.transportSource, PacketSource.tnc);
-      await svc.stop();
     });
   });
 
@@ -393,7 +396,8 @@ void main() {
       aprsIs.simulateLine('W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>via IS');
       bleTnc.simulateLine('W2BLE>APMDN0:!4903.50N/07201.75W>via BLE');
       serial.simulateLine('W3SER>APMDN0:!4903.50N/07201.75W>via Serial');
-      await Future<void>.delayed(Duration.zero);
+      // Allow ingest chain to drain.
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
       expect(packets, hasLength(3));
       expect(
@@ -414,15 +418,8 @@ void main() {
 
     test('stop() cancels the registry subscription', () async {
       service.attach(registry);
-
-      // Capture the active line stream before stop closes packetStream.
-      // After stop, simulating a line must not throw and must not produce
-      // any further side effects.
       await service.stop();
 
-      // No throw is the assertion: the service has detached cleanly and
-      // late-arriving lines from the registry do not hit the closed
-      // packet controller.
       expect(
         () => aprsIs.simulateLine(
           'W1AW>APMDN0,TCPIP*:!4903.50N/07201.75W>after stop',

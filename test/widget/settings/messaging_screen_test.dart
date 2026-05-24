@@ -25,6 +25,7 @@ import 'package:meridian_aprs/services/tx_service.dart';
 import 'package:meridian_aprs/ui/widgets/in_app_banner_overlay.dart';
 
 import '../../helpers/fake_secure_credential_store.dart';
+import '../../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Test harness
@@ -58,7 +59,11 @@ class _Harness {
       store: FakeSecureCredentialStore(),
     );
     final registry = ConnectionRegistry();
-    final stationService = StationService();
+    final db = buildTestDatabase();
+    final stationService = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
     final tx = TxService(registry, settings);
 
     final groups = GroupSubscriptionService(prefs: prefs);
@@ -67,6 +72,7 @@ class _Harness {
     await bulletinSubs.load();
     final bulletins = BulletinService(
       subscriptions: bulletinSubs,
+      bulletinDao: db.bulletinDao,
       prefs: prefs,
     );
     await bulletins.load();
@@ -80,6 +86,7 @@ class _Harness {
       stationService,
       groupSubscriptions: groups,
       bulletins: bulletins,
+      messageDao: db.messageDao,
     );
     final notifService = NotificationService(
       messageService: messageService,

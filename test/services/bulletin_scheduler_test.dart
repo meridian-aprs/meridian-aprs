@@ -16,6 +16,7 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Recording TxService — captures sendBulletin calls for assertion.
@@ -79,7 +80,13 @@ class _Fixture {
     final registry = ConnectionRegistry();
     final subs = BulletinSubscriptionService(prefs: prefs);
     await subs.load();
-    final bulletins = BulletinService(subscriptions: subs, prefs: prefs);
+    final db = buildTestDatabase();
+    addTearDown(db.close);
+    final bulletins = BulletinService(
+      subscriptions: subs,
+      bulletinDao: db.bulletinDao,
+      prefs: prefs,
+    );
     await bulletins.load();
     final messaging = MessagingSettingsService(prefs: prefs);
     await messaging.load();

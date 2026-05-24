@@ -18,6 +18,7 @@ import 'package:meridian_aprs/services/station_settings_service.dart';
 import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 class _SendCapture {
   _SendCapture(this.line, this.digipeaterPath, this.forceVia);
@@ -55,20 +56,26 @@ Future<MessageService> _buildService({
   );
   final registry = ConnectionRegistry();
   final tx = _CapturingTxService(registry, settings, sends);
+  final db = buildTestDatabase();
 
   final groups = GroupSubscriptionService(prefs: prefs);
   await groups.load();
   final bulletinSubs = BulletinSubscriptionService(prefs: prefs);
   await bulletinSubs.load();
-  final bulletins = BulletinService(subscriptions: bulletinSubs, prefs: prefs);
+  final bulletins = BulletinService(
+    subscriptions: bulletinSubs,
+    bulletinDao: db.bulletinDao,
+    prefs: prefs,
+  );
   await bulletins.load();
 
   return MessageService(
     settings,
     tx,
-    StationService(),
+    StationService(stationDao: db.stationDao, packetDao: db.packetDao),
     groupSubscriptions: groups,
     bulletins: bulletins,
+    messageDao: db.messageDao,
   );
 }
 

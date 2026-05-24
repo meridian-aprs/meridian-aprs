@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:convert';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter/foundation.dart' show ChangeNotifier, debugPrint;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,134 +10,148 @@ import '../core/packet/aprs_packet.dart';
 import '../core/packet/aprs_parser.dart';
 import '../core/packet/station.dart';
 import '../core/util/clock.dart';
+import '../database/daos/packet_dao.dart';
+import '../database/daos/station_dao.dart';
+import '../database/meridian_database.dart';
+import '../database/tables/packets.dart' show PacketTypeTag;
 
 /// Service that ingests APRS text lines, decodes them with [AprsParser], and
-/// exposes two streams:
+/// persists stations + packets to the drift database (ADR-062).
 ///
-///   - [packetStream] — every decoded [AprsPacket] (all types)
-///   - [stationUpdates] — a snapshot of the station map, updated each time a
-///     position packet is received
+/// Reads are served from in-memory caches kept in sync with the database via
+/// drift `watch()` subscriptions plus immediate write-through updates from
+/// main-isolate ingests. The synchronous [currentStations] and [recentPackets]
+/// getters are preserved for the existing UI layer.
 ///
-/// Lines are normally fed via [attach], which subscribes once to the
-/// multiplexed [ConnectionRegistry.lines] stream and routes each tagged line
-/// to the parser. Tests and one-off callers can also push lines synchronously
-/// via [ingestLine]. This service has no transport dependency; connection
-/// lifecycle is managed by the connection classes and [ConnectionRegistry].
-///
-/// [recentPackets] holds a rolling buffer of recent packets. The in-session
-/// buffer is capped at [_kMaxInMemoryPackets] for performance; time-based
-/// pruning ([packetHistoryDays] / [stationHistoryDays]) is applied at load
-/// and persist boundaries.
-///
-/// History is persisted across app restarts. Call [loadPersistedHistory] once
-/// after construction (before ingesting any lines) to restore the previous
-/// session.
+/// Settings (retention windows, display toggles, weather overlay) continue to
+/// live in `SharedPreferences` — only structured packet/station data has moved
+/// to SQLite. Call [loadPersistedSettings] once after construction (before
+/// [attach]) to restore those preferences.
 class StationService extends ChangeNotifier {
-  // Hard in-session cap — not user-configurable. Keeps RAM bounded during
-  // long APRS-IS sessions on busy frequencies. Time-based pruning reduces
-  // this further at the persistence boundary.
+  // Hard in-session cap on the cached packet snapshot. Keeps RAM bounded and
+  // matches the previous in-memory rolling-buffer behaviour. Time-based
+  // pruning of the underlying `packets` table is governed by
+  // [packetHistoryDays] via the 60-second prune timer.
   static const int _kMaxInMemoryPackets = 5000;
 
-  // SharedPreferences keys.
+  /// Maximum number of position-history entries kept per station. Enforced
+  /// inside the upsert transaction.
+  static const int _kMaxPositionHistory = 500;
+
+  /// Sentinel meaning "keep forever" (no age-based pruning).
+  static const int forever = 0;
+
+  // SharedPreferences keys — settings only. Structured data lives in drift.
   static const _keyPacketDays = 'history_packet_days';
   static const _keyStationDays = 'history_station_days';
-  static const _keyPacketLog = 'packet_log_v1';
-  static const _keyStationHistory = 'station_history_v1';
   static const _keyStationMaxAgeMinutes = 'station_max_age_minutes';
   static const _keyHiddenTypes = 'station_hidden_types';
   static const _keyShowWeatherOverlay = 'show_weather_overlay';
   static const _keyShowTracks = 'show_tracks';
   static const _keyUseImperialUnits = 'use_imperial_units';
-
-  // Weather overlay sub-settings
   static const _keyWeatherRadiusKm = 'weather_overlay_radius_km';
   static const _keyWeatherUseCelsius = 'weather_overlay_use_celsius';
   static const _keyWeatherMaxAgeMinutes = 'weather_overlay_max_age_minutes';
 
-  /// Maximum number of position history entries kept per station.
-  static const int _kMaxPositionHistory = 500;
+  StationService({
+    required StationDao stationDao,
+    required PacketDao packetDao,
+    Clock clock = DateTime.now,
+  }) : _stationDao = stationDao,
+       _packetDao = packetDao,
+       _clock = clock {
+    _stationsSub = _stationDao.watchAllStations().listen(
+      _onStationsRowsChanged,
+    );
+    _packetsSub = _packetDao
+        .watchRecent(limit: _kMaxInMemoryPackets)
+        .listen(_onPacketsRowsChanged);
+    // Prune timer is started in [attach] — unit and widget tests that build
+    // the service without wiring a registry don't need a 60 s timer hanging
+    // around the framework's pending-timer check.
+  }
 
-  /// Sentinel value meaning "keep forever" (no age-based pruning).
-  static const int forever = 0;
-
+  final StationDao _stationDao;
+  final PacketDao _packetDao;
+  final Clock _clock;
   final _parser = AprsParser();
 
-  // Station map — callsign → most-recently-heard Station.
-  final _stations = <String, Station>{};
+  // Snapshot caches served by sync getters.
+  Map<String, Station> _stationCache = {};
+  List<AprsPacket> _packetCache = [];
 
-  // Broadcast controllers.
-  final _stationController = StreamController<Map<String, Station>>.broadcast();
+  // Broadcast streams (separate from drift `watch()` so packetStream fires
+  // synchronously on parse — required by `MessageService._onPacket` and the
+  // existing UI listeners).
   final _packetController = StreamController<AprsPacket>.broadcast();
+  final _stationController = StreamController<Map<String, Station>>.broadcast();
 
-  // Rolling packet buffer (newest at index 0).
-  final _recentPackets = <AprsPacket>[];
+  // Active drift watch subscriptions.
+  StreamSubscription<List<StationRow>>? _stationsSub;
+  StreamSubscription<List<PacketRow>>? _packetsSub;
 
-  // History age limits (days; 0 = forever).
+  // Single in-flight ingest serialises the "read prev → merge → write" chain
+  // so two close-spaced position packets for the same callsign cannot race on
+  // their merged position-history.
+  Future<void> _ingestChain = Future.value();
+
+  // Periodic retention prune; falls back to a no-op while `_prefs` is null.
+  Timer? _pruneTimer;
+
+  // Active subscription to ConnectionRegistry.lines, set by [attach].
+  StreamSubscription<({String line, ConnectionType source})>? _registrySub;
+
+  SharedPreferences? _prefs;
+
+  // History age limits (days; [forever] = no limit).
   int _packetHistoryDays = 30;
   int _stationHistoryDays = 90;
 
-  // Map display filter: max age in minutes; null = no limit. Default: 60 min.
-  // This is a VIEW filter only — it does not delete station data. The station
-  // map is filtered in the UI layer (map_screen.dart) before building markers.
+  // Map display filter — view filter only, no data deletion.
   int? _stationMaxAgeMinutes = 60;
 
-  // Station type display filter — types in this set are hidden on the map.
-  // View filter only; no data is deleted.
+  // Display toggles — view filters only.
   Set<StationType> _hiddenTypes = {};
-
-  // Whether to render movement trail polylines on the map.
   bool _showTracks = true;
-
-  // Whether to display distances in imperial units (miles/feet) instead of
-  // metric (km/m).
   bool _useImperialUnits = false;
-
-  // Whether to show the weather overlay chip on the map.
   bool _showWeatherOverlay = false;
-
   int _weatherOverlayRadiusKm = 50;
   bool _weatherOverlayUseCelsius = false;
   int _weatherOverlayMaxAgeMinutes = 60;
 
-  // Persistence state.
-  SharedPreferences? _prefs;
-  Timer? _persistTimer;
-
-  // Active subscription to ConnectionRegistry.lines, set by [attach] and
-  // cancelled by [stop]. Null until [attach] is called.
-  StreamSubscription<({String line, ConnectionType source})>? _registrySub;
-
-  StationService({Clock clock = DateTime.now}) : _clock = clock;
-
-  final Clock _clock;
-
   // ---------------------------------------------------------------------------
-  // Backward-compat stubs (removed in Phase 6 when UI is updated)
+  // Backward-compat stubs (kept until v0.20 UI cleanup)
   // ---------------------------------------------------------------------------
 
   /// Always returns [ConnectionStatus.disconnected].
-  ///
-  /// APRS-IS connection status is now available via [ConnectionRegistry].
-  /// This getter is retained for UI compatibility until Phase 6.
+  /// APRS-IS connection state lives on [ConnectionRegistry] now.
   ConnectionStatus get currentConnectionStatus => ConnectionStatus.disconnected;
 
-  /// A stream that never emits.
-  ///
-  /// APRS-IS connection state is now available via [ConnectionRegistry].
-  /// This getter is retained for UI compatibility until Phase 6.
+  /// Always-empty stream — kept for UI compatibility.
   Stream<ConnectionStatus> get connectionState => const Stream.empty();
 
   /// No-op. Line ingestion is wired in main.dart via [ConnectionRegistry].
   Future<void> start() async {}
 
-  /// Closes stream controllers, cancels timers, and detaches from any
-  /// [ConnectionRegistry] previously wired via [attach].
+  /// Cancels watch subscriptions, prune timer, registry subscription, and
+  /// closes the broadcast controllers. Idempotent.
   Future<void> stop() async {
-    _persistTimer?.cancel();
+    _pruneTimer?.cancel();
+    _pruneTimer = null;
     await _registrySub?.cancel();
     _registrySub = null;
-    await _stationController.close();
-    await _packetController.close();
+    await _stationsSub?.cancel();
+    _stationsSub = null;
+    await _packetsSub?.cancel();
+    _packetsSub = null;
+    if (!_stationController.isClosed) await _stationController.close();
+    if (!_packetController.isClosed) await _packetController.close();
+  }
+
+  @override
+  void dispose() {
+    unawaited(stop());
+    super.dispose();
   }
 
   /// No-op. Use [ConnectionRegistry] to access [AprsIsConnection].
@@ -156,37 +170,38 @@ class StationService extends ChangeNotifier {
   void updateFilter(double lat, double lon, {int radiusKm = 150}) {}
 
   // ---------------------------------------------------------------------------
-  // Public API
+  // Public API — reads
   // ---------------------------------------------------------------------------
 
-  /// All decoded packets as they arrive.
+  /// All decoded packets as they arrive (sync emission on parse).
   Stream<AprsPacket> get packetStream => _packetController.stream;
 
-  /// Station map snapshots. Emitted whenever a position packet updates a
-  /// station.
+  /// Station map snapshots. Fires whenever a position-like packet updates a
+  /// station, or whenever the drift watch stream reports a change (e.g.
+  /// background-isolate write).
   Stream<Map<String, Station>> get stationUpdates => _stationController.stream;
 
-  /// Current station map (unmodifiable).
-  Map<String, Station> get currentStations => Map.unmodifiable(_stations);
+  /// Current station map (unmodifiable snapshot of the cache).
+  Map<String, Station> get currentStations => Map.unmodifiable(_stationCache);
 
   /// Rolling buffer of the most recently decoded packets, newest first.
-  List<AprsPacket> get recentPackets => List.unmodifiable(_recentPackets);
+  List<AprsPacket> get recentPackets => List.unmodifiable(_packetCache);
 
-  /// Max age of persisted packets in days. [forever] (0) means no age limit.
   int get packetHistoryDays => _packetHistoryDays;
-
-  /// Max age of persisted stations in days. [forever] (0) means no age limit.
   int get stationHistoryDays => _stationHistoryDays;
-
-  /// Max age for the map display filter in minutes. [null] means no limit.
-  ///
-  /// This is a view filter only — changing it never deletes station data.
-  /// The map screen filters [currentStations] by this value before building
-  /// markers and polylines. Station data is retained according to
-  /// [stationHistoryDays].
   int? get stationMaxAgeMinutes => _stationMaxAgeMinutes;
+  Set<StationType> get hiddenTypes => Set.unmodifiable(_hiddenTypes);
+  bool get showTracks => _showTracks;
+  bool get useImperialUnits => _useImperialUnits;
+  bool get showWeatherOverlay => _showWeatherOverlay;
+  int get weatherOverlayRadiusKm => _weatherOverlayRadiusKm;
+  bool get weatherOverlayUseCelsius => _weatherOverlayUseCelsius;
+  int get weatherOverlayMaxAgeMinutes => _weatherOverlayMaxAgeMinutes;
 
-  /// Update the map station age filter. Set to [null] to disable filtering.
+  // ---------------------------------------------------------------------------
+  // Public API — settings (mirror previous SharedPreferences semantics)
+  // ---------------------------------------------------------------------------
+
   Future<void> setStationMaxAgeMinutes(int? value) async {
     if (value == _stationMaxAgeMinutes) return;
     _stationMaxAgeMinutes = value;
@@ -198,13 +213,6 @@ class StationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Station types currently hidden on the map (display filter, not deletion).
-  Set<StationType> get hiddenTypes => Set.unmodifiable(_hiddenTypes);
-
-  /// Whether to render track polylines on the map.
-  bool get showTracks => _showTracks;
-
-  /// Update the show-tracks toggle. Persists the selection.
   Future<void> setShowTracks(bool value) async {
     if (_showTracks == value) return;
     _showTracks = value;
@@ -212,11 +220,6 @@ class StationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether distances are displayed in imperial units (mi/ft) rather than
-  /// metric (km/m).
-  bool get useImperialUnits => _useImperialUnits;
-
-  /// Toggle the distance unit preference. Persists the selection.
   Future<void> setUseImperialUnits(bool value) async {
     if (_useImperialUnits == value) return;
     _useImperialUnits = value;
@@ -224,14 +227,6 @@ class StationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Whether to show the weather overlay chip on the map.
-  bool get showWeatherOverlay => _showWeatherOverlay;
-
-  int get weatherOverlayRadiusKm => _weatherOverlayRadiusKm;
-  bool get weatherOverlayUseCelsius => _weatherOverlayUseCelsius;
-  int get weatherOverlayMaxAgeMinutes => _weatherOverlayMaxAgeMinutes;
-
-  /// Update the weather overlay toggle. Persists the selection.
   Future<void> setShowWeatherOverlay(bool value) async {
     if (_showWeatherOverlay == value) return;
     _showWeatherOverlay = value;
@@ -260,7 +255,6 @@ class StationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Update which station types are hidden. Persists the selection.
   Future<void> setHiddenTypes(Set<StationType> types) async {
     _hiddenTypes = Set.of(types);
     await _prefs?.setStringList(
@@ -270,56 +264,55 @@ class StationService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---------------------------------------------------------------------------
-  // Ingest
-  // ---------------------------------------------------------------------------
-
-  /// Subscribe to [registry]'s multiplexed [ConnectionRegistry.lines] stream
-  /// and route every tagged line into the parser. This is the single
-  /// production ingestion seam — [main.dart] calls it once at startup, after
-  /// [loadPersistedHistory].
-  ///
-  /// Calling [attach] more than once is a programming error; the second call
-  /// will throw in debug builds. Use [stop] to cancel the subscription.
-  void attach(ConnectionRegistry registry) {
-    assert(
-      _registrySub == null,
-      'StationService.attach called twice; a single subscription is expected.',
-    );
-    _registrySub = registry.lines.listen(
-      (event) =>
-          _handleLine(event.line, source: _packetSourceFor(event.source)),
-    );
+  /// Update the packet retention window. Immediately prunes the underlying
+  /// `packets` table when shortened.
+  Future<void> setPacketHistoryDays(int days) async {
+    if (_packetHistoryDays == days) return;
+    _packetHistoryDays = days;
+    await _prefs?.setInt(_keyPacketDays, days);
+    if (days != forever) {
+      await _packetDao.pruneOlderThan(_clock().subtract(Duration(days: days)));
+    }
+    notifyListeners();
   }
 
-  /// Ingest a pre-formatted APRS line from a connection.
-  ///
-  /// [source] identifies whether the line came from APRS-IS, a BLE TNC, or a
-  /// serial TNC. Defaults to [PacketSource.aprsIs]. Production ingestion goes
-  /// through [attach]; this method remains the synchronous direct-injection
-  /// seam used by tests and the background-isolate packet relay.
-  void ingestLine(String raw, {PacketSource source = PacketSource.aprsIs}) =>
-      _handleLine(raw, source: source);
+  /// Update the station retention window. Immediately prunes the underlying
+  /// `stations` table (CASCADE deletes their position history).
+  Future<void> setStationHistoryDays(int days) async {
+    if (_stationHistoryDays == days) return;
+    _stationHistoryDays = days;
+    await _prefs?.setInt(_keyStationDays, days);
+    if (days != forever) {
+      await _stationDao.pruneOlderThan(_clock().subtract(Duration(days: days)));
+    }
+    notifyListeners();
+  }
 
-  static PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
-    ConnectionType.aprsIs => PacketSource.aprsIs,
-    ConnectionType.bleTnc => PacketSource.bleTnc,
-    ConnectionType.serialTnc => PacketSource.serialTnc,
-  };
+  /// Delete the entire packet log (drift) and the in-memory cache.
+  Future<void> clearPacketLog() async {
+    await _packetDao.clearAll();
+    _packetCache = const [];
+    notifyListeners();
+  }
 
-  /// Record a packet that *we* just transmitted, tagged with the transport
-  /// it went out on. Used by [TxService] to surface outgoing traffic in the
-  /// packet log alongside received packets.
-  void recordOutgoing(String raw, {required PacketSource source}) =>
-      _handleLine(raw, source: source, isOutgoing: true);
+  /// Delete every station and its position history (drift) and clear the
+  /// in-memory cache.
+  Future<void> clearStationHistory() async {
+    await _stationDao.clearAll();
+    _stationCache = const {};
+    _stationController.add(const {});
+    notifyListeners();
+  }
 
   // ---------------------------------------------------------------------------
-  // History persistence
+  // Settings load (no structured data — that comes from drift watch streams)
   // ---------------------------------------------------------------------------
 
-  /// Restore history and limit settings from [prefs]. Call once after
-  /// construction, before ingesting any lines.
-  Future<void> loadPersistedHistory(SharedPreferences prefs) async {
+  /// Restore retention windows and display toggles from [prefs]. Call once at
+  /// startup, before [attach]. Replaces the v0.18 `loadPersistedHistory` JSON
+  /// restore — structured data now lives in drift and hydrates via the
+  /// watch streams subscribed in the constructor.
+  Future<void> loadPersistedSettings(SharedPreferences prefs) async {
     _prefs = prefs;
 
     _packetHistoryDays = prefs.getInt(_keyPacketDays) ?? 30;
@@ -337,107 +330,72 @@ class StationService extends ChangeNotifier {
     _weatherOverlayRadiusKm = prefs.getInt(_keyWeatherRadiusKm) ?? 50;
     _weatherOverlayUseCelsius = prefs.getBool(_keyWeatherUseCelsius) ?? false;
     _weatherOverlayMaxAgeMinutes = prefs.getInt(_keyWeatherMaxAgeMinutes) ?? 60;
-
-    // Restore station map, skipping entries older than the configured limit.
-    final stationsRaw = prefs.getString(_keyStationHistory);
-    if (stationsRaw != null) {
-      try {
-        final list = jsonDecode(stationsRaw) as List<dynamic>;
-        for (final item in list) {
-          final s = _stationFromJson(item as Map<String, dynamic>);
-          if (_withinAge(s.lastHeard, _stationHistoryDays)) {
-            _stations[s.callsign] = s;
-          }
-        }
-      } catch (e) {
-        debugPrint('StationService: failed to load station history: $e');
-      }
-      _stationController.add(Map.unmodifiable(_stations));
-    }
-
-    // Restore packet log, skipping entries older than the configured limit.
-    final packetsRaw = prefs.getString(_keyPacketLog);
-    if (packetsRaw != null) {
-      try {
-        final list = jsonDecode(packetsRaw) as List<dynamic>;
-        for (final item in list) {
-          final map = item as Map<String, dynamic>;
-          final raw = map['raw'] as String;
-          // 'tnc' is a legacy alias kept for backward compat with persisted logs.
-          final srcStr = map['src'] as String?;
-          final src = switch (srcStr) {
-            'aprs_is' => PacketSource.aprsIs,
-            'tnc' => PacketSource.tnc,
-            'ble_tnc' => PacketSource.bleTnc,
-            'serial_tnc' => PacketSource.serialTnc,
-            _ => PacketSource.aprsIs,
-          };
-          final tsMs = map['ts'] as int?;
-          final receivedAt = tsMs != null
-              ? DateTime.fromMillisecondsSinceEpoch(tsMs, isUtc: true)
-              : _clock().toUtc();
-          final packet = _parser.parse(
-            raw,
-            transportSource: src,
-            receivedAt: receivedAt,
-          );
-          if (_withinAge(packet.receivedAt, _packetHistoryDays)) {
-            _recentPackets.add(packet);
-          }
-        }
-      } catch (e) {
-        debugPrint('StationService: failed to load packet log: $e');
-      }
-    }
-  }
-
-  /// Update the packet history age limit in days ([forever] = no limit).
-  Future<void> setPacketHistoryDays(int days) async {
-    if (_packetHistoryDays == days) return;
-    _packetHistoryDays = days;
-    await _prefs?.setInt(_keyPacketDays, days);
-    _recentPackets.removeWhere((p) => !_withinAge(p.receivedAt, days));
-    notifyListeners();
-    _schedulePersist();
-  }
-
-  /// Update the station history age limit in days ([forever] = no limit).
-  Future<void> setStationHistoryDays(int days) async {
-    if (_stationHistoryDays == days) return;
-    _stationHistoryDays = days;
-    await _prefs?.setInt(_keyStationDays, days);
-    _stations.removeWhere((_, s) => !_withinAge(s.lastHeard, days));
-    _stationController.add(Map.unmodifiable(_stations));
-    notifyListeners();
-    _schedulePersist();
-  }
-
-  /// Delete all persisted and in-memory packets.
-  Future<void> clearPacketLog() async {
-    _recentPackets.clear();
-    await _prefs?.remove(_keyPacketLog);
-    notifyListeners();
-  }
-
-  /// Delete all persisted and in-memory stations.
-  Future<void> clearStationHistory() async {
-    _stations.clear();
-    await _prefs?.remove(_keyStationHistory);
-    _stationController.add(Map.unmodifiable(_stations));
-    notifyListeners();
   }
 
   // ---------------------------------------------------------------------------
-  // Internal
+  // Ingest
   // ---------------------------------------------------------------------------
 
-  void _handleLine(
+  /// Subscribe to [registry]'s multiplexed lines stream. Single production
+  /// ingestion seam. Calling twice is a programming error.
+  void attach(ConnectionRegistry registry) {
+    assert(
+      _registrySub == null,
+      'StationService.attach called twice; a single subscription is expected.',
+    );
+    _registrySub = registry.lines.listen((event) {
+      // Fire-and-forget — `_handleLine` serialises internally so cache merges
+      // stay consistent regardless of how fast the registry pushes events.
+      unawaited(
+        _handleLine(event.line, source: _packetSourceFor(event.source)),
+      );
+    });
+    _pruneTimer ??= Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => unawaited(_runPrune()),
+    );
+  }
+
+  /// Ingest a pre-formatted APRS line. Returns a future that completes once
+  /// the packet (and any station update) has been persisted to drift and the
+  /// snapshot caches reflect the new state. Tests should `await` this.
+  Future<void> ingestLine(
+    String raw, {
+    PacketSource source = PacketSource.aprsIs,
+  }) => _handleLine(raw, source: source);
+
+  /// Record a packet we transmitted, tagged with the transport it went out
+  /// on. Mirrors [ingestLine] but flags the row `is_outgoing = true`.
+  Future<void> recordOutgoing(String raw, {required PacketSource source}) =>
+      _handleLine(raw, source: source, isOutgoing: true);
+
+  static PacketSource _packetSourceFor(ConnectionType type) => switch (type) {
+    ConnectionType.aprsIs => PacketSource.aprsIs,
+    ConnectionType.bleTnc => PacketSource.bleTnc,
+    ConnectionType.serialTnc => PacketSource.serialTnc,
+  };
+
+  Future<void> _handleLine(
     String raw, {
     PacketSource source = PacketSource.aprsIs,
     bool isOutgoing = false,
   }) {
-    debugPrint(raw);
+    // Serialise on the per-service ingest chain so position-history merges
+    // observe a stable "previous station" snapshot.
+    final task = _ingestChain.then(
+      (_) => _processLine(raw, source: source, isOutgoing: isOutgoing),
+    );
+    _ingestChain = task.catchError((Object e, StackTrace st) {
+      debugPrint('StationService ingest error: $e\n$st');
+    });
+    return task;
+  }
 
+  Future<void> _processLine(
+    String raw, {
+    required PacketSource source,
+    required bool isOutgoing,
+  }) async {
     if (raw.isEmpty || raw.startsWith('#')) return;
 
     final packet = _parser.parse(
@@ -446,62 +404,98 @@ class StationService extends ChangeNotifier {
       receivedAt: _clock().toUtc(),
     )..isOutgoing = isOutgoing;
 
-    // Add to rolling in-session buffer, capped for performance.
-    _recentPackets.insert(0, packet);
-    if (_recentPackets.length > _kMaxInMemoryPackets) {
-      _recentPackets.removeLast();
-    }
-
+    // Synchronous emission — preserves `MessageService._onPacket` semantics.
     _packetController.add(packet);
 
+    // Insert packet row (always). Awaited so ingestLine callers see the new
+    // row in `recentPackets` after `await`.
+    await _packetDao.insertPacket(
+      PacketsCompanion.insert(
+        rawLine: raw,
+        packetType: _packetTypeTag(packet),
+        sourceCallsign: packet.source,
+        receivedAt: packet.receivedAt.millisecondsSinceEpoch,
+        sourceChannel: source,
+        destination: Value(packet.destination),
+        isOutgoing: Value(isOutgoing),
+      ),
+    );
+
+    // Eagerly update the packet cache so sync getters reflect the new packet
+    // before the watch stream re-emits.
+    _packetCache = [packet, ..._packetCache];
+    if (_packetCache.length > _kMaxInMemoryPackets) {
+      _packetCache = _packetCache.sublist(0, _kMaxInMemoryPackets);
+    }
+    notifyListeners();
+
+    // Position-like packets update the station map.
     if (packet is PositionPacket) {
-      debugPrint('PARSED: ${packet.source} @ ${packet.lat}, ${packet.lon}');
-      final station = _mergeStation(_stationFromPosition(packet));
-      _stations[station.callsign] = station;
-      _stationController.add(Map.unmodifiable(_stations));
+      await _upsertStation(_stationFromPosition(packet));
     } else if (packet is MicEPacket) {
-      debugPrint('MIC-E: ${packet.source} @ ${packet.lat}, ${packet.lon}');
-      final station = _mergeStation(_stationFromMicE(packet));
-      _stations[station.callsign] = station;
-      _stationController.add(Map.unmodifiable(_stations));
+      await _upsertStation(_stationFromMicE(packet));
     } else if (packet is ObjectPacket) {
-      if (!packet.isAlive) {
-        if (_stations.remove(packet.objectName) != null) {
-          _stationController.add(Map.unmodifiable(_stations));
-        }
+      if (packet.isAlive) {
+        await _upsertStation(_stationFromObject(packet));
       } else {
-        final station = _mergeStation(_stationFromObject(packet));
-        _stations[station.callsign] = station;
-        _stationController.add(Map.unmodifiable(_stations));
+        await _deleteStation(packet.objectName);
       }
     } else if (packet is ItemPacket) {
-      if (!packet.isAlive) {
-        if (_stations.remove(packet.itemName) != null) {
-          _stationController.add(Map.unmodifiable(_stations));
-        }
+      if (packet.isAlive) {
+        await _upsertStation(_stationFromItem(packet));
       } else {
-        final station = _mergeStation(_stationFromItem(packet));
-        _stations[station.callsign] = station;
-        _stationController.add(Map.unmodifiable(_stations));
+        await _deleteStation(packet.itemName);
       }
     } else if (packet is WeatherPacket) {
       if (packet.lat != null && packet.lon != null) {
-        final station = _mergeStation(_stationFromWeather(packet));
-        _stations[station.callsign] = station;
-        _stationController.add(Map.unmodifiable(_stations));
+        await _upsertStation(_stationFromWeather(packet));
       }
     } else if (packet is UnknownPacket) {
       debugPrint('SKIP: ${packet.reason} -- $raw');
     }
-
-    _schedulePersist();
   }
 
-  Station _mergeStation(Station incoming) {
-    final prev = _stations[incoming.callsign];
+  Future<void> _upsertStation(Station incoming) async {
+    final prevRow = await _stationDao.getStation(incoming.callsign);
+    final prev = prevRow == null
+        ? null
+        : _stationCache[incoming.callsign] ?? _rowToStation(prevRow, const []);
+
+    final merged = _merge(prev: prev, incoming: incoming);
+
+    PositionHistoryCompanion? prevPos;
+    if (prev != null) {
+      prevPos = PositionHistoryCompanion.insert(
+        callsign: prev.callsign,
+        latitude: prev.lat,
+        longitude: prev.lon,
+        timestamp: prev.lastHeard.millisecondsSinceEpoch,
+      );
+    }
+
+    await _stationDao.upsertWithPositionHistory(
+      station: _stationToCompanion(merged),
+      previousPosition: prevPos,
+      capHistoryAt: _kMaxPositionHistory,
+    );
+
+    _stationCache = Map<String, Station>.from(_stationCache)
+      ..[merged.callsign] = merged;
+    _stationController.add(Map.unmodifiable(_stationCache));
+    notifyListeners();
+  }
+
+  Future<void> _deleteStation(String callsign) async {
+    final removed = await _stationDao.deleteByCallsign(callsign);
+    if (removed == 0) return;
+    _stationCache = Map<String, Station>.from(_stationCache)..remove(callsign);
+    _stationController.add(Map.unmodifiable(_stationCache));
+    notifyListeners();
+  }
+
+  Station _merge({required Station? prev, required Station incoming}) {
     if (prev == null) return incoming;
 
-    // Append the previous position to the history track before overwriting it.
     final newEntry = TimestampedPosition(
       prev.lastHeard,
       LatLng(prev.lat, prev.lon),
@@ -523,14 +517,125 @@ class StationService extends ChangeNotifier {
       device: incoming.device ?? prev.device,
       positionHistory: history,
       type: incoming.type,
-      // Prefer a known capability over an unknown one. A later Position packet
-      // is authoritative, but we don't want a later Object/Item packet (which
-      // is always "unknown") to erase a prior known value.
       messageCapability: incoming.messageCapability != MessageCapability.unknown
           ? incoming.messageCapability
           : prev.messageCapability,
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Watch stream → cache reconciliation (covers cross-isolate writes)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _onStationsRowsChanged(List<StationRow> rows) async {
+    final byCallsign = {for (final r in rows) r.callsign: r};
+    final allHistory = await _stationDao.getAllPositionHistory();
+    final historyByCallsign = <String, List<TimestampedPosition>>{};
+    for (final h in allHistory) {
+      historyByCallsign
+          .putIfAbsent(h.callsign, () => <TimestampedPosition>[])
+          .add(
+            TimestampedPosition(
+              DateTime.fromMillisecondsSinceEpoch(h.timestamp, isUtc: true),
+              LatLng(h.latitude, h.longitude),
+            ),
+          );
+    }
+
+    final next = <String, Station>{};
+    for (final entry in byCallsign.entries) {
+      next[entry.key] = _rowToStation(
+        entry.value,
+        historyByCallsign[entry.key] ?? const [],
+      );
+    }
+    _stationCache = next;
+    _stationController.add(Map.unmodifiable(_stationCache));
+    notifyListeners();
+  }
+
+  void _onPacketsRowsChanged(List<PacketRow> rows) {
+    _packetCache = rows.map(_rowToPacket).toList();
+    notifyListeners();
+  }
+
+  AprsPacket _rowToPacket(PacketRow row) {
+    final packet = _parser.parse(
+      row.rawLine,
+      transportSource: row.sourceChannel,
+      receivedAt: DateTime.fromMillisecondsSinceEpoch(
+        row.receivedAt,
+        isUtc: true,
+      ),
+    )..isOutgoing = row.isOutgoing;
+    return packet;
+  }
+
+  Station _rowToStation(StationRow row, List<TimestampedPosition> history) {
+    return Station(
+      callsign: row.callsign,
+      lat: row.lat,
+      lon: row.lon,
+      rawPacket: row.rawPacket,
+      lastHeard: DateTime.fromMillisecondsSinceEpoch(
+        row.lastHeard,
+        isUtc: true,
+      ),
+      symbolTable: row.symbolTable,
+      symbolCode: row.symbolCode,
+      comment: row.comment,
+      device: row.device,
+      positionHistory: history,
+      type: row.stationType,
+      messageCapability: row.messageCapability,
+    );
+  }
+
+  StationsCompanion _stationToCompanion(Station s) => StationsCompanion.insert(
+    callsign: s.callsign,
+    symbolTable: s.symbolTable,
+    symbolCode: s.symbolCode,
+    comment: s.comment,
+    rawPacket: s.rawPacket,
+    device: Value(s.device),
+    lastHeard: s.lastHeard.millisecondsSinceEpoch,
+    stationType: s.type,
+    messageCapability: s.messageCapability,
+    lat: s.lat,
+    lon: s.lon,
+  );
+
+  PacketTypeTag _packetTypeTag(AprsPacket p) {
+    if (p is PositionPacket) return PacketTypeTag.position;
+    if (p is WeatherPacket) return PacketTypeTag.weather;
+    if (p is MessagePacket) return PacketTypeTag.message;
+    if (p is ObjectPacket) return PacketTypeTag.object;
+    if (p is ItemPacket) return PacketTypeTag.item;
+    if (p is StatusPacket) return PacketTypeTag.status;
+    if (p is MicEPacket) return PacketTypeTag.micE;
+    return PacketTypeTag.unknown;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Periodic retention prune
+  // ---------------------------------------------------------------------------
+
+  Future<void> _runPrune() async {
+    if (_packetHistoryDays != forever) {
+      await _packetDao.pruneOlderThan(
+        _clock().subtract(Duration(days: _packetHistoryDays)),
+      );
+    }
+    if (_stationHistoryDays != forever) {
+      await _stationDao.pruneOlderThan(
+        _clock().subtract(Duration(days: _stationHistoryDays)),
+      );
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Station factories — unchanged from v0.18
+  // ---------------------------------------------------------------------------
 
   Station _stationFromPosition(PositionPacket p) => Station(
     callsign: p.source,
@@ -596,134 +701,7 @@ class StationService extends ChangeNotifier {
     lastHeard: p.receivedAt,
     symbolTable: p.symbolTable,
     symbolCode: p.symbolCode,
-    comment: p.rawLine, // store raw for fallback display
+    comment: p.rawLine,
     type: StationType.weather,
   );
-
-  // ---------------------------------------------------------------------------
-  // Persistence helpers
-  // ---------------------------------------------------------------------------
-
-  bool _withinAge(DateTime dt, int days) {
-    if (days == forever) return true;
-    return _clock().difference(dt).inDays < days;
-  }
-
-  void _schedulePersist() {
-    if (_prefs == null) return;
-    _persistTimer?.cancel();
-    _persistTimer = Timer(const Duration(seconds: 3), _persistNow);
-  }
-
-  void _persistNow() {
-    final prefs = _prefs;
-    if (prefs == null) return;
-
-    try {
-      final stationList = _stations.values
-          .where((s) => _withinAge(s.lastHeard, _stationHistoryDays))
-          .map(_stationToJson)
-          .toList();
-      prefs.setString(
-        _keyStationHistory,
-        jsonEncode(stationList),
-      ); // ignore: unawaited_futures
-    } catch (e) {
-      debugPrint('StationService: failed to persist stations: $e');
-    }
-
-    try {
-      final packetList = _recentPackets
-          .where((p) => _withinAge(p.receivedAt, _packetHistoryDays))
-          .map(
-            (p) => {
-              'raw': p.rawLine,
-              'src': switch (p.transportSource) {
-                PacketSource.aprsIs => 'aprs_is',
-                PacketSource.tnc => 'tnc',
-                PacketSource.bleTnc => 'ble_tnc',
-                PacketSource.serialTnc => 'serial_tnc',
-              },
-              'ts': p.receivedAt.millisecondsSinceEpoch,
-            },
-          )
-          .toList();
-      prefs.setString(
-        _keyPacketLog,
-        jsonEncode(packetList),
-      ); // ignore: unawaited_futures
-    } catch (e) {
-      debugPrint('StationService: failed to persist packet log: $e');
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Station JSON helpers
-  // ---------------------------------------------------------------------------
-
-  Map<String, dynamic> _stationToJson(Station s) => {
-    'callsign': s.callsign,
-    'lat': s.lat,
-    'lon': s.lon,
-    'symbolTable': s.symbolTable,
-    'symbolCode': s.symbolCode,
-    'comment': s.comment,
-    'lastHeard': s.lastHeard.millisecondsSinceEpoch,
-    'rawPacket': s.rawPacket,
-    'type': s.type.name,
-    'messageCapability': s.messageCapability.name,
-    if (s.device != null) 'device': s.device,
-    if (s.positionHistory.isNotEmpty)
-      'positionHistory': s.positionHistory
-          .map(
-            (p) => {
-              'ts': p.timestamp.millisecondsSinceEpoch,
-              'lat': p.position.latitude,
-              'lon': p.position.longitude,
-            },
-          )
-          .toList(),
-  };
-
-  Station _stationFromJson(Map<String, dynamic> json) {
-    final symbolTable = json['symbolTable'] as String;
-    final symbolCode = json['symbolCode'] as String;
-    final typeStr = json['type'] as String?;
-    final type = typeStr != null
-        ? StationType.values.where((t) => t.name == typeStr).firstOrNull ??
-              classifyStationType(symbolTable, symbolCode)
-        : classifyStationType(symbolTable, symbolCode);
-
-    final capStr = json['messageCapability'] as String?;
-    final messageCapability = capStr != null
-        ? MessageCapability.values.where((c) => c.name == capStr).firstOrNull ??
-              MessageCapability.unknown
-        : MessageCapability.unknown;
-
-    final historyRaw = json['positionHistory'] as List<dynamic>?;
-    final positionHistory =
-        historyRaw?.map((e) {
-          final m = e as Map<String, dynamic>;
-          return TimestampedPosition(
-            DateTime.fromMillisecondsSinceEpoch(m['ts'] as int, isUtc: true),
-            LatLng((m['lat'] as num).toDouble(), (m['lon'] as num).toDouble()),
-          );
-        }).toList() ??
-        const [];
-
-    return Station(
-      callsign: json['callsign'] as String,
-      lat: (json['lat'] as num).toDouble(),
-      lon: (json['lon'] as num).toDouble(),
-      symbolTable: symbolTable,
-      symbolCode: symbolCode,
-      comment: (json['comment'] as String?) ?? '',
-      lastHeard: DateTime.fromMillisecondsSinceEpoch(json['lastHeard'] as int),
-      rawPacket: (json['rawPacket'] as String?) ?? '',
-      device: json['device'] as String?,
-      type: type,
-      positionHistory: positionHistory,
-      messageCapability: messageCapability,
-    );
-  }
 }

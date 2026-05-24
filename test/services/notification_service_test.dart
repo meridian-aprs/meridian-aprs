@@ -17,6 +17,7 @@ import 'package:meridian_aprs/services/tx_service.dart';
 import 'package:meridian_aprs/ui/widgets/in_app_banner_overlay.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,7 +55,11 @@ class _Fixture {
       prefs,
       store: FakeSecureCredentialStore(),
     );
-    final stationService = StationService();
+    final db = buildTestDatabase();
+    final stationService = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
     final registry = ConnectionRegistry();
     final txService = _SilentTxService(registry, settings);
     final groupSubs = GroupSubscriptionService(prefs: prefs);
@@ -63,6 +68,7 @@ class _Fixture {
     await bulletinSubs.load();
     final bulletins = BulletinService(
       subscriptions: bulletinSubs,
+      bulletinDao: db.bulletinDao,
       prefs: prefs,
     );
     await bulletins.load();
@@ -72,6 +78,7 @@ class _Fixture {
       stationService,
       groupSubscriptions: groupSubs,
       bulletins: bulletins,
+      messageDao: db.messageDao,
     );
     final bannerController = InAppBannerController();
 

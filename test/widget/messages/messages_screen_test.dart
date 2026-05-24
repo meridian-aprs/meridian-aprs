@@ -34,6 +34,7 @@ import 'package:meridian_aprs/services/tx_service.dart';
 
 import '../../helpers/fake_meridian_connection.dart';
 import '../../helpers/fake_secure_credential_store.dart';
+import '../../helpers/test_database.dart';
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -94,7 +95,15 @@ class _Harness {
       aprsIsConn.setStatus(ConnectionStatus.connected);
     }
 
-    final stationService = StationService();
+    final db = buildTestDatabase();
+    final stationService = StationService(
+      stationDao: db.stationDao,
+      packetDao: db.packetDao,
+    );
+    addTearDown(() async {
+      await stationService.stop();
+      await db.close();
+    });
     final tx = TxService(registry, settings);
 
     final groupSubs = GroupSubscriptionService(prefs: prefs);
@@ -103,6 +112,7 @@ class _Harness {
     await bulletinSubs.load();
     final bulletins = BulletinService(
       subscriptions: bulletinSubs,
+      bulletinDao: db.bulletinDao,
       prefs: prefs,
     );
     await bulletins.load();
@@ -119,6 +129,7 @@ class _Harness {
       stationService,
       groupSubscriptions: groupSubs,
       bulletins: bulletins,
+      messageDao: db.messageDao,
     );
 
     // Seed notification prefs so downstream widgets that read them don't

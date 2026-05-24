@@ -95,6 +95,8 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 | Capability | Detail |
 |---|---|
 | Direct messages | One-to-one APRS messaging with retry; spec §14 backoff `[30, 60, 120, 240, 480]` s |
+| Persistence | Conversations + message entries stored in SQLite via drift (ADR-062); survive restart. In-flight (pending/retrying) sends demoted to failed on reload — timers don't resume |
+| Configurable retention | Message history retention in Settings → History (default 90 days, `0 = Forever`); prunes direct + group entries and sweeps empty conversations |
 | ACK / REJ | Sent and received; ACK is exact-callsign-match only |
 | Cross-SSID matching | Capture-always: any message addressed to any SSID of operator's base callsign is persisted (ADR-054) |
 | `showOtherSsids` | Default off; controls conversation list / thread visibility; non-destructive |
@@ -102,8 +104,8 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 | Addressee badge | Subdued chip on bubbles when `addressee ≠ currentStation` |
 | Conversation grouping | Threads with 2+ SSIDs of the same base callsign render under a non-collapsible group header with aggregated unread count |
 | Groups | `ALL` / `CQ` / `QST` seeded idempotently + custom; per-group `notify` / `matchMode` / `replyMode` (ADR-056) |
-| Bulletins | `BLN0`–`BLN9` general and `BLN*NAME` named; receive store with `(source, addressee)` upsert and retention sweeper |
-| Outgoing bulletins | Fixed-interval retransmission + initial pulse + max lifetime (ADR-057); main-isolate scheduler + parallel 30 s background-isolate timer |
+| Bulletins | `BLN0`–`BLN9` general and `BLN*NAME` named; SQLite-backed receive store (ADR-062) with `(source, addressee)` upsert and retention sweeper |
+| Outgoing bulletins | Fixed-interval retransmission + initial pulse + max lifetime (ADR-057); main-isolate scheduler + parallel 30 s background-isolate timer, both reading/writing the shared SQLite DB so background transmissions no longer drift out of sync on resume (ADR-062 fixes ADR-057/061) |
 | Bulletin distance filter | Client-side haversine vs operator manual position; RF + named groups never distance-filtered |
 | APRS-IS group filter | `g/BLN0..9` always; `g/BLN*NAME` per enabled subscription (ADR-058); rebuilt on subscription change |
 | Matcher precedence | Bulletin → Direct → Group (ADR-055) — load-bearing for ACK correctness |
@@ -133,12 +135,13 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 ## 6. Station Management
 
 - Real-time station list driven by `StationService` packetStream
-- 500-packet rolling buffer in memory
+- **SQLite-backed persistence** via drift (ADR-062): stations, position history, and the packet log survive app restarts; the map repopulates on cold start before any new packets arrive
+- Snapshot getters (`currentStations`, `recentPackets`) are kept in sync with the database via `watch()` streams; packet snapshot capped at 5000 in memory, the underlying table bounded by retention
 - Full-screen station list screen
 - Station detail sheet with summary (callsign, symbol, comment, last heard, capabilities)
-- Per-station track history (capped at 500 timestamped positions, time-filter-bounded)
+- Per-station track history (capped at 500 timestamped positions, time-filter-bounded; `ON DELETE CASCADE` cleans history when a station is pruned)
 - Station search by callsign + place
-- No persistent station database yet (SQLite/drift evaluation scheduled for v0.19)
+- Retention (packet log / station history) configurable in Settings → History; pruned by a 60 s timer + immediately on setting change
 
 ---
 

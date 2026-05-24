@@ -123,12 +123,14 @@ class BackgroundServiceManager extends ChangeNotifier
     required TxService tx,
     ForegroundServiceApi? taskApi,
     void Function(String line)? onPacketLogged,
+    Future<void> Function()? onResumed,
     Clock clock = DateTime.now,
   }) : _registry = registry,
        _beaconing = beaconing,
        _tx = tx,
        _taskApi = taskApi ?? const _DefaultForegroundServiceApi(),
        _onPacketLogged = onPacketLogged,
+       _onResumed = onResumed,
        _clock = clock {
     _registry.addListener(_onServiceStateChanged);
     _beaconing.addListener(_onServiceStateChanged);
@@ -154,6 +156,13 @@ class BackgroundServiceManager extends ChangeNotifier
   /// local packet log — same loopback semantics as
   /// [BeaconingService.onBeaconSent] for the foreground path.
   final void Function(String line)? _onPacketLogged;
+
+  /// Invoked on `AppLifecycleState.resumed` while the foreground service is
+  /// running. Wired to [BulletinService.refreshOutgoing] so the main isolate
+  /// picks up outgoing-bulletin transmission state the background isolate
+  /// wrote to the shared database while the app was backgrounded (ADR-062),
+  /// without waiting for the next scheduler tick.
+  final Future<void> Function()? _onResumed;
 
   static const _keyBgActivity = 'bg_activity_enabled';
 
@@ -393,6 +402,10 @@ class BackgroundServiceManager extends ChangeNotifier
 
       case AppLifecycleState.resumed:
         _isInBackground = false;
+
+        // Re-read outgoing-bulletin state the background isolate may have
+        // mutated in the shared DB while we were paused (ADR-062 / ADR-057).
+        _onResumed?.call(); // ignore: unawaited_futures
 
         // Reconcile BSM state against the OS first. If Android killed the
         // FGS overnight or the user swiped the notification away, _state

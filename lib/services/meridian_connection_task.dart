@@ -1,8 +1,7 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -13,9 +12,9 @@ import '../core/credentials/credential_key.dart';
 import '../core/credentials/secure_credential_store.dart';
 import '../core/packet/aprs_encoder.dart';
 import '../core/util/clock.dart';
-import '../models/outgoing_bulletin.dart';
+import '../database/database_provider.dart';
+import '../database/meridian_database.dart';
 import 'beaconing_service.dart' show BeaconMode;
-import 'bulletin_service.dart';
 import 'messaging_settings_service.dart';
 
 /// Entry point called by flutter_foreground_task when the foreground service
@@ -54,6 +53,13 @@ class MeridianConnectionTask extends TaskHandler {
   Timer? _beaconTimer;
   Timer? _bulletinTimer;
   int? _lastBeaconTs; // ms since epoch; null until first beacon this session
+
+  /// Client connection to the shared `meridian.db`, obtained from the main
+  /// isolate's `DriftIsolate` via `IsolateNameServer` (ADR-062). Lazily
+  /// established on first bulletin tick; null while the main isolate hasn't
+  /// registered its port yet (e.g. a startup race), in which case the tick is
+  /// skipped and retried next time.
+  MeridianDatabase? _bgDb;
 
   /// Master kill-switch for beaconing in this isolate. `true` between
   /// `start_beaconing` and `stop_beaconing` IPCs from the main isolate;
@@ -158,6 +164,23 @@ class MeridianConnectionTask extends TaskHandler {
     _bulletinTimer?.cancel();
     await _positionSub?.cancel();
     _positionSub = null;
+    await _bgDb?.close();
+    _bgDb = null;
+  }
+
+  /// Lazily connect to the shared drift database. Cached for the isolate's
+  /// lifetime. Returns null (and leaves the cache empty so the next tick
+  /// retries) when the main isolate's port isn't registered yet or the
+  /// connection throws.
+  Future<MeridianDatabase?> _ensureBgDatabase() async {
+    if (_bgDb != null) return _bgDb;
+    try {
+      _bgDb = await lookupBackgroundDatabasePort();
+    } catch (e) {
+      debugPrint('BG bulletin: drift connect failed: $e');
+      _bgDb = null;
+    }
+    return _bgDb;
   }
 
   // ---------------------------------------------------------------------------
@@ -545,19 +568,19 @@ class MeridianConnectionTask extends TaskHandler {
   }
 
   Future<void> _processOutgoingBulletins() async {
+    // Connect to the shared drift database. If the main isolate hasn't
+    // registered its port yet (startup race), skip this tick and retry.
+    final db = await _ensureBgDatabase();
+    if (db == null) return;
+
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
 
-    final raw = prefs.getString(BulletinService.keyOutgoingBulletins);
-    if (raw == null || raw.isEmpty) return;
-
-    final List<OutgoingBulletin> outgoing;
+    final List<OutgoingBulletinRow> outgoing;
     try {
-      outgoing = (jsonDecode(raw) as List<dynamic>)
-          .cast<Map<String, dynamic>>()
-          .map(OutgoingBulletin.fromJson)
-          .toList();
-    } catch (_) {
+      outgoing = await db.bulletinDao.getAllOutgoing();
+    } catch (e) {
+      debugPrint('BG bulletin: read failed: $e');
       return;
     }
     if (outgoing.isEmpty) return;
@@ -588,24 +611,25 @@ class MeridianConnectionTask extends TaskHandler {
       return passcode!;
     }
 
-    var mutated = false;
     final now = _clock();
-    for (var i = 0; i < outgoing.length; i++) {
-      final ob = outgoing[i];
+    for (final ob in outgoing) {
       if (!ob.enabled) continue;
 
-      // Expiry → disable.
-      if (now.isAfter(ob.expiresAt)) {
-        outgoing[i] = ob.copyWith(enabled: false);
-        mutated = true;
+      // Expiry → disable (written straight through to the shared DB so the
+      // main isolate's BulletinService watch picks it up — ADR-057/061).
+      final expiresAt = ob.expiresAt;
+      if (expiresAt != null && now.millisecondsSinceEpoch > expiresAt) {
+        await db.bulletinDao.setOutgoingEnabled(ob.id, false);
         continue;
       }
 
-      if (ob.isOneShot && ob.transmissionCount > 0) continue;
+      final isOneShot = ob.intervalSeconds == 0;
+      if (isOneShot && ob.transmissionCount > 0) continue;
 
+      final lastTx = ob.lastTransmittedAt;
       final shouldTx =
-          ob.lastTransmittedAt == null ||
-          now.difference(ob.lastTransmittedAt!) >=
+          lastTx == null ||
+          now.difference(DateTime.fromMillisecondsSinceEpoch(lastTx)) >=
               Duration(seconds: ob.intervalSeconds);
       if (!shouldTx) continue;
 
@@ -642,11 +666,9 @@ class MeridianConnectionTask extends TaskHandler {
       }
 
       if (transmitted) {
-        outgoing[i] = ob.copyWith(
-          lastTransmittedAt: now,
-          transmissionCount: ob.transmissionCount + 1,
-        );
-        mutated = true;
+        // Write-through to the shared DB. The main-isolate BulletinService
+        // watch reflects the bump on resume without an explicit re-read.
+        await db.bulletinDao.recordOutgoingTransmission(ob.id, now);
 
         // Notify main isolate so the line is self-ingested into StationService —
         // mirrors the beacon_sent loopback so background-fired bulletins appear
@@ -656,13 +678,6 @@ class MeridianConnectionTask extends TaskHandler {
           'aprs_line': line,
         });
       }
-    }
-
-    if (mutated) {
-      await prefs.setString(
-        BulletinService.keyOutgoingBulletins,
-        jsonEncode(outgoing.map((ob) => ob.toJson()).toList()),
-      );
     }
   }
 }

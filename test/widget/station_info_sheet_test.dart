@@ -16,11 +16,17 @@ import 'package:meridian_aprs/services/tx_service.dart';
 import 'package:meridian_aprs/ui/widgets/station_info_sheet.dart';
 
 import '../helpers/fake_secure_credential_store.dart';
+import '../helpers/test_database.dart';
 
 Future<void> _pumpSheet(WidgetTester tester, {required Station station}) async {
   SharedPreferences.setMockInitialValues({});
   final prefs = await SharedPreferences.getInstance();
-  final stationService = StationService();
+  final db = buildTestDatabase();
+  addTearDown(db.close);
+  final stationService = StationService(
+    stationDao: db.stationDao,
+    packetDao: db.packetDao,
+  );
   final stationSettings = StationSettingsService(
     prefs,
     store: FakeSecureCredentialStore(),

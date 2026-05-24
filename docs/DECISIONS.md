@@ -1558,3 +1558,52 @@ The scanner sheet drops the per-model dropdown in favour of a single "Show all B
 - [ge0rg/bluetoothle-tnc spec](https://github.com/ge0rg/bluetoothle-tnc/blob/master/Bluetooth-LE-TNC.md) — Family B spec
 - [BTECH UV-Pro firmware 0.7.11 KISS announcement](https://baofengtech.com/btech-uv-pro-firmware-update-0-7-11-kiss-mode-now-built-in/)
 
+---
+
+## ADR-062: SQLite persistence via drift
+
+**Date:** 2026-05-23
+**Status:** Accepted
+**Milestone:** v0.19 — Performance
+**Closes:** #87 (SQLite/drift evaluation spike)
+**Related:** ADR-025 (Android background isolate), ADR-032 (iOS background model), ADR-057 (BulletinService retransmission), ADR-061 (APRS-IS background RX)
+
+> This is the **as-built** record. The pre-implementation design sketch lives at `docs/adrs/ADR-062-sqlite-drift.md`; where the two differ, this entry is authoritative.
+
+### Context
+
+Structured/volumetric data had accreted across services with mismatched storage: `StationService` stations + packets and `MessageService`/`BulletinService` conversations + bulletins all serialized to SharedPreferences JSON blobs (stations/packets were JSON-on-prefs, not in-memory-only as the original sketch assumed). Problems: full-deserialization for every query/prune, no schema evolution, and — most importantly — **foreground/background state drift** (ADR-057/061): the Android background isolate mutated the outgoing-bulletin JSON while the main isolate held a stale in-memory copy that never re-synced on resume.
+
+### Decision
+
+Adopt **drift** (MIT, type-safe SQLite ORM) as the single store for structured data. One database file (`meridian.db`), eight tables: `stations`, `position_history`, `packets`, `conversations`, `message_entries`, `group_message_entries`, `bulletins`, `outgoing_bulletins`. SharedPreferences is retained exclusively for flat settings/preferences, onboarding state, group subscriptions, and (via `SecureCredentialStore`) credentials.
+
+Key as-built decisions:
+
+- **Full-fidelity schema.** Tables carry every field the existing models use (e.g. `message_entries` keeps the full `MessageStatus` enum, `wire_id`, `retry_count`, `category`, `group_name`; `bulletins` keeps `transports`/`heard_count`/`first_heard_at`/`received_lat·lon`/`is_read`). Enums are stored via `EnumNameConverter` (text), safer under reordering than int indices.
+- **Multi-isolate via `IsolateNameServer`, not a passed `SendPort`.** `flutter_foreground_task`'s start-data channel cannot marshal a `SendPort`. Instead the main isolate spawns a `DriftIsolate`, opens `meridian.db` inside it, and registers `DriftIsolate.connectPort` under `meridian_drift_port` via `IsolateNameServer` (`dart:ui`). The Android background isolate looks the port up lazily and opens a client connection; null/throw → skip the tick and retry. iOS (main-isolate-only, ADR-032) never has a second client; web opens the DB directly (no isolate machinery).
+- **Per-service caching strategy differs by hazard:**
+  - `StationService` — drift is the source of truth; sync getters (`currentStations`, `recentPackets`) are cache snapshots fed by `watch()` streams plus immediate write-through. A 60 s timer prunes packets/stations by the existing retention windows. Position-history append + per-station 500-entry cap run in one transaction; `ON DELETE CASCADE` cleans history when a station is pruned.
+  - `MessageService` — keeps its in-memory `_conversations` working set with **targeted write-through** to drift; **deliberately no `watch()`** (the retry scheduler holds direct `MessageEntry` references and mutates them in place — rebuilding from a watch emission would orphan those references and break ACK→timer cancellation). Messages are main-isolate-only writes, so no cross-isolate watch benefit is lost.
+  - `BulletinService` — incoming bulletins are an in-memory write-through working set (the model `id` is a session-scoped navigation handle; the table is keyed `(source, addressee)` per ADR-057). Outgoing bulletins use drift autoincrement ids and are **re-read fresh each `BulletinScheduler` tick** (`refreshOutgoing()`) rather than via a continuous `watch()` — a watch raced with write-through (a lagging emission carrying a pre-mutation snapshot, or the initial empty emission landing mid-mutation, could revert the cache and transmit a just-disabled bulletin). The background isolate writes transmission/expiry updates to the shared DB; the next main-isolate tick observes them, and `BackgroundServiceManager`'s resume hook calls `refreshOutgoing()` for near-instant correction on return to foreground.
+- **State-drift fix is polled, not pushed.** The ADR-057/061 fix (main isolate sees background-isolate writes through the shared DB with no operator action) is preserved, but for outgoing bulletins the mechanism is the per-tick re-read + resume hook, bounded by the 30 s tick — not a drift `watch()`. This is a deliberate trade for race-freedom.
+- **`group_message_entries` is reserved but unused in v0.19.** Group messages route through the unified `conversations`/`message_entries` path (`category=group`, `peer_callsign='#GROUP:<NAME>'`) to preserve group `unreadCount`/`lastActivity` and the `totalGroupUnread` badge, which the leaner `group_message_entries` table has no column for. The table exists (schema-complete, DAO-covered) for a future refactor or removal.
+- **Migration: silent reset.** Schema version 1, `onCreate` only. No migration from the old SharedPreferences JSON — message/bulletin history and station/packet data reset on first launch of the migrated build (stations/packets backfill from APRS-IS within minutes). Old keys are orphaned, not cleaned.
+- **Message retention stays in Settings → History.** The handoff proposed a new Settings → Messaging control with a `message_retention_days`/`-1` key; the existing `history_message_days`/`0 = Forever` control (grouped with packet/station retention, consistent with `StationService.forever = 0`) was kept instead. The Phase-3.2 prune wiring (`pruneOlderThan` + `pruneEmptyConversations`, covering direct + group entries) satisfies the retention requirement. No periodic timer for messages — day-granularity retention is handled by the startup + on-change prune.
+
+### Consequences
+
+- New `lib/database/` module: `meridian_database.dart` (+ generated `.g.dart`), `tables/`, `converters/`, `daos/` (`StationDao`, `PacketDao`, `MessageDao`, `BulletinDao`), `database_provider.dart`.
+- `drift ^2.33` / `drift_flutter ^0.3` added; `drift_dev` + `build_runner` dev deps. All MIT (with `sqlite3` / `sqlite3_flutter_libs`), GPL-compatible.
+- `StationService`, `MessageService`, `BulletinService` constructors now take injected DAOs; service tests use `NativeDatabase.memory()` via `test/helpers/test_database.dart`.
+- Two cross-isolate integration tests (`test/integration/drift_isolate_test.dart`, `bulletin_cross_isolate_test.dart`) prove background→main visibility through the shared DB without an Android FGS. Per-DAO unit tests in `test/database/`.
+- The DAO `prune*` methods take a `DateTime cutoff` (clock-injected by services) rather than computing `DateTime.now()` internally, preserving deterministic clock injection.
+
+### References
+
+- `lib/database/` — database, tables, DAOs, provider
+- `lib/services/{station,message,bulletin}_service.dart`, `lib/services/bulletin_scheduler.dart`, `lib/services/meridian_connection_task.dart`
+- `lib/services/background_service_manager.dart` — `onResumed` → `refreshOutgoing()`
+- `docs/adrs/ADR-062-sqlite-drift.md` — pre-implementation design sketch
+- [drift documentation](https://drift.simonbinder.eu/)
+
