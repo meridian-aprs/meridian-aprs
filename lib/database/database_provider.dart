@@ -30,7 +30,17 @@ Future<MeridianDatabase> openMeridianDatabase() async {
 
   IsolateNameServer.removePortNameMapping(meridianDriftPortName);
 
-  final dbFolder = await getApplicationDocumentsDirectory();
+  // Use the application *support* directory, not the documents directory, for
+  // the database file:
+  //   * Linux: support dir derives from `$XDG_DATA_HOME` (~/.local/share) using
+  //     env vars only. The documents dir resolves by spawning the `xdg-user-dir`
+  //     subprocess, which returns nothing inside a release bundle's stripped
+  //     environment and makes path_provider throw MissingPlatformDirectoryException.
+  //   * iOS: the documents dir is iCloud-backed and visible in the Files app — a
+  //     SQLite DB has no business there. Support dir is the conventional home.
+  //   * macOS: support dir is the sandbox-correct ~/Library/Application Support.
+  //   * Android: both resolve to internal app storage; no user-facing difference.
+  final dbFolder = await getApplicationSupportDirectory();
   final dbPath = '${dbFolder.path}${Platform.pathSeparator}meridian.db';
 
   final isolate = await DriftIsolate.spawn(
