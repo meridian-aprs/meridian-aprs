@@ -20,11 +20,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # Pinned for reproducible CI. The `stable` channel floats, and a
-          # silent bump to 3.44.0 surfaced a new `onReorder` deprecation that
-          # broke unrelated PRs. Bump deliberately; see onReorder→onReorderItem
-          # follow-up issue before raising this past 3.44.
-          flutter-version: 3.41.7
+          # Pinned for reproducible CI. The `stable` channel floats; bump
+          # deliberately so deprecation churn surfaces in a dedicated PR
+          # instead of unrelated ones.
+          flutter-version: 3.44.0
 
       - name: Install Linux build dependencies
         run: |
@@ -63,11 +62,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # Pinned for reproducible CI. The `stable` channel floats, and a
-          # silent bump to 3.44.0 surfaced a new `onReorder` deprecation that
-          # broke unrelated PRs. Bump deliberately; see onReorder→onReorderItem
-          # follow-up issue before raising this past 3.44.
-          flutter-version: 3.41.7
+          # Pinned for reproducible CI. The `stable` channel floats; bump
+          # deliberately so deprecation churn surfaces in a dedicated PR
+          # instead of unrelated ones.
+          flutter-version: 3.44.0
 
       - name: Install dependencies
         run: flutter pub get
@@ -91,11 +89,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # Pinned for reproducible CI. The `stable` channel floats, and a
-          # silent bump to 3.44.0 surfaced a new `onReorder` deprecation that
-          # broke unrelated PRs. Bump deliberately; see onReorder→onReorderItem
-          # follow-up issue before raising this past 3.44.
-          flutter-version: 3.41.7
+          # Pinned for reproducible CI. The `stable` channel floats; bump
+          # deliberately so deprecation churn surfaces in a dedicated PR
+          # instead of unrelated ones.
+          flutter-version: 3.44.0
 
       - name: Install dependencies
         run: flutter pub get
@@ -117,11 +114,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # Pinned for reproducible CI. The `stable` channel floats, and a
-          # silent bump to 3.44.0 surfaced a new `onReorder` deprecation that
-          # broke unrelated PRs. Bump deliberately; see onReorder→onReorderItem
-          # follow-up issue before raising this past 3.44.
-          flutter-version: 3.41.7
+          # Pinned for reproducible CI. The `stable` channel floats; bump
+          # deliberately so deprecation churn surfaces in a dedicated PR
+          # instead of unrelated ones.
+          flutter-version: 3.44.0
 
       - name: Install macOS build dependencies
         # libserialport (transitive native dep of flutter_libserialport) requires
@@ -148,11 +144,10 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          # Pinned for reproducible CI. The `stable` channel floats, and a
-          # silent bump to 3.44.0 surfaced a new `onReorder` deprecation that
-          # broke unrelated PRs. Bump deliberately; see onReorder→onReorderItem
-          # follow-up issue before raising this past 3.44.
-          flutter-version: 3.41.7
+          # Pinned for reproducible CI. The `stable` channel floats; bump
+          # deliberately so deprecation churn surfaces in a dedicated PR
+          # instead of unrelated ones.
+          flutter-version: 3.44.0
 
       - name: Install dependencies
         run: flutter pub get

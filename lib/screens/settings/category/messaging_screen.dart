@@ -157,8 +157,7 @@ class _GroupsList extends StatelessWidget {
         final sub = subs[idx];
         return _GroupListItem(key: ValueKey(sub.id), sub: sub, groups: groups);
       },
-      onReorder: (oldIndex, newIndex) {
-        if (newIndex > oldIndex) newIndex -= 1;
+      onReorderItem: (oldIndex, newIndex) {
         final ids = subs.map((s) => s.id).toList();
         final moved = ids.removeAt(oldIndex);
         ids.insert(newIndex, moved);
