@@ -305,7 +305,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 ## 15. Reference Inventory
 
 - **Architecture overview:** `docs/ARCHITECTURE.md`
-- **Decisions:** `docs/DECISIONS.md` (ADR-001 through ADR-061)
+- **Decisions:** `docs/DECISIONS.md` (ADR-001 through ADR-067)
 - **Roadmap:** `docs/ROADMAP.md`
 - **Future features:** `docs/FUTURE_FEATURES.md`
 - **Theming strategy:** `docs/THEME_PLATFORM_STRATEGY.md`

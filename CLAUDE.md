@@ -40,7 +40,7 @@ Full dependency rationale and the platform transport matrix live in `docs/ARCHIT
 
 ## Architecture Layers
 
-```
+```text
 UI Layer          →  lib/ui/, lib/screens/
 Service Layer     →  lib/services/
 Persistence       →  lib/database/ (drift/SQLite — DAOs, tables)
@@ -107,7 +107,7 @@ Keep these current as the project evolves — they are the source of truth this 
 ### Map Tiles
 Stadia Maps serves the map tiles and requires an API key. The key is never committed — see `.env.example` for the template.
 
-```
+```bash
 flutter run --dart-define=STADIA_MAPS_API_KEY=your_key_here
 ```
 
