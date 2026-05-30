@@ -4,7 +4,7 @@ A consolidated reference of what Meridian can do today, organized by user-facing
 
 > **Maintenance:** This document is generated and maintained by Claude Code as part of milestone close-out. When a milestone changes user-visible capabilities or platform behavior, update this file alongside `ROADMAP.md` and `DECISIONS.md`. Source of truth is the codebase, not aspiration — partially implemented or untested capabilities are flagged explicitly.
 
-**Last updated:** 2026-05-24 (v0.19 Performance shipped; v0.20 Polish & A11y next)
+**Last updated:** 2026-05-30 (v0.19 Performance shipped; v0.20 BLE Plugin Replacement next)
 
 ---
 
@@ -26,7 +26,7 @@ Three concurrent transports, each modeled as a `MeridianConnection` and register
 - **Per-connection beaconing toggle:** each connection has its own `beacon_enabled_<id>` preference
 
 ### Explicit non-support
-- Classic Bluetooth SPP — planned v0.22 (not supported on iOS due to platform restriction)
+- Classic Bluetooth SPP — planned v0.21 (not supported on iOS due to platform restriction)
 - TCP KISS TNC (server software TNCs over LAN) — tracked in `FUTURE_FEATURES.md`
 - AFSK soft-modem (audio over phone speaker / mic) — no plans
 - AGW packet engine, KISS-over-IP variants beyond standard KISS-over-TCP
@@ -201,7 +201,7 @@ Three-tier platform-adaptive theme system.
 - **Wordmark** has horizontal and stacked layouts; mono variants explicit / fixed
 - **Responsive layout** at 600 px and 1024 px breakpoints — `MobileScaffold`, `TabletScaffold`, `DesktopScaffold` (ADR-011)
 - **Bottom-sheet patterns** via `MeridianBottomSheet`; status pill via `MeridianStatusPill`
-- **Adaptive widgets** — `Switch.adaptive`, `CircularProgressIndicator.adaptive`; full audit pending (v0.20 #62)
+- **Adaptive widgets** — `Switch.adaptive`, `CircularProgressIndicator.adaptive`; full audit pending (v0.22 #62)
 - **iOS routing** — `buildPlatformRoute<T>()` switches `CupertinoPageRoute` vs `MaterialPageRoute` (ADR-028)
 
 ---
@@ -253,7 +253,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 | APRS-IS RX | Y | Y | Y | Y | Y | P (proxy not deployed) |
 | BLE TNC | Y | Y | — | — | — | — |
 | USB Serial TNC | — | — | P | P | Y | — |
-| Classic BT SPP | Planned v0.22 | — (platform restriction) | Planned v0.22 | Planned v0.22 | Planned v0.22 | — |
+| Classic BT SPP | Planned v0.21 | — (platform restriction) | Planned v0.21 | Planned v0.21 | Planned v0.21 | — |
 | TX (beacon + message) | Y | Y | Y | Y | Y | P (depends on transport) |
 | Background packet RX | Y | Y | — | — | — | — |
 | Background beaconing | Y | Y | — | — | — | — |
@@ -271,7 +271,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 ## 13. Known Limitations / Explicit Non-Support
 
 ### Tracked, planned, deferred
-- **Classic Bluetooth SPP** — v0.22
+- **Classic Bluetooth SPP** — v0.21
 - **Offline maps** — v0.23
 - **TCP KISS TNC** — `FUTURE_FEATURES.md`
 - **Inter-app API** — `FUTURE_FEATURES.md`
@@ -305,7 +305,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 ## 15. Reference Inventory
 
 - **Architecture overview:** `docs/ARCHITECTURE.md`
-- **Decisions:** `docs/DECISIONS.md` (ADR-001 through ADR-061)
+- **Decisions:** `docs/DECISIONS.md` (ADR-001 through ADR-067)
 - **Roadmap:** `docs/ROADMAP.md`
 - **Future features:** `docs/FUTURE_FEATURES.md`
 - **Theming strategy:** `docs/THEME_PLATFORM_STRATEGY.md`

@@ -32,14 +32,17 @@ Primary brand color: `#4D1D8C` — a saturated, warm-leaning purple. Icon assets
 
 ## Features
 
-- **Live map** — Real-time station positions on Stadia Maps tiles
+- **Live map** — Real-time station positions on Stadia Maps tiles, with track history, time filtering, marker clustering, and station-type filters
 - **APRS-IS** — Direct connection to the APRS Internet Service network
 - **KISS TNC** — USB serial and Bluetooth LE TNC support
 - **Full packet parsing** — AX.25/APRS decoder in pure Dart (Mic-E, objects, messages, weather, and more)
 - **Position beaconing** — SmartBeaconing™, fixed interval, and manual transmit modes
-- **APRS messaging** — One-to-one messaging with retry and ACK handling
+- **APRS messaging** — One-to-one messaging with retry and ACK handling, plus groups (CQ/QST/ALL/custom) and bulletins (BLN0–9 + named)
+- **Notifications** — Background notifications and in-app banners for incoming messages
+- **Durable storage** — Stations, messages, and packet log persist across restarts (SQLite)
+- **Secure credentials** — APRS-IS passcode stored in the platform keystore
 - **Native UI** — Material 3 on Android, Cupertino on iOS, adaptive desktop layouts
-- **Background beaconing** — Keeps your position transmitting on Android even when the app is backgrounded (iOS coming in v0.9)
+- **Background beaconing** — Keeps your position transmitting even when the app is backgrounded, on both Android (foreground service) and iOS (background location + Live Activity)
 
 ---
 
@@ -72,6 +75,8 @@ Meridian has been tested with the following hardware:
 |--------|------------|----------|--------|
 | Mobilinkd TNC4 | Bluetooth LE | Android, iOS | ✅ Tested |
 | Mobilinkd TNC4 | USB Serial | Linux | ✅ Tested |
+
+Beyond the tested devices above, Meridian auto-recognizes a range of known BLE-KISS hardware — Mobilinkd TNC3/TNC4, PicoAPRS, B.B. Link, BTECH UV-Pro, Vero VR-N76/VR-N7500, Radioddity GA-5WB, and ESP32-based KISS TNCs — surfacing friendly model names during Bluetooth setup.
 
 Additional TNC hardware will be tested and added as the project matures. If you've tested Meridian with other hardware, feel free to open an issue.
 
@@ -120,10 +125,11 @@ flutter build linux        # Linux
 
 | Milestone | Status |
 |-----------|--------|
-| v0.1 – v0.13 — Foundation through security & connectivity | ✅ Complete |
-| v0.14 — Battery & performance optimization | 🔜 Next |
-| v0.15 — Bug triage pass | 🔜 Planned |
-| v1.0 — Final polish + store submission | 🔜 Planned |
+| v0.1 – v0.19 — Foundation through performance | ✅ Complete |
+| v0.20 — BLE plugin replacement (GPL-compatible) | 🔜 Next |
+| v0.21 — Classic Bluetooth SPP | 🔜 Planned |
+| v0.22 — Polish & accessibility | 🔜 Planned |
+| v1.0 — Launch (signing, store submission) | 🔜 Planned |
 
 This is a highlights view. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the full milestone breakdown.
 

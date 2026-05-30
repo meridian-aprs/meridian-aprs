@@ -1460,7 +1460,7 @@ class RealGeolocatorAdapter implements GeolocatorAdapter { /* delegates 1:1 */ }
 ### Consequences
 
 - `BeaconingService` is now fully covered by `test/services/beaconing_service_test.dart` (12 cases): mode transitions, smart-mode reschedule (shorten-only), suspend/resume handoff, `onBeaconSent` fan-out, and `locationUnsupported` (single-attempt bounded, no retry storm).
-- The `FakeGeolocatorAdapter` helper is the natural template for v0.20's wider widget-test sweep when GPS-dependent UI gets covered.
+- The `FakeGeolocatorAdapter` helper is the natural template for v0.22's wider widget-test sweep when GPS-dependent UI gets covered.
 - No production wiring change — `lib/main.dart` continues to construct `BeaconingService(settings, tx, onBeaconSent: ...)` and the default `RealGeolocatorAdapter()` preserves identical runtime behavior.
 
 ---
@@ -1522,7 +1522,7 @@ Until this change, `lib/core/transport/ble_constants.dart` exposed three constan
 
 A second, older family also exists. The [`ge0rg/bluetoothle-tnc`](https://github.com/ge0rg/bluetoothle-tnc/blob/master/Bluetooth-LE-TNC.md) spec — Family B — is what BTECH UV-Pro firmware ≥ 0.7.11, Vero VR-N76 / VR-N7500, and Radioddity GA-5WB use for KISS-over-BLE (when KISS mode is enabled in the radio menu). KISS framing on the wire is identical across both families; only the GATT plumbing differs.
 
-A user is bringing a BTECH UV-Pro online, and broader market support is on the v0.20 polish agenda regardless. Doing both — the rename and Family B support — together is cleaner than two staggered passes.
+A user is bringing a BTECH UV-Pro online, and broader market support is on the v0.22 polish agenda regardless. Doing both — the rename and Family B support — together is cleaner than two staggered passes.
 
 ### Decision
 

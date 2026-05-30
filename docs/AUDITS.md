@@ -9,8 +9,9 @@ with severity ratings but never modify code.
 
 ## The `aprs-auditor` agent
 
-A project-scoped sub-agent defined at `.claude/agents/aprs-auditor.md`. Invoke
-it when:
+A project-scoped Claude Code sub-agent. Its definition lives locally at
+`.claude/agents/aprs-auditor.md` (gitignored — not committed to the repo, so it
+won't be present on a fresh clone). Invoke it when:
 
 - Adding or modifying packet parser / encoder logic in `lib/core/packet/` or
   `lib/core/ax25/`.
