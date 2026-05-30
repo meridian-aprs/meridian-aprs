@@ -97,6 +97,39 @@ void main() {
       expect(aprsIs.lastSentLine, isNull);
     });
 
+    test('Classic BT + APRS-IS → Classic wins', () async {
+      final classic = makeConn(
+        id: 'classic',
+        type: ConnectionType.classicBtTnc,
+      );
+      final aprsIs = makeConn(id: 'aprs_is', type: ConnectionType.aprsIs);
+      await tx.sendLine('LINE');
+      expect(classic.lastSentLine, 'LINE');
+      expect(aprsIs.lastSentLine, isNull);
+    });
+
+    test('Classic BT beats BLE (Serial > Classic > BLE)', () async {
+      final classic = makeConn(
+        id: 'classic',
+        type: ConnectionType.classicBtTnc,
+      );
+      final ble = makeConn(id: 'ble', type: ConnectionType.bleTnc);
+      await tx.sendLine('LINE');
+      expect(classic.lastSentLine, 'LINE');
+      expect(ble.lastSentLine, isNull);
+    });
+
+    test('Serial beats Classic BT (Serial > Classic)', () async {
+      final serial = makeConn(id: 'serial', type: ConnectionType.serialTnc);
+      final classic = makeConn(
+        id: 'classic',
+        type: ConnectionType.classicBtTnc,
+      );
+      await tx.sendLine('LINE');
+      expect(serial.lastSentLine, 'LINE');
+      expect(classic.lastSentLine, isNull);
+    });
+
     test('forceVia: ConnectionType.aprsIs overrides hierarchy', () async {
       final serial = makeConn(id: 'serial', type: ConnectionType.serialTnc);
       final ble = makeConn(id: 'ble', type: ConnectionType.bleTnc);

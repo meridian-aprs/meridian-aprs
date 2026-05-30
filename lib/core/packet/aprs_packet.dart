@@ -3,7 +3,7 @@
 /// [tnc] is kept as a legacy deserialization alias; new code should use
 /// [bleTnc] or [serialTnc]. Both [tnc] and [bleTnc] represent KISS/BLE
 /// packets — they are treated equivalently in the UI.
-enum PacketSource { aprsIs, tnc, bleTnc, serialTnc }
+enum PacketSource { aprsIs, tnc, bleTnc, serialTnc, classicBtTnc }
 
 /// Typed APRS packet model hierarchy.
 ///

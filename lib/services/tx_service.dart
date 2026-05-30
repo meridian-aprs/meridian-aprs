@@ -56,6 +56,7 @@ class TxService extends ChangeNotifier {
     ConnectionType.aprsIs => PacketSource.aprsIs,
     ConnectionType.bleTnc => PacketSource.bleTnc,
     ConnectionType.serialTnc => PacketSource.serialTnc,
+    ConnectionType.classicBtTnc => PacketSource.classicBtTnc,
   };
 
   bool _tncWasConnected = false;
@@ -97,6 +98,7 @@ class TxService extends ChangeNotifier {
     if (conn == null) return 'Auto';
     return switch (conn.type) {
       ConnectionType.serialTnc => 'Auto [Serial]',
+      ConnectionType.classicBtTnc => 'Auto [Classic BT]',
       ConnectionType.bleTnc => 'Auto [BLE]',
       ConnectionType.aprsIs => 'Auto [APRS-IS]',
     };
@@ -164,6 +166,7 @@ class TxService extends ChangeNotifier {
           .where(
             (c) =>
                 (c.type == ConnectionType.serialTnc ||
+                    c.type == ConnectionType.classicBtTnc ||
                     c.type == ConnectionType.bleTnc) &&
                 c.isConnected,
           )
@@ -230,7 +233,8 @@ class TxService extends ChangeNotifier {
   bool get _tncAvailable => _registry.all.any(
     (c) =>
         (c.type == ConnectionType.bleTnc ||
-            c.type == ConnectionType.serialTnc) &&
+            c.type == ConnectionType.serialTnc ||
+            c.type == ConnectionType.classicBtTnc) &&
         c.isConnected,
   );
 
@@ -258,6 +262,7 @@ class TxService extends ChangeNotifier {
     }
     const order = [
       ConnectionType.serialTnc,
+      ConnectionType.classicBtTnc,
       ConnectionType.bleTnc,
       ConnectionType.aprsIs,
     ];

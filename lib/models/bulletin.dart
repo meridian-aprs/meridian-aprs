@@ -21,6 +21,7 @@ extension BulletinTransportMapping on PacketSource {
     PacketSource.aprsIs => BulletinTransport.aprsIs,
     PacketSource.bleTnc ||
     PacketSource.serialTnc ||
+    PacketSource.classicBtTnc ||
     PacketSource.tnc => BulletinTransport.rf,
   };
 }

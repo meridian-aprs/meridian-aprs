@@ -271,12 +271,14 @@ class PacketDetailSheet extends StatelessWidget {
 bool _isRf(PacketSource src) =>
     src == PacketSource.bleTnc ||
     src == PacketSource.serialTnc ||
+    src == PacketSource.classicBtTnc ||
     src == PacketSource.tnc;
 
 String _transportLabel(PacketSource src) => switch (src) {
   PacketSource.aprsIs => 'Internet (APRS-IS)',
   PacketSource.bleTnc => 'RF (BLE TNC)',
   PacketSource.serialTnc => 'RF (Serial TNC)',
+  PacketSource.classicBtTnc => 'RF (Classic BT)',
   PacketSource.tnc => 'RF (TNC)',
 };
 
