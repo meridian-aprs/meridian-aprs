@@ -39,6 +39,12 @@ BleGattService _aprsSpecsService() => BleGattService(
   const [kBleKissNotifyCharUuid, kBleKissWriteCharUuid],
 );
 
+/// A GATT service advertising the Benshi/BTECH (Family B) KISS profile.
+BleGattService _benshiService() => BleGattService(
+  kBenshiKissServiceUuid,
+  const [kBenshiKissNotifyCharUuid, kBenshiKissWriteCharUuid],
+);
+
 // ---------------------------------------------------------------------------
 // FakeBleDeviceAdapter
 // ---------------------------------------------------------------------------
@@ -52,6 +58,8 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   // ----- configuration knobs -----
   bool connectThrows = false;
   bool discoverThrows = false;
+  bool pairThrows = false;
+  bool paired = false;
   int fakeMtu = 512;
   List<BleGattService> services = [];
 
@@ -61,6 +69,8 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   int requestMtuCallCount = 0;
   int discoverCallCount = 0;
   int subscribeCallCount = 0;
+  int isPairedCallCount = 0;
+  int pairCallCount = 0;
   final List<Uint8List> writes = [];
   final List<bool> writeWithResponse = [];
 
@@ -92,6 +102,19 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   Future<int> requestMtu(int desired) async {
     requestMtuCallCount++;
     return fakeMtu;
+  }
+
+  @override
+  Future<bool> isPaired() async {
+    isPairedCallCount++;
+    return paired;
+  }
+
+  @override
+  Future<void> pair() async {
+    pairCallCount++;
+    if (pairThrows) throw Exception('FakeBleDeviceAdapter: pairing rejected');
+    paired = true;
   }
 
   @override
@@ -449,6 +472,54 @@ void main() {
           expect(unexpected, hasLength(1));
         },
       );
+
+      test('aprs-specs family never pairs', () async {
+        // Family A uses unencrypted characteristics — bonding must not be
+        // attempted (the previous plugin never prompted for it).
+        fakeAdapter.paired = false;
+        await transport.connect();
+
+        expect(transport.isConnected, isTrue);
+        expect(fakeAdapter.pairCallCount, 0);
+        expect(fakeAdapter.isPairedCallCount, 0);
+      });
+    });
+
+    // 12 — Benshi/BTECH (Family B) pairing -------------------------------------
+    group('benshi family pairing', () {
+      setUp(() {
+        fakeAdapter.services = [_benshiService()];
+      });
+
+      test('pairs up-front when not yet bonded', () async {
+        fakeAdapter.paired = false;
+        await transport.connect();
+
+        expect(transport.isConnected, isTrue);
+        expect(fakeAdapter.pairCallCount, 1);
+        final kinds = BleDiagnostics.I.events.map((e) => e.kind).toList();
+        expect(kinds, contains(BleEventKind.pairingStarted));
+        expect(kinds, contains(BleEventKind.pairingSucceeded));
+      });
+
+      test('skips pairing when already bonded', () async {
+        fakeAdapter.paired = true;
+        await transport.connect();
+
+        expect(transport.isConnected, isTrue);
+        expect(fakeAdapter.pairCallCount, 0);
+      });
+
+      test('pairing failure fails the connect with diagnostics', () async {
+        fakeAdapter.paired = false;
+        fakeAdapter.pairThrows = true;
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        expect(transport.currentStatus, ConnectionStatus.error);
+        final kinds = BleDiagnostics.I.events.map((e) => e.kind).toList();
+        expect(kinds, contains(BleEventKind.pairingFailed));
+      });
     });
 
     // 9 -----------------------------------------------------------------------

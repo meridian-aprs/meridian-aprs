@@ -1659,6 +1659,19 @@ streams, so it needs no demultiplexing and no single-owner global-slot bookkeepi
 stream survives session teardown naturally, which preserves the invariant that a late OS-side drop
 still reaches the transport's error path after `_cleanupSubscriptions`.
 
+**Pairing (Family B only, Android).** The Benshi/BTECH family (UV-Pro, Vero, Radioddity) gates its
+write characteristic behind a bonded link. FBP auto-bonded lazily when an encrypted characteristic was
+first accessed; universal_ble does not, so under the naive port the device connected but the **first
+beacon write triggered bonding mid-stream and the pairing handshake dropped the link** (confirmed on a
+UV-Pro during v0.20 hardware testing — connect succeeded, beacon disconnected; manually bonding in OS
+settings first made it work). The transport now bonds **up-front while idle**: after resolving the
+profile, if `family == benshi` and `!isPaired()`, it `await`s `pair()` before subscribing or writing.
+The aprs-specs family (Mobilinkd etc.) uses unencrypted characteristics and is **deliberately never
+paired** — calling `pair()` there would pop an OS dialog FBP never showed. The adapter's `isPaired`/
+`pair` short-circuit to no-ops off Android (iOS/macOS CoreBluetooth bonds transparently and exposes no
+system pairing API). Pairing failure fails the connect cleanly (vs. connect-then-drop-on-beacon).
+Diagnostics: `pairingStarted` / `pairingSucceeded` / `pairingFailed`.
+
 **Dropped / deliberately-unused capabilities:**
 
 - `clearGattCache()` — **no universal_ble equivalent.** FBP used it pre-connect to dodge Android GATT

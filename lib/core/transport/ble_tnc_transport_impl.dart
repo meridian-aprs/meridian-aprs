@@ -1,6 +1,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -55,6 +56,15 @@ abstract interface class BleDeviceAdapter {
   /// Requests an MTU and returns the negotiated ATT MTU (full frame size,
   /// including the 3-byte ATT header — callers subtract it for payload size).
   Future<int> requestMtu(int desired);
+
+  /// Whether the OS reports this device as bonded. On platforms that bond
+  /// transparently or expose no system pairing API (iOS/desktop) this returns
+  /// `true` so callers skip explicit pairing.
+  Future<bool> isPaired();
+
+  /// Bonds with the device via the OS pairing flow. No-op where the OS has no
+  /// system pairing API (iOS/desktop). Throws if pairing is rejected/fails.
+  Future<void> pair();
 
   Future<List<BleGattService>> discoverServices();
 
@@ -132,6 +142,21 @@ class UniversalBleDeviceAdapter implements BleDeviceAdapter {
   @override
   Future<int> requestMtu(int desired) =>
       UniversalBle.requestMtu(deviceId, desired);
+
+  @override
+  Future<bool> isPaired() async {
+    // Only Android exposes a system bond-state API. On iOS/macOS CoreBluetooth
+    // bonds transparently on encrypted-characteristic access (no system pairing
+    // API), so report "paired" to skip the explicit flow.
+    if (!Platform.isAndroid) return true;
+    return (await UniversalBle.isPaired(deviceId)) ?? false;
+  }
+
+  @override
+  Future<void> pair() async {
+    if (!Platform.isAndroid) return;
+    await UniversalBle.pair(deviceId);
+  }
 
   @override
   Future<List<BleGattService>> discoverServices() async {
@@ -387,6 +412,31 @@ class BleTncTransport extends KissTncTransport {
           'BleTncTransport: notify or write characteristic not found for '
           '${profile.family.name}. notify=$hasNotify write=$hasWrite',
         );
+      }
+
+      // 5b. Ensure the device is bonded BEFORE any write, for families that
+      //     require it. The Benshi/BTECH family (UV-Pro, Vero, Radioddity) gates
+      //     its write characteristic behind an encrypted link: if we let bonding
+      //     happen lazily on the first beacon write, the pairing handshake stalls
+      //     the link mid-stream and the connection drops. Pairing up-front while
+      //     idle avoids that. The aprs-specs family (Mobilinkd etc.) uses
+      //     unencrypted characteristics and must NOT be bonded — calling pair()
+      //     there would pop a spurious OS dialog the previous plugin never showed.
+      //     isPaired() short-circuits on iOS/desktop (transparent bonding / no
+      //     system pairing API), so this only acts on Android.
+      if (profile.family == BleKissFamily.benshi &&
+          !await _adapter.isPaired()) {
+        BleDiagnostics.I.log(
+          BleEventKind.pairingStarted,
+          'device=${_adapter.displayName}',
+        );
+        try {
+          await _adapter.pair();
+          BleDiagnostics.I.log(BleEventKind.pairingSucceeded);
+        } catch (e) {
+          BleDiagnostics.I.log(BleEventKind.pairingFailed, 'error=$e');
+          rethrow;
+        }
       }
 
       // 6. Subscribe to TX (notify) characteristic notifications.
