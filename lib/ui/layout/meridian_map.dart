@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -11,6 +12,7 @@ import '../../core/transport/aprs_transport.dart' show ConnectionStatus;
 import '../../services/station_service.dart';
 import '../utils/wx_data.dart';
 import '../widgets/station_info_sheet.dart';
+import 'map_render_data.dart';
 
 /// The core map widget used by all scaffold layouts.
 ///
@@ -39,8 +41,9 @@ class MeridianMap extends StatelessWidget {
   const MeridianMap({
     super.key,
     required this.mapController,
-    required this.markers,
+    required this.renderData,
     required this.tileUrl,
+    this.overlayMarkers = const <Marker>[],
     this.tileProvider,
     this.connectionStatus = ConnectionStatus.disconnected,
     this.initialCenter = const LatLng(39.0, -77.0),
@@ -49,18 +52,23 @@ class MeridianMap extends StatelessWidget {
     this.isAnyConnected = true,
     this.onNotConnectedTap,
     this.showTracks = false,
-    this.trackPolylines = const [],
     this.activeFilterLabel,
     this.onActiveFilterTap,
-    this.visibleStationCount = 0,
-    this.totalStationCount = 0,
     this.showCountChip = false,
-    this.nearestWxStation,
     this.onMapLongPress,
   });
 
   final MapController mapController;
-  final List<Marker> markers;
+
+  /// Per-packet-changing render state (markers, track polylines, counts, nearest
+  /// WX station). Consumed via `ValueListenableBuilder` at the leaves below so a
+  /// station update rebuilds only the marker/overlay layers, not the whole map
+  /// or the surrounding scaffold (#51).
+  final ValueListenable<MapRenderData> renderData;
+
+  /// Transient markers drawn on top of [renderData]'s markers — e.g. the
+  /// long-press pin. Owned by MapScreen state, changes rarely (user action).
+  final List<Marker> overlayMarkers;
 
   /// Stadia Maps tile URL with `{z}`, `{x}`, `{y}` placeholders.
   final String tileUrl;
@@ -84,12 +92,9 @@ class MeridianMap extends StatelessWidget {
   /// Called when the user taps the not-connected nudge chip.
   final VoidCallback? onNotConnectedTap;
 
-  /// Whether to render station movement tracks.
+  /// Whether to render station movement tracks. Track polylines themselves live
+  /// in [renderData]; this flag (a display setting) gates whether they show.
   final bool showTracks;
-
-  /// Pre-built polylines from each station's position history.
-  /// Only rendered when [showTracks] is true.
-  final List<Polyline> trackPolylines;
 
   /// When non-null, a compact chip is shown on the map surface indicating the
   /// active time filter (e.g. "30 min"). Tapping it calls [onActiveFilterTap].
@@ -98,19 +103,9 @@ class MeridianMap extends StatelessWidget {
   /// Called when the user taps the active filter chip.
   final VoidCallback? onActiveFilterTap;
 
-  /// Number of stations passing the current display filter.
-  final int visibleStationCount;
-
-  /// Total number of known stations (unfiltered).
-  final int totalStationCount;
-
   /// When false, suppresses the station count chip (use when the caller renders
   /// it itself, e.g. MobileScaffold aligns it with the beacon FAB).
   final bool showCountChip;
-
-  /// Nearest weather station within 50 km of the map center.
-  /// When non-null, a compact weather conditions chip is shown over the map.
-  final Station? nearestWxStation;
 
   /// Called when the user long-presses on the map canvas. Receives the
   /// geographic coordinate of the long-press point. Use this to drop a pin.
@@ -140,10 +135,25 @@ class MeridianMap extends StatelessWidget {
               tileProvider: tileProvider,
               userAgentPackageName: 'com.meridianaprs.app',
             ),
-            PolylineLayer(
-              polylines: showTracks ? trackPolylines : const <Polyline>[],
+            // Marker + polyline layers rebuild only when [renderData] changes
+            // (per-packet, debounced) — the TileLayer above and the chrome
+            // around the map do not (#51).
+            ValueListenableBuilder<MapRenderData>(
+              valueListenable: renderData,
+              builder: (_, data, _) => PolylineLayer(
+                polylines: showTracks
+                    ? data.trackPolylines
+                    : const <Polyline>[],
+              ),
             ),
-            MarkerLayer(markers: markers),
+            ValueListenableBuilder<MapRenderData>(
+              valueListenable: renderData,
+              builder: (_, data, _) => MarkerLayer(
+                markers: overlayMarkers.isEmpty
+                    ? data.markers
+                    : [...data.markers, ...overlayMarkers],
+              ),
+            ),
             const _ScaleBarLayer(),
             RichAttributionWidget(
               attributions: [
@@ -182,23 +192,37 @@ class MeridianMap extends StatelessWidget {
               ],
             ),
           ),
-        if (showCountChip &&
-            visibleStationCount < totalStationCount &&
-            totalStationCount > 0)
-          Positioned(
-            bottom: 32,
-            left: 12,
-            child: _StationCountChip(
-              visible: visibleStationCount,
-              total: totalStationCount,
-            ),
+        // Count + weather chips depend on per-packet render state. They live in
+        // the outer Stack (so the chip's Positioned stays a direct Stack child),
+        // but their content rebuilds only via these leaf ValueListenableBuilders.
+        Positioned(
+          bottom: 32,
+          left: 12,
+          child: ValueListenableBuilder<MapRenderData>(
+            valueListenable: renderData,
+            builder: (_, data, _) {
+              final show =
+                  showCountChip &&
+                  data.visibleStationCount < data.totalStationCount &&
+                  data.totalStationCount > 0;
+              if (!show) return const SizedBox.shrink();
+              return _StationCountChip(
+                visible: data.visibleStationCount,
+                total: data.totalStationCount,
+              );
+            },
           ),
-        if (nearestWxStation != null)
-          Positioned(
-            top: 12,
-            right: 12,
-            child: _WeatherOverlayChip(station: nearestWxStation!),
+        ),
+        Positioned(
+          top: 12,
+          right: 12,
+          child: ValueListenableBuilder<MapRenderData>(
+            valueListenable: renderData,
+            builder: (_, data, _) => data.nearestWxStation == null
+                ? const SizedBox.shrink()
+                : _WeatherOverlayChip(station: data.nearestWxStation!),
           ),
+        ),
       ],
     );
   }
@@ -296,7 +320,10 @@ class _WeatherOverlayChip extends StatelessWidget {
     if (wx == null) return const SizedBox.shrink();
 
     final theme = Theme.of(context);
-    final useCelsius = context.watch<StationService>().weatherOverlayUseCelsius;
+    // select, not watch: this chip must not rebuild on every packet (#57).
+    final useCelsius = context.select<StationService, bool>(
+      (s) => s.weatherOverlayUseCelsius,
+    );
 
     final tempStr = wx.tempF != null
         ? useCelsius
@@ -428,7 +455,11 @@ class _ScaleBarLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final imperial = context.watch<StationService>().useImperialUnits;
+    // select, not watch: the scale bar's unit pref changes rarely; do not
+    // rebuild it on every packet (#57).
+    final imperial = context.select<StationService, bool>(
+      (s) => s.useImperialUnits,
+    );
     final candidates = imperial ? _imperialCandidates : _metricCandidates;
 
     final camera = MapCamera.of(context);

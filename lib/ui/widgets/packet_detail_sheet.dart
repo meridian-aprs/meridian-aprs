@@ -81,6 +81,10 @@ class PacketDetailSheet extends StatelessWidget {
             const Divider(height: 1),
 
             Expanded(
+              // Eager `ListView(children:)` is intentional (#58): a single
+              // packet decodes to a small, bounded set of text rows (~25 max
+              // for a fully-populated weather/Mic-E packet) shown once in a
+              // modal sheet. Lazy building would add complexity for no gain.
               child: ListView(
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),

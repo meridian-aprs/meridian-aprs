@@ -171,9 +171,9 @@ Architecture, testing, and dependency foundations that unblock the subsequent pe
 
 Performance pass — measurable baselines and the structural fixes that move the needle. Battery, memory, and packet throughput each get a baseline so v1.0 has a defensible "good enough" answer.
 
-- MapScreen rebuild fix — stop the entire scaffold from rebuilding on every packet (#51)
-- Selector convention — establish the `Selector<>` pattern across `Provider`-driven UI rather than the current single-site usage (#57)
-- Non-builder `ListView` sweep — convert eager-inflate sites in SettingsScreen, PacketDetailSheet, and the PacketLogScreen filter bar (#58, absorbed #64)
+- ✅ MapScreen rebuild fix (#51) — the per-packet `setState` in `_rebuildMarkers` is gone; render state (markers, polylines, counts, nearest WX) lives in a `ValueNotifier<MapRenderData>` threaded down to `MeridianMap`, where only the marker / polyline / overlay-chip leaves rebuild via `ValueListenableBuilder`. `MapScreen.build()` now reads display settings via `context.select` (not `watch`), so the scaffold, AppBar, FABs, and filter chips no longer rebuild on packet receipt. Also fixed the undebounced per-packet clustering: the `StationService` listener now diffs display settings and ignores packet-only notifies. Guarded by `test/widget/map_rebuild_hygiene_test.dart`, which pumps a packet burst and asserts the `MeridianMap` widget instance survives (chrome did not rebuild) while the marker layer grows — failing if a per-packet `context.watch` is ever reintroduced into the chrome. Remaining manual check: DevTools rebuild-count verification against a live feed on a device.
+- ✅ Selector convention (#57) — documented `Selector` / `context.select` / `context.read` convention (comment block in `mobile_scaffold.dart`); narrowed the over-broad `context.watch<ConnectionRegistry>()` in the mobile + tablet scaffolds to a `(status, isAnyConnected)` record select, matching the existing desktop pattern. Audit confirmed the rest of the UI layer already uses `select`/`read` correctly.
+- ✅ Non-builder `ListView` sweep (#58, absorbed #64) — PacketLogScreen packet list extracted into its own `_PacketList` `StatefulWidget` so incoming packets no longer re-inflate the filter chips. SettingsScreen category list (≤10) and PacketDetailSheet field rows (~25, modal) documented as intentionally eager.
 - ✅ SQLite / drift evaluation spike (#87) — graduated from a decision doc into a full implementation (ADR-067). drift now backs stations, position history, packet log, conversations + message entries, and incoming + outgoing bulletins; multi-isolate access via `DriftIsolate` + `IsolateNameServer` resolves the ADR-057/061 foreground/background state drift. Configurable message/packet/station retention; per-DAO + cross-isolate integration tests.
 - Background service battery drain — profiling report on Android + iOS, plus go/no-go on optimization sub-tasks (#88)
 - Memory audit — stress-test station count target (5k stable), identify allocation hotspots, document baseline (#89)
@@ -286,4 +286,4 @@ Items that were filed as issues but deferred without scheduling. Each is tracked
 
 ---
 
-*Last updated: 2026-04-26*
+*Last updated: 2026-05-29*

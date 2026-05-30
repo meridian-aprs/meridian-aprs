@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -23,7 +24,27 @@ import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
 import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
+import 'map_render_data.dart';
 import 'meridian_map.dart';
+
+// ---------------------------------------------------------------------------
+// Provider-read convention (v0.19, Issue #57) — applies across the UI layer.
+//
+//  * `context.select<T, S>` / `Selector<T, S>` — when the widget only needs a
+//    subset `S` of provider `T`. Rebuilds only when `S` changes by value, not
+//    on every `T.notifyListeners()`. This is the DEFAULT for services that
+//    notify frequently (e.g. StationService fires per packet; ConnectionRegistry
+//    fires on every connection-state transition).
+//  * `context.watch<T>` / `Consumer<T>` — only when the widget genuinely needs
+//    to rebuild on ANY change to `T`.
+//  * `context.read<T>` — for method calls / one-shot reads with no observation
+//    (callbacks, initState). Never triggers a rebuild.
+//
+//  Selector equality is by value: the selected type must implement `==`
+//  correctly. Primitives, records, and immutable value objects are safe;
+//  mutable collections are only safe if the reference is stable between
+//  notifies (do NOT allocate a fresh collection inside the selector).
+// ---------------------------------------------------------------------------
 
 /// Mobile (< 600 px) scaffold: full-screen map, FAB cluster, M3 Navigation Bar.
 ///
@@ -35,28 +56,26 @@ class MobileScaffold extends StatefulWidget {
     super.key,
     required this.service,
     required this.mapController,
-    required this.markers,
+    required this.renderData,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
+    this.overlayMarkers = const <Marker>[],
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
     this.showTracks = false,
-    this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
-    this.visibleStationCount = 0,
-    this.totalStationCount = 0,
-    this.nearestWxStation,
     this.isFilterActive = false,
     this.onMapLongPress,
   });
 
   final StationService service;
   final MapController mapController;
-  final List<Marker> markers;
+  final ValueListenable<MapRenderData> renderData;
+  final List<Marker> overlayMarkers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
@@ -65,12 +84,8 @@ class MobileScaffold extends StatefulWidget {
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
   final bool showTracks;
-  final List<Polyline> trackPolylines;
   final VoidCallback onOpenFilterPanel;
   final String? activeFilterLabel;
-  final int visibleStationCount;
-  final int totalStationCount;
-  final Station? nearestWxStation;
   final bool isFilterActive;
   final void Function(LatLng)? onMapLongPress;
 
@@ -196,15 +211,21 @@ class _MobileScaffoldState extends State<MobileScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    final registry = context.watch<ConnectionRegistry>();
+    // Only the aggregate status + isAnyConnected drive this scaffold's chrome
+    // and map — select them as a record so we rebuild on connection-state
+    // transitions only, not on every ConnectionRegistry notify (#57).
+    final (status, isAnyConnected) = context
+        .select<ConnectionRegistry, (ConnectionStatus, bool)>(
+          (r) => (r.aggregateStatus, r.isAnyConnected),
+        );
     return Scaffold(
       appBar: _selectedIndex == 0
           ? AppBar(
               title: const MeridianWordmark.horizontal(height: 40),
               actions: [
                 MeridianStatusPill(
-                  status: registry.aggregateStatus,
-                  label: _aggregateLabel(registry.aggregateStatus),
+                  status: status,
+                  label: _aggregateLabel(status),
                   onTap: _navigateToConnection,
                 ),
                 IconButton(
@@ -269,23 +290,20 @@ class _MobileScaffoldState extends State<MobileScaffold> {
             children: [
               MeridianMap(
                 mapController: widget.mapController,
-                markers: widget.markers,
+                renderData: widget.renderData,
+                overlayMarkers: widget.overlayMarkers,
                 tileUrl: widget.tileUrl,
                 tileProvider: widget.meridianTileProvider.buildTileProvider(),
-                connectionStatus: registry.aggregateStatus,
+                connectionStatus: status,
                 initialCenter: widget.initialCenter,
                 initialZoom: widget.initialZoom,
                 northUpLocked: widget.northUpLocked,
-                isAnyConnected: registry.isAnyConnected,
+                isAnyConnected: isAnyConnected,
                 onNotConnectedTap: _navigateToConnection,
                 showTracks: widget.showTracks,
-                trackPolylines: widget.trackPolylines,
                 activeFilterLabel: widget.activeFilterLabel,
                 onActiveFilterTap: widget.onOpenFilterPanel,
-                visibleStationCount: widget.visibleStationCount,
-                totalStationCount: widget.totalStationCount,
                 showCountChip: false,
-                nearestWxStation: widget.nearestWxStation,
                 onMapLongPress: widget.onMapLongPress,
               ),
               // FAB cluster — bottom-right above navigation bar.

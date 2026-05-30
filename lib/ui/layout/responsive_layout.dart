@@ -1,12 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
-import '../../core/packet/station.dart';
 import '../../map/meridian_tile_provider.dart';
 
 import '../../services/station_service.dart';
 import 'desktop_scaffold.dart';
+import 'map_render_data.dart';
 import 'mobile_scaffold.dart';
 import 'tablet_scaffold.dart';
 
@@ -21,28 +22,34 @@ class ResponsiveLayout extends StatelessWidget {
     super.key,
     required this.service,
     required this.mapController,
-    required this.markers,
+    required this.renderData,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
+    this.overlayMarkers = const <Marker>[],
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
     this.showTracks = false,
-    this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
-    this.visibleStationCount = 0,
-    this.totalStationCount = 0,
-    this.nearestWxStation,
     this.isFilterActive = false,
     this.onMapLongPress,
   });
 
   final StationService service;
   final MapController mapController;
-  final List<Marker> markers;
+
+  /// Per-packet-changing map render state (markers, polylines, counts, WX).
+  /// Threaded down to [MeridianMap] as a listenable so station updates rebuild
+  /// only the map leaves, not the scaffold chrome (#51).
+  final ValueListenable<MapRenderData> renderData;
+
+  /// Transient overlay markers (e.g. the long-press pin) drawn over the
+  /// [renderData] markers.
+  final List<Marker> overlayMarkers;
+
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
@@ -51,19 +58,11 @@ class ResponsiveLayout extends StatelessWidget {
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
   final bool showTracks;
-  final List<Polyline> trackPolylines;
   final VoidCallback onOpenFilterPanel;
 
   /// Non-null label shown as a chip on the map surface when a non-default
   /// time filter is active.
   final String? activeFilterLabel;
-
-  final int visibleStationCount;
-  final int totalStationCount;
-
-  /// Nearest weather station within 50 km of the map center.
-  /// Non-null only when the overlay is enabled and a WX station is in range.
-  final Station? nearestWxStation;
 
   /// Whether any map filter is set to a non-default value. Used to badge the
   /// filter FAB/button so users know active filters are in effect.
@@ -80,7 +79,8 @@ class ResponsiveLayout extends StatelessWidget {
       return MobileScaffold(
         service: service,
         mapController: mapController,
-        markers: markers,
+        renderData: renderData,
+        overlayMarkers: overlayMarkers,
         tileUrl: tileUrl,
         meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
@@ -89,12 +89,8 @@ class ResponsiveLayout extends StatelessWidget {
         northUpLocked: northUpLocked,
         onToggleNorthUp: onToggleNorthUp,
         showTracks: showTracks,
-        trackPolylines: trackPolylines,
         onOpenFilterPanel: onOpenFilterPanel,
         activeFilterLabel: activeFilterLabel,
-        visibleStationCount: visibleStationCount,
-        totalStationCount: totalStationCount,
-        nearestWxStation: nearestWxStation,
         isFilterActive: isFilterActive,
         onMapLongPress: onMapLongPress,
       );
@@ -103,7 +99,8 @@ class ResponsiveLayout extends StatelessWidget {
       return TabletScaffold(
         service: service,
         mapController: mapController,
-        markers: markers,
+        renderData: renderData,
+        overlayMarkers: overlayMarkers,
         tileUrl: tileUrl,
         meridianTileProvider: meridianTileProvider,
         onNavigateToSettings: onNavigateToSettings,
@@ -112,12 +109,8 @@ class ResponsiveLayout extends StatelessWidget {
         northUpLocked: northUpLocked,
         onToggleNorthUp: onToggleNorthUp,
         showTracks: showTracks,
-        trackPolylines: trackPolylines,
         onOpenFilterPanel: onOpenFilterPanel,
         activeFilterLabel: activeFilterLabel,
-        visibleStationCount: visibleStationCount,
-        totalStationCount: totalStationCount,
-        nearestWxStation: nearestWxStation,
         isFilterActive: isFilterActive,
         onMapLongPress: onMapLongPress,
       );
@@ -125,7 +118,8 @@ class ResponsiveLayout extends StatelessWidget {
     return DesktopScaffold(
       service: service,
       mapController: mapController,
-      markers: markers,
+      renderData: renderData,
+      overlayMarkers: overlayMarkers,
       tileUrl: tileUrl,
       meridianTileProvider: meridianTileProvider,
       onNavigateToSettings: onNavigateToSettings,
@@ -134,12 +128,8 @@ class ResponsiveLayout extends StatelessWidget {
       northUpLocked: northUpLocked,
       onToggleNorthUp: onToggleNorthUp,
       showTracks: showTracks,
-      trackPolylines: trackPolylines,
       onOpenFilterPanel: onOpenFilterPanel,
       activeFilterLabel: activeFilterLabel,
-      visibleStationCount: visibleStationCount,
-      totalStationCount: totalStationCount,
-      nearestWxStation: nearestWxStation,
       isFilterActive: isFilterActive,
       onMapLongPress: onMapLongPress,
     );

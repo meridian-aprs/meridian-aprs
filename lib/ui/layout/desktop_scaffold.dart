@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -24,6 +25,7 @@ import '../widgets/connection_nav_icon.dart';
 import '../utils/platform_route.dart';
 import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
+import 'map_render_data.dart';
 import 'meridian_map.dart';
 
 /// Desktop (> 1024 px) scaffold: expanded navigation rail (240 px) + map +
@@ -37,28 +39,26 @@ class DesktopScaffold extends StatefulWidget {
     super.key,
     required this.service,
     required this.mapController,
-    required this.markers,
+    required this.renderData,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
+    this.overlayMarkers = const <Marker>[],
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
     this.showTracks = false,
-    this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
-    this.visibleStationCount = 0,
-    this.totalStationCount = 0,
-    this.nearestWxStation,
     this.isFilterActive = false,
     this.onMapLongPress,
   });
 
   final StationService service;
   final MapController mapController;
-  final List<Marker> markers;
+  final ValueListenable<MapRenderData> renderData;
+  final List<Marker> overlayMarkers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
@@ -67,12 +67,8 @@ class DesktopScaffold extends StatefulWidget {
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
   final bool showTracks;
-  final List<Polyline> trackPolylines;
   final VoidCallback onOpenFilterPanel;
   final String? activeFilterLabel;
-  final int visibleStationCount;
-  final int totalStationCount;
-  final Station? nearestWxStation;
   final bool isFilterActive;
   final void Function(LatLng)? onMapLongPress;
 
@@ -179,6 +175,13 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    // Reactively track the connection state the map banner/nudge depend on, so
+    // they update immediately on a registry change — matching mobile/tablet and
+    // the #57 convention (was a non-reactive context.read).
+    final (status, isAnyConnected) = context
+        .select<ConnectionRegistry, (ConnectionStatus, bool)>(
+          (r) => (r.aggregateStatus, r.isAnyConnected),
+        );
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -302,27 +305,20 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                     Expanded(
                       child: MeridianMap(
                         mapController: widget.mapController,
-                        markers: widget.markers,
+                        renderData: widget.renderData,
+                        overlayMarkers: widget.overlayMarkers,
                         tileUrl: widget.tileUrl,
                         tileProvider: widget.meridianTileProvider
                             .buildTileProvider(),
-                        connectionStatus: context
-                            .read<ConnectionRegistry>()
-                            .aggregateStatus,
+                        connectionStatus: status,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
-                        isAnyConnected: context
-                            .read<ConnectionRegistry>()
-                            .isAnyConnected,
+                        isAnyConnected: isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
                         showTracks: widget.showTracks,
-                        trackPolylines: widget.trackPolylines,
                         activeFilterLabel: widget.activeFilterLabel,
                         onActiveFilterTap: widget.onOpenFilterPanel,
-                        visibleStationCount: widget.visibleStationCount,
-                        totalStationCount: widget.totalStationCount,
-                        nearestWxStation: widget.nearestWxStation,
                         onMapLongPress: widget.onMapLongPress,
                       ),
                     ),

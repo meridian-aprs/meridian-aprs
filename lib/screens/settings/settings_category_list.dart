@@ -21,6 +21,10 @@ class SettingsCategoryList extends StatelessWidget {
   Widget build(BuildContext context) {
     final advanced = context.watch<AdvancedModeController>();
 
+    // Eager `ListView(children:)` is intentional (#58): the category set is a
+    // small, bounded list (≤10 items) that only changes when Advanced Mode
+    // toggles — not a growable or high-frequency list, so a builder buys
+    // nothing here.
     return ListView(
       children: [
         for (var i = 0; i < categories.length; i++)

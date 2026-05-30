@@ -53,10 +53,51 @@ class PacketLogBody extends StatefulWidget {
 }
 
 class _PacketLogBodyState extends State<PacketLogBody> {
+  _PacketFilter _filter = _PacketFilter.all;
+
+  @override
+  Widget build(BuildContext context) {
+    // Only the filter bar lives in this widget. The packet list is its own
+    // StatefulWidget ([_PacketList]) that owns the packet-stream subscription,
+    // so an incoming packet rebuilds the list alone — not the 8 filter chips,
+    // which previously re-inflated on every packet (#58).
+    return Column(
+      children: [
+        _FilterBar(
+          selected: _filter,
+          onChanged: (f) => setState(() => _filter = f),
+        ),
+        Expanded(
+          child: _PacketList(service: widget.service, filter: _filter),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Packet list
+// ---------------------------------------------------------------------------
+
+/// Scrolling, lazily-built ([ListView.builder]) packet list.
+///
+/// Owns the rolling buffer, the packet-stream subscription, the bulk-change
+/// listener, and the scroll controller. Extracted from [PacketLogBody] so that
+/// per-packet rebuilds stay scoped to this subtree and never re-inflate the
+/// filter chips above it (#58).
+class _PacketList extends StatefulWidget {
+  const _PacketList({required this.service, required this.filter});
+
+  final StationService service;
+  final _PacketFilter filter;
+
+  @override
+  State<_PacketList> createState() => _PacketListState();
+}
+
+class _PacketListState extends State<_PacketList> {
   /// Rolling buffer mirroring [StationService.recentPackets].
   final List<AprsPacket> _packets = [];
-
-  _PacketFilter _filter = _PacketFilter.all;
 
   final _scrollController = ScrollController();
   StreamSubscription<AprsPacket>? _subscription;
@@ -81,6 +122,14 @@ class _PacketLogBodyState extends State<PacketLogBody> {
     widget.service.addListener(_onServiceChanged);
 
     _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void didUpdateWidget(_PacketList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // On filter change, re-enable auto-scroll so the newest matching packet is
+    // brought into view — matches the pre-extraction behavior.
+    if (oldWidget.filter != widget.filter) _userScrolledUp = false;
   }
 
   @override
@@ -129,8 +178,8 @@ class _PacketLogBodyState extends State<PacketLogBody> {
   }
 
   List<AprsPacket> get _filtered {
-    if (_filter == _PacketFilter.all) return _packets;
-    return _packets.where((p) => _matchesFilter(p, _filter)).toList();
+    if (widget.filter == _PacketFilter.all) return _packets;
+    return _packets.where((p) => _matchesFilter(p, widget.filter)).toList();
   }
 
   static bool _matchesFilter(AprsPacket p, _PacketFilter f) {
@@ -151,37 +200,25 @@ class _PacketLogBodyState extends State<PacketLogBody> {
     final theme = Theme.of(context);
     final filtered = _filtered;
 
-    return Column(
-      children: [
-        _FilterBar(
-          selected: _filter,
-          onChanged: (f) => setState(() {
-            _filter = f;
-            _userScrolledUp = false;
-          }),
+    if (filtered.isEmpty) {
+      return Center(
+        child: Text(
+          'No packets yet',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
-        Expanded(
-          child: filtered.isEmpty
-              ? Center(
-                  child: Text(
-                    'No packets yet',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                )
-              : ListView.builder(
-                  controller: _scrollController,
-                  itemCount: filtered.length,
-                  itemBuilder: (context, index) => _PacketRow(
-                    packet: filtered[index],
-                    timeFmt: _timeFmt,
-                    onTap: () =>
-                        showPacketDetailSheet(context, filtered[index]),
-                  ),
-                ),
-        ),
-      ],
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: filtered.length,
+      itemBuilder: (context, index) => _PacketRow(
+        packet: filtered[index],
+        timeFmt: _timeFmt,
+        onTap: () => showPacketDetailSheet(context, filtered[index]),
+      ),
     );
   }
 }
@@ -198,6 +235,9 @@ class _FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Eager inflation is intentional: the chip set is a fixed, small enum
+    // (8 items). Rebuild scope is the concern here, not lazy inflation — and
+    // that is handled by isolating this bar from the packet list (#58).
     return SizedBox(
       height: 48,
       child: ListView(
