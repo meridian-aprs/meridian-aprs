@@ -1774,3 +1774,131 @@ checks rather than open architectural questions, so they do not change any decis
 - `lib/ui/widgets/ble_scanner_sheet.dart` — universal_ble scan/connect
 - [universal_ble on pub.dev](https://pub.dev/packages/universal_ble) (BSD-3-Clause)
 
+---
+
+## ADR-069: Classic Bluetooth SPP via a native platform channel (not a Flutter plugin)
+
+**Date:** 2026-05-30
+**Status:** Proposed (Phase 1 gate — finalize at v0.21 close)
+**Milestone:** v0.21 — Classic Bluetooth SPP
+**Related:** ADR-002 (GPL v3), ADR-065 / ADR-068 (BLE-plugin license analysis), ADR-029 / ADR-051 (TX-routing hierarchy), ADR-060 (foreground-service types), ADR-019/020 (transport seam)
+
+> **ADR numbering note.** The v0.21 milestone brief said "write ADR-066," but ADR-066
+> ("Standards-aware BLE-KISS naming and multi-family TNC support") already exists. This decision
+> takes the next free number, **069**.
+
+### Context
+
+Meridian speaks three transports: APRS-IS (TCP), BLE TNC (GATT), and Serial TNC (USB). A meaningful
+slice of installed-base hardware is reachable only over **Classic** Bluetooth **SPP** (Serial Port
+Profile / RFCOMM): Kenwood HTs (TH-D74/D75), older mobiles, and Bluetooth TNCs that predate BLE.
+SPP is architecturally a **serial twin** — a raw bidirectional byte stream — so it drops into the
+existing `KissTncTransport` / `MeridianConnection` / `ReconnectableMixin` seam exactly like
+`SerialConnection`, reusing the transport-agnostic `KissFramer`, AX.25 decode, and beaconing
+unchanged. The only open question is *how* to open the RFCOMM socket on each platform.
+
+### Decision
+
+Reach Classic BT SPP through a **thin native platform channel**, not a third-party Flutter plugin.
+Android ships first (Phase 2) via a Kotlin `MethodChannel` + `EventChannel`
+(`meridian/classic_bt`); desktop (Phase 3) adds per-OS native backends behind the same Dart-side
+channel contract. **iOS is excluded by platform restriction** (see below).
+
+### Rationale
+
+- **No GPL-clean, maintained plugin exists.** The most-established option, `flutter_bluetooth_serial`,
+  is effectively unmaintained (no null-safety-era cadence, Android-12 permission support landed only
+  via community forks) and is Android-only. The GPL-v3-incompatibility burn of ADR-065 (FBP v2's
+  commercial relicense) makes any dependency with an ambiguous or commercial license a hard stop
+  (ADR-002 requires GPL-v3 compatibility). A plugin we'd have to fork-and-maintain is the same
+  open-ended commitment ADR-068 rejected for BLE.
+- **A native channel is the only path to the cross-platform target anyway.** Phase 3 needs Linux
+  (`bluez`/D-Bus), Windows (`Windows.Devices.Bluetooth`), and macOS (`IOBluetooth`) — no single
+  plugin covers Classic SPP across them. Owning a thin channel from the start avoids adopting a
+  plugin for Android only to rip it out for desktop.
+- **The native surface is genuinely thin.** Android RFCOMM is five operations
+  (`isSupported`, list bonded devices, connect, disconnect, write) plus an RX byte stream. The app
+  already owns native Kotlin (notification MethodChannel in `MainActivity`), so the pattern is
+  established and the maintenance burden is small and self-contained.
+- **Matches the project's stated native-over-fork preference** for small method-channel work.
+
+The channel contract (stable across platforms):
+
+| Direction | Mechanism | Operations |
+|---|---|---|
+| Dart → native | `MethodChannel('meridian/classic_bt')` | `isSupported` · `listPaired` · `connect(address)` · `disconnect` · `write(bytes)` |
+| native → Dart | `EventChannel('meridian/classic_bt/rx')` | RX `ByteArray` frames · connection-state transitions |
+
+RX bytes feed `KissFramer.addBytes()`; TX is `KissFramer.encode(ax25)` → `write`. Pairing is **not**
+in scope — the OS owns bonding; the app only lists already-bonded devices and connects.
+
+### iOS exclusion (platform restriction, not a bug)
+
+Apple does **not** permit third-party apps to open Classic Bluetooth SPP to non-MFi-certified
+accessories — the ExternalAccessory framework requires the accessory to carry an MFi chip and declare
+a protocol string, which ham radios do not. This is an Apple platform constraint, not a Meridian
+limitation. It is documented here and in `CAPABILITIES.md`; it is **not** surfaced as an in-app error
+and **not** filed as an issue. iOS users with Classic-BT-only hardware need an external BLE↔Classic
+bridge. (iOS retains full BLE and APRS-IS support.)
+
+### Android 12+ permissions
+
+`BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` are already declared in `AndroidManifest.xml` (added for
+BLE; both cover Classic). On API 31+ the app must hold a runtime `BLUETOOTH_CONNECT` grant before
+listing bonded devices or connecting — requested through the existing `permission_handler` flow. No
+new manifest entries are required. Per ADR-060, the foreground service keeps its `dataSync|location`
+types and does **not** re-add `connectedDevice` (which crashes APRS-IS-only sessions on targetSdk
+34+); Classic sessions run under the existing types.
+
+### TX-routing placement
+
+Classic BT is a **peer of Serial** (both are RF KISS byte streams), inserted into the existing
+hierarchy (ADR-029/051) as **Serial > Classic BT > BLE > APRS-IS**. The Serial-vs-Classic ordering is
+immaterial in practice (no user runs a USB TNC and a Classic-BT TNC simultaneously); the position is
+chosen for determinism.
+
+### Enum & seam impact
+
+One append-only change each to `ConnectionType` (`classicBtTnc`) and `PacketSource` (`classicBtTnc`).
+`MeridianConnection`, `ConnectionRegistry`, `ReconnectableMixin`, and `KissFramer` are otherwise
+untouched. `ClassicBtConnection` mirrors `SerialConnection` (active-polling reconnect; **no** BLE-style
+`doWaitingPhaseReconnect`).
+
+### Alternatives considered
+
+- **`flutter_bluetooth_serial`.** Android-only, effectively unmaintained, shaky Android-12 permission
+  story, and license/Phase-3 reach both fail the bar. Rejected.
+- **A community fork of the above.** Same fork-and-maintain commitment ADR-068 rejected for BLE, for a
+  narrower (Android-only) payoff. Rejected.
+- **A cross-platform BLE+Classic plugin.** None exists with maintained Classic SPP across Android +
+  desktop under a GPL-compatible license. Rejected.
+- **Reuse `flutter_libserialport`.** Serial port abstraction; does not speak RFCOMM/bonded-device
+  Bluetooth. Not applicable.
+
+### Consequences
+
+- New, self-contained native code per platform (Android Kotlin first). No new pub dependency, so no
+  license surface added and CI's Linux build list is unchanged at Phase 2.
+- The Dart-side channel wrapper compiles on every platform (plain `MethodChannel`); it is exercised
+  only where `ClassicBtConnection.isAvailable` is true (Android in Phase 2), and a stub guards
+  web/unsupported targets.
+- Desktop backends (Phase 3) are additive behind the same channel contract and gated by widening
+  `isAvailable`; desktop BLE is enabled in the same Phase 3 validation pass for a consistent Bluetooth
+  UI (see ROADMAP / v0.21 plan).
+
+### Hardware validation (Phase 1 spike)
+
+The decision is validated by a minimal Android RFCOMM spike against a **Kenwood TH-D75** over the
+standard SPP UUID `00001101-0000-1000-8000-00805F9B34FB`: list the bonded TH-D75, connect, confirm RX
+bytes flow into `KissFramer` and decode to APRS lines, and confirm a TX frame reaches the radio.
+**Pending on-device run** — this ADR is *Proposed* until the spike confirms bytes flow; it is then
+promoted to *Accepted* and finalized at v0.21 close.
+
+### References
+
+- ADR-065 / ADR-068 — BLE-plugin license analysis (the GPL-compatibility bar this decision inherits)
+- ADR-002 — GPL v3 license requirement
+- ADR-060 — foreground-service type constraints
+- `docs/ROADMAP.md` — v0.21 Classic Bluetooth SPP milestone (platform matrix, iOS caveat)
+- Android RFCOMM: `BluetoothDevice.createRfcommSocketToServiceRecord` / `BluetoothAdapter.bondedDevices`
+

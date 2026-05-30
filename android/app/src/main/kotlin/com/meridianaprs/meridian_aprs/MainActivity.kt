@@ -17,6 +17,7 @@ class MainActivity : FlutterActivity() {
 
     private lateinit var appContext: Context
     private var pendingNavCallsign: String? = null
+    private var classicBtChannel: ClassicBtChannel? = null
 
     companion object {
         const val MAIN_ENGINE_ID = "meridian_main_engine"
@@ -51,6 +52,10 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // Classic Bluetooth SPP (RFCOMM) bridge — ADR-069. Owns its own
+        // MethodChannel + EventChannel; held for the engine's lifetime.
+        classicBtChannel = ClassicBtChannel(appContext, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
