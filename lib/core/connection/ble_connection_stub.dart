@@ -11,7 +11,7 @@ class BleConnection extends MeridianConnection {
   BleConnection({Clock clock = DateTime.now});
 
   @visibleForTesting
-  KissTncTransport Function(dynamic)? transportFactory;
+  KissTncTransport Function(String deviceId)? transportFactory;
 
   @override
   String get id => 'ble_tnc';
@@ -54,8 +54,11 @@ class BleConnection extends MeridianConnection {
   Future<void> connect() =>
       throw UnsupportedError('BLE not supported on this platform');
 
-  Future<void> connectToDevice(dynamic device, {dynamic family}) =>
-      throw UnsupportedError('BLE not supported on this platform');
+  Future<void> connectToDevice(
+    String deviceId, {
+    String? deviceName,
+    dynamic family,
+  }) => throw UnsupportedError('BLE not supported on this platform');
 
   @override
   Future<void> disconnect() async {}

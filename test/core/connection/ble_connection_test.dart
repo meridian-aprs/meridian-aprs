@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:fake_async/fake_async.dart';
 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/connection/ble_connection_impl.dart';
 import 'package:meridian_aprs/core/connection/meridian_connection.dart';
@@ -38,15 +37,15 @@ void main() {
   late BleConnection conn;
   late FakeKissTncTransport fakeTransport;
 
-  // We use a fake BluetoothDevice — the actual device object is never used
-  // by BleConnection because the transportFactory intercepts it.
-  final fakeDevice = BluetoothDevice.fromId('AA:BB:CC:DD:EE:FF');
+  // A device id string — the actual transport is never built because the
+  // transportFactory intercepts the id and returns the shared fake.
+  const fakeDeviceId = 'AA:BB:CC:DD:EE:FF';
 
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     fakeTransport = FakeKissTncTransport();
     conn = BleConnection();
-    // Inject fake transport — factory ignores the device and returns the shared fake
+    // Inject fake transport — factory ignores the id and returns the shared fake
     conn.transportFactory = (_) => fakeTransport;
   });
 
@@ -67,13 +66,13 @@ void main() {
   });
 
   test('connectToDevice transitions to connected', () async {
-    await conn.connectToDevice(fakeDevice);
+    await conn.connectToDevice(fakeDeviceId);
     expect(conn.isConnected, isTrue);
     expect(conn.status, ConnectionStatus.connected);
   });
 
   test('disconnect transitions to disconnected', () async {
-    await conn.connectToDevice(fakeDevice);
+    await conn.connectToDevice(fakeDeviceId);
     await conn.disconnect();
     expect(conn.isConnected, isFalse);
     expect(conn.status, ConnectionStatus.disconnected);
@@ -83,7 +82,7 @@ void main() {
     final states = <ConnectionStatus>[];
     conn.connectionState.listen(states.add);
 
-    await conn.connectToDevice(fakeDevice);
+    await conn.connectToDevice(fakeDeviceId);
     await conn.disconnect();
     await Future<void>.delayed(Duration.zero);
 
@@ -94,7 +93,7 @@ void main() {
     final received = <String>[];
     conn.lines.listen(received.add);
 
-    await conn.connectToDevice(fakeDevice);
+    await conn.connectToDevice(fakeDeviceId);
 
     // frameStream emits raw AX.25 payload (KISS header already stripped)
     final rawAx25 = _buildRawAx25(
@@ -111,7 +110,7 @@ void main() {
   });
 
   test('sendLine encodes to AX.25 and calls sendFrame', () async {
-    await conn.connectToDevice(fakeDevice);
+    await conn.connectToDevice(fakeDeviceId);
     await conn.sendLine('W1AW-9>APMDN0,TCPIP*:!4903.50N/07201.75W>Hello');
     expect(fakeTransport.sentFrames, hasLength(1));
   });
@@ -146,7 +145,7 @@ void main() {
     test('reconnect triggered on error after session established', () {
       fakeAsync((async) {
         // Connect and flush so session is established
-        conn.connectToDevice(fakeDevice);
+        conn.connectToDevice(fakeDeviceId);
         async.flushMicrotasks();
         expect(conn.isConnected, isTrue);
 
@@ -159,7 +158,7 @@ void main() {
     });
 
     test('disconnect cancels pending reconnect', () async {
-      await conn.connectToDevice(fakeDevice);
+      await conn.connectToDevice(fakeDeviceId);
       fakeTransport.simulateUnexpectedDisconnect();
       await Future<void>.delayed(Duration.zero);
       // While reconnecting, user disconnects

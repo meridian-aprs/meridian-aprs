@@ -32,6 +32,10 @@ enum BleEventKind {
   connectionPriorityFailed,
   keepaliveRetried,
   disconnectInternal,
+  pairingStarted,
+  pairingSucceeded,
+  pairingFailed,
+  connectRetry,
 }
 
 /// One entry in the BLE diagnostics log.

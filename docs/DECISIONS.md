@@ -1606,3 +1606,171 @@ Key as-built decisions:
 - `lib/services/background_service_manager.dart` — `onResumed` → `refreshOutgoing()`
 - [drift documentation](https://drift.simonbinder.eu/)
 
+---
+
+## ADR-068: Replace `flutter_blue_plus` with `universal_ble`
+
+**Date:** 2026-05-30
+**Status:** Accepted
+**Milestone:** v0.20 — BLE Plugin Replacement
+**Closes:** #114
+**Supersedes:** the pin/fork mitigation of ADR-065 (the underlying license analysis there still stands)
+**Related:** ADR-066 (multi-family BLE-KISS), ADR-019/ADR-020 (BLE transport), ADR-029 (reconnect)
+
+### Context
+
+ADR-065 pinned `flutter_blue_plus` (FBP) to `>=1.36.0 <2.0.0` because FBP v2 relicensed to a
+GPL-v3-incompatible commercial license. The pin was always a holding action: v1.0 cannot ship on a
+frozen, no-longer-patched dependency, so #114 was filed as a pre-1.0 blocker to swap FBP for a
+permissively licensed BLE plugin behind the existing `BleDeviceAdapter` seam.
+
+### Decision
+
+Adopt **`universal_ble: ^2.0.0`** (BSD-3-Clause, © Navideck) as the BLE transport plugin.
+
+BSD-3-Clause is GPL-v3 compatible: it adds no use restrictions and no commercial-use carve-out, so it
+can be redistributed inside a GPL-v3 binary without the conflict that sank FBP v2 (ADR-065 §Context).
+
+**Version note.** The milestone brief pinned `^1.2.0` (the latest 1.x when it was written); 2.0.0
+shipped during the milestone. 2.x was chosen because it is the current line and a superset of the 1.x
+API — it keeps the static, `deviceId`-keyed low-level API (`UniversalBle.connect` /
+`discoverServices` / `subscribeNotifications` / `write` / `requestMtu`) *and* adds per-device streams
+(`connectionStream(deviceId)`, `characteristicValueStream(deviceId, charId)`) that this migration uses.
+
+**Architecture.** The swap is concentrated where ADR-065 predicted, plus two files that earlier audits
+missed (FBP types reached the connection layer's public API and both platform stubs):
+
+- The `BleDeviceAdapter` interface is rebuilt **plugin-type-free** — it had leaked FBP types
+  (`List<BluetoothService>`, `Stream<BluetoothConnectionState>`, `ConnectionPriority`). It now speaks
+  only neutral types (`String` UUIDs, `BleGattService`, `BleLinkState`, `Uint8List`), so nothing above
+  the adapter references a BLE plugin. The production impl is `UniversalBleDeviceAdapter`.
+- `BleTncTransport` / `BleConnection` take a **`String deviceId`** (plus an optional `deviceName` for
+  logs) instead of an FBP `BluetoothDevice`. Reconnect-from-stored-id is therefore trivial — the id is
+  all that's persisted. The `transportFactory` test hook and both stubs (`ble_*_stub.dart`) were
+  updated in parallel; the transport stub no longer imports FBP, so the FBP removal doesn't break web.
+- `ble_scanner_sheet.dart` moves from `ScanResult`/`Guid`/`FlutterBluePlus` to `BleDevice` /
+  `ScanFilter` / `UniversalBle.scanStream` and `getBluetoothAvailabilityState()`. universal_ble has no
+  built-in scan timeout, so the sheet runs its own 15 s stop timer. The "Show all Bluetooth devices"
+  toggle and the `BleTncKnownDevice` friendly-name lookup are unchanged.
+
+**Per-device streams, not global callbacks.** universal_ble 2.x exposes both a single global
+`onConnectionChange`/`onValueChange` callback slot *and* per-device streams. The adapter uses the
+streams, so it needs no demultiplexing and no single-owner global-slot bookkeeping. The connection
+stream survives session teardown naturally, which preserves the invariant that a late OS-side drop
+still reaches the transport's error path after `_cleanupSubscriptions`.
+
+**Pairing (Family B only, Android).** The Benshi/BTECH family (UV-Pro, Vero, Radioddity) gates its
+write characteristic behind a bonded link. FBP auto-bonded lazily when an encrypted characteristic was
+first accessed; universal_ble does not, so under the naive port the device connected but the **first
+beacon write triggered bonding mid-stream and the pairing handshake dropped the link** (confirmed on a
+UV-Pro during v0.20 hardware testing — connect succeeded, beacon disconnected; manually bonding in OS
+settings first made it work). The transport now bonds **up-front while idle**: after resolving the
+profile, if `family == benshi` and `!isPaired()`, it `await`s `pair()` before subscribing or writing.
+The aprs-specs family (Mobilinkd etc.) uses unencrypted characteristics and is **deliberately never
+paired** — calling `pair()` there would pop an OS dialog FBP never showed. The adapter's `isPaired`/
+`pair` short-circuit to no-ops off Android (iOS/macOS CoreBluetooth bonds transparently and exposes no
+system pairing API). Pairing failure fails the connect cleanly (vs. connect-then-drop-on-beacon).
+Diagnostics: `pairingStarted` / `pairingSucceeded` / `pairingFailed`.
+
+**Dropped / deliberately-unused capabilities:**
+
+- `clearGattCache()` — **no universal_ble equivalent.** FBP used it pre-connect to dodge Android GATT
+  status 133 from stale service tables. universal_ble's `connect()` throws on the first failure with no
+  internal retry, and the `ReconnectableMixin` cascade does **not** cover this — it only fires after a
+  session has connected once (`_sessionEverConnected`), so an *initial* 133 surfaced as a hard "Failed
+  to connect" the user had to clear by restarting the app (observed on a TNC4 in v0.20 testing).
+  Mitigation: the transport now wraps the connect in a bounded fast-retry (`_connectWithRetry`, 3
+  attempts) that recovers transient 133s in place. It retries only *fast* failures — a 133 fails almost
+  immediately, whereas an absent device fails at the full timeout, which is surfaced without spinning
+  through retries. Diagnostics: `connectRetry`.
+- Connection priority — **universal_ble *does* expose this**
+  (`UniversalBle.requestConnectionPriority` / `BleConnectionPriority`), but we **deliberately do not
+  call it, and deliberately keep it out of the `BleDeviceAdapter` seam.** Requesting a high-priority
+  connection immediately after connect dropped the Mobilinkd TNC4 within the 5.12 s
+  LINK_SUPERVISION_TIMEOUT (2026-04-30 drive test: identical ~5.4 s drop cycles with HIGH priority,
+  stable ~110 s with it disabled). Because the seam has no priority method, the transport physically
+  cannot reintroduce the hazard without a conscious interface change. Re-enabling it would need
+  family-aware gating proven safe on hardware. (This was an explicit, tested regression guard under
+  FBP; the seam exclusion now enforces it structurally.)
+
+**MTU.** FBP auto-negotiated MTU inside `connect()` and exposed it via a getter; the code deliberately
+avoided an explicit `requestMtu`. universal_ble surfaces the MTU only as the return of an explicit
+`requestMtu()`, so the transport now calls `requestMtu(512)` once and uses `max(20, negotiated - 3)`
+for the chunk size. A failed/declined request falls back to the 23-byte ATT default (20-byte payload),
+which still carries APRS-sized frames. Per universal_ble's own guidance MTU requests are best-effort
+(iOS is OS-managed; Android 14+ lets only the first GATT client drive it; Linux/Windows can only
+query). **Hardware-validation note:** confirm a single `requestMtu(512)` does not trip the TNC4
+supervision-timeout drop seen previously; if it does, skip the call and run at the 20-byte default.
+
+**`autoConnect` gap.** universal_ble's `autoConnect` is unavailable on Windows/Linux. This is a
+non-issue at runtime because `ReconnectableMixin` drives reconnect on all platforms, and BLE is
+currently wired only on Android/iOS regardless.
+
+### Alternatives considered
+
+- **`flutter_reactive_ble` (Apache-2.0).** Android/iOS only — no desktop/web. Rejected: universal_ble's
+  six-platform support keeps the door open for desktop BLE later (ADR-065 §Alternatives already flagged
+  desktop reach as a requirement).
+- **Fork FBP at the last BSD-3 commit.** Rejected — maintaining a multi-platform BLE plugin (Android,
+  iOS, desktop, future SDK targets, security fixes) is an open-ended commitment; ADR-065 held this only
+  as a last-resort fallback.
+- **`bluetooth_low_energy`.** Comparable platform coverage but a smaller community/maintenance base;
+  universal_ble is more actively maintained.
+- **Stay on the `^1.2.0` pin from the brief.** The 1.x line is already a superseded major; adopting the
+  current 2.x avoids a second migration. 2.x's per-device streams also map more cleanly onto the seam.
+
+### Consequences
+
+- `flutter_blue_plus` removed from `pubspec.yaml`; `universal_ble ^2.0.0` added (resolved 2.0.2).
+- universal_ble's Linux backend is **pure Dart** (the `bluez` package over DBus) — no native build and
+  no new system dev package, so CI's existing `flutter build linux` apt list is unchanged.
+- The plugin-agnostic `BleDeviceAdapter` is now fully fakeable, so unit tests cover the previously
+  untestable **connected path** (subscribe / notification RX / chunked TX). Existing transport and
+  connection tests were ported off FBP types; the GATT-cache and connection-priority tests were
+  removed with the capabilities they covered.
+- BLE is now *architecturally* available on all six platforms (incl. Windows/Linux/web), but remains
+  **wired mobile-only** (`BleConnection.isAvailable` = Android/iOS) pending hardware validation on
+  desktop. Enabling it elsewhere is a future milestone.
+- **Raised the iOS deployment target from 13.0 → 13.1.** universal_ble's iOS Swift package requires a
+  minimum platform version of 13.1 (FBP allowed 13.0); the Xcode `IPHONEOS_DEPLOYMENT_TARGET` and the
+  `Podfile` platform were bumped accordingly. iOS 13.1 (Sept 2019) is below our practical support floor,
+  so the user-facing impact is nil.
+
+### Hardware validation
+
+Android BLE permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOCATION`) and iOS
+`NSBluetoothAlwaysUsageDescription` / `NSBluetoothPeripheralUsageDescription` are already present
+(unchanged from the FBP era — same permission model). universal_ble does **not** request runtime
+permissions itself; the app's existing `permission_handler` onboarding flow must grant them before a
+scan, so on-device testing should confirm the BLUETOOTH_SCAN/CONNECT prompt actually appears.
+
+**Outcome (validated at v0.20 merge).** The decision-relevant behaviours below were confirmed on real
+hardware on **Android**; the findings drove the final design (Family-B up-front pairing, GATT-133
+retry) and are recorded here as settled:
+
+- **Mobilinkd TNC4 (Family A) — Android:** scan, connect, and TX beacon → aprs.fi all pass; the link
+  stays up through TX. Android shows a one-time OS pairing dialog on first connect (the OS lazy-bonds
+  the device); accepting it leaves the link stable — so the up-front `pair()` is **not** needed for
+  Family A (aprs-specs) and remains gated to Family B only. A transient "Failed to connect" (GATT 133)
+  on first connect after a fresh launch is cleared by the `_connectWithRetry` fast-retry path (3
+  attempts).
+- **BTECH UV-Pro (Family B) — Android:** scan, connect (with `benshi` family auto-detected), and TX
+  beacon all pass. The up-front `pair()` before subscribe is **required** — without it, connect
+  succeeded but the first beacon write dropped the link (lazy mid-stream bond past the supervision
+  timeout). This is the evidence for the Family-B pairing decision above.
+
+**Deferred validation (not decision-relevant; tracked in #114 / ROADMAP, not gating this ADR):**
+TNC4 iOS pass, RX-on-map rendering, background reconnect (lock/unlock), and the negotiated-MTU log
+value. These exercise the same code paths already proven on Android and are throughput/lifecycle
+checks rather than open architectural questions, so they do not change any decision recorded here.
+
+### References
+
+- ADR-065 — FBP license incompatibility (canonical license analysis; this ADR supersedes its mitigation)
+- ADR-066 — multi-family BLE-KISS profiles and friendly-name registry
+- Issue #114 — replacement-plugin tracking (pre-1.0 blocker)
+- `lib/core/transport/ble_tnc_transport_impl.dart` — `BleDeviceAdapter` + `UniversalBleDeviceAdapter`
+- `lib/core/connection/ble_connection_impl.dart` — `String deviceId` API
+- `lib/ui/widgets/ble_scanner_sheet.dart` — universal_ble scan/connect
+- [universal_ble on pub.dev](https://pub.dev/packages/universal_ble) (BSD-3-Clause)
+

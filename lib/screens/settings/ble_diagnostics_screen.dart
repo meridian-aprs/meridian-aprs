@@ -270,6 +270,7 @@ class _EventTile extends StatelessWidget {
       case BleEventKind.bleStateChanged:
         return Symbols.swap_horiz;
       case BleEventKind.serviceDiscoveryRetry:
+      case BleEventKind.connectRetry:
         return Symbols.refresh;
       case BleEventKind.connectionPriorityRequested:
       case BleEventKind.connectionPriorityFailed:
@@ -285,6 +286,12 @@ class _EventTile extends StatelessWidget {
         return Symbols.replay;
       case BleEventKind.waitingPhase:
         return Symbols.hourglass_empty;
+      case BleEventKind.pairingStarted:
+        return Symbols.bluetooth_searching;
+      case BleEventKind.pairingSucceeded:
+        return Symbols.link;
+      case BleEventKind.pairingFailed:
+        return Symbols.link_off;
       case BleEventKind.note:
         return Symbols.sticky_note_2;
     }
@@ -295,16 +302,19 @@ class _EventTile extends StatelessWidget {
     switch (kind) {
       case BleEventKind.connectSuccess:
       case BleEventKind.sessionConnected:
+      case BleEventKind.pairingSucceeded:
         return cs.primary;
       case BleEventKind.connectFailed:
       case BleEventKind.disconnectUnexpected:
       case BleEventKind.disconnectKeepaliveFailed:
       case BleEventKind.keepaliveFailed:
+      case BleEventKind.pairingFailed:
         return cs.error;
       case BleEventKind.reconnectScheduled:
       case BleEventKind.reconnectAttempt:
       case BleEventKind.waitingPhase:
       case BleEventKind.serviceDiscoveryRetry:
+      case BleEventKind.connectRetry:
         return cs.tertiary;
       default:
         return cs.onSurface;

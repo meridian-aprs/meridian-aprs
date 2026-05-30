@@ -26,7 +26,7 @@ When you change behavior, **update those docs and point at them** — don't re-d
 |---|---|
 | Framework | Flutter (stable channel) |
 | Map | flutter_map + OpenStreetMap tiles |
-| BLE | flutter_blue_plus (pinned v1.x — v2 is GPL-incompatible, ADR-065) |
+| BLE | universal_ble (BSD-3-Clause; replaced flutter_blue_plus per ADR-068, after the v2 GPL-incompatibility of ADR-065) |
 | Serial/USB | flutter_libserialport |
 | APRS-IS | Direct TCP to `rotate.aprs2.net:14580` (WebSocket proxy on web) |
 | Packet parsing | Pure Dart (no FFI for core logic) |
@@ -60,9 +60,9 @@ Each layer depends only on layers below it. The **Packet Core is pure Dart** —
 
 ## Current Status
 
-**v0.19 shipped (Performance). Next: v0.20 — BLE Plugin Replacement.**
+**v0.20 shipped (BLE Plugin Replacement — `universal_ble`). Next: v0.21 — Classic Bluetooth SPP.**
 
-The full milestone list, per-task breakdowns, and completion state live in `docs/ROADMAP.md`; architectural decisions in `docs/DECISIONS.md` (ADRs 001–067). Do not duplicate that state here.
+The full milestone list, per-task breakdowns, and completion state live in `docs/ROADMAP.md`; architectural decisions in `docs/DECISIONS.md` (ADRs 001–068). Do not duplicate that state here.
 
 > v0.15 / v0.16 milestone numbers are retired (the historical "Battery & Performance" / "Bug Triage" milestones) and are not reused.
 

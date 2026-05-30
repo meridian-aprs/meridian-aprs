@@ -22,8 +22,10 @@ dependencies:
   flutter_m3shapes: ^1.0.0
   animations: ^2.0.11
   material_symbols_icons: ^4.2928.1
-  # v2.x is proprietary-licensed and GPL-incompatible; see ADR-065 (#114)
-  flutter_blue_plus: ">=1.36.0 <2.0.0"
+  # BLE TNC transport. BSD-3-Clause (GPL-v3 compatible); see ADR-068 (#114).
+  # Replaced flutter_blue_plus, whose v2 relicensed to a GPL-incompatible
+  # licence (ADR-065).
+  universal_ble: ^2.0.0
   geolocator: ^13.0.0
   http: ^1.2.0
   flutter_foreground_task: ^8.17.0

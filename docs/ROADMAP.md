@@ -25,7 +25,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | ✅ Complete |
-| v0.20 — BLE Plugin Replacement | Replace `flutter_blue_plus` with a GPL-compatible BLE plugin behind the existing `BleTncTransport` seam (#114, ADR-065) | — |
+| v0.20 — BLE Plugin Replacement | Replaced `flutter_blue_plus` with `universal_ble` (BSD-3-Clause) behind the `BleDeviceAdapter` seam (#114, ADR-068) | ✅ Complete |
 | v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
 | v0.22 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v0.23 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
@@ -183,19 +183,20 @@ Performance pass — measurable baselines and the structural fixes that move the
 
 ---
 
-### v0.20 — BLE Plugin Replacement
+### v0.20 — BLE Plugin Replacement ✅ Complete
 
-Replace `flutter_blue_plus` with a GPL-compatible BLE plugin. This is the follow-on to ADR-065 — v0.18 pinned `flutter_blue_plus` to v1.x because v2 switched to a proprietary license incompatible with GPL v3, and that pin must not become permanent before v1.0 ships.
+Replaced `flutter_blue_plus` (FBP) with **`universal_ble` ^2.0.0** (BSD-3-Clause, GPL-v3 compatible) — the follow-on to ADR-065, which pinned FBP to v1.x because v2 relicensed to a GPL-incompatible commercial license. See **ADR-068** for the full record.
 
-The existing `BleDeviceAdapter` interface in `lib/core/transport/ble_tnc_transport_impl.dart` already isolates the bulk of the plugin from production code; the swap is concentrated there plus `lib/ui/widgets/ble_scanner_sheet.dart`.
+The `BleDeviceAdapter` interface in `lib/core/transport/ble_tnc_transport_impl.dart` was rebuilt plugin-type-free; the swap landed there plus `lib/core/connection/ble_connection_impl.dart` (the connection layer's public API took a `BluetoothDevice` → now a `String deviceId`) and `lib/ui/widgets/ble_scanner_sheet.dart`.
 
-Deliverables:
+Delivered:
 
-- Audit `flutter_blue_plus` type leaks across the `BleTncTransport` seam — identify any remaining direct fbp imports outside the adapter and the scanner sheet
-- Select replacement plugin from candidates: `universal_ble`, `flutter_reactive_ble`, `bluetooth_low_energy` (or community fork of FBP at last BSD-3 commit as fallback)
-- Implement against existing `BleDeviceAdapter` interface — no public API change for downstream callers
-- Hardware test on Mobilinkd TNC4 across Android and iOS — pair, connect, packet RX, packet TX, background reconnect
-- ADR documenting the chosen plugin and any seam adjustments
+- ✅ Audited FBP type leaks — found FBP reached **5 files** (not the assumed 2): the adapter, the scanner, the connection layer's public API + `transportFactory` hook, and both platform stubs
+- ✅ Selected `universal_ble` (six-platform support; BSD-3-Clause). Alternatives (`flutter_reactive_ble` — no desktop; FBP fork — maintenance burden; `bluetooth_low_energy` — smaller community) recorded in ADR-068
+- ✅ Rebuilt `BleDeviceAdapter` as a plugin-agnostic seam (neutral `BleGattService`/`BleLinkState`/`String` UUIDs); production impl `UniversalBleDeviceAdapter` uses universal_ble's per-device streams
+- ✅ Connected-path now fully unit-tested through the fakeable seam (subscribe / notification RX / chunked TX); all tests green
+- 🔶 Hardware validation — **partial (Android complete, iOS pending)**: Mobilinkd TNC4 (Android) and BTECH UV-Pro (Android) verified for scan / connect / TX beacon → aprs.fi; Mobilinkd TNC4 (iOS) still to validate. Checklist in ADR-068; tracked in #114
+- ✅ ADR-068 documents the chosen plugin, the seam rebuild, dropped capabilities (`clearGattCache`, `requestConnectionPriority`), the MTU strategy, and the `autoConnect` Windows/Linux gap
 - Tracked at #114; pre-1.0 blocker
 
 ---

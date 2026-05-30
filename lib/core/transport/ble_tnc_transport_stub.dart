@@ -3,15 +3,18 @@ library;
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
-
 import 'aprs_transport.dart' show ConnectionStatus;
 import 'kiss_tnc_transport.dart';
 
 /// Stub [BleTncTransport] for platforms where BLE is not available (web).
 class BleTncTransport extends KissTncTransport {
   // ignore: avoid_unused_constructor_parameters
-  BleTncTransport(BluetoothDevice device, {dynamic adapter, dynamic family});
+  BleTncTransport(
+    String deviceId, {
+    String? deviceName,
+    dynamic adapter,
+    dynamic family,
+  });
 
   @override
   Stream<Uint8List> get frameStream =>
