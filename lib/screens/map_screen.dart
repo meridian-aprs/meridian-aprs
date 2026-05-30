@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -19,6 +20,7 @@ import '../services/beaconing_service.dart';
 import '../services/station_service.dart';
 import '../services/station_settings_service.dart';
 import '../services/tx_service.dart';
+import '../ui/layout/map_render_data.dart';
 import '../ui/layout/responsive_layout.dart';
 import '../ui/widgets/map_filter_panel.dart';
 import '../theme/theme_controller.dart';
@@ -72,8 +74,14 @@ class _MapScreenState extends State<MapScreen> {
   late final StationService _service;
   late final MeridianTileProvider _tileProvider;
   final _mapController = MapController();
-  List<Marker> _markers = [];
-  List<Polyline> _trackPolylines = [];
+
+  /// Per-packet-changing map render state (markers, polylines, counts, WX).
+  /// Held in a notifier so [_rebuildMarkers] no longer calls `setState` — only
+  /// the map's marker/polyline/overlay leaves rebuild on a station update, not
+  /// this screen's whole subtree (scaffold, AppBar, FABs, filter chips). #51.
+  final ValueNotifier<MapRenderData> _renderData = ValueNotifier(
+    const MapRenderData(),
+  );
   Timer? _filterDebounce;
   Timer? _markerDebounce;
   Timer? _reclusterDebounce;
@@ -84,11 +92,16 @@ class _MapScreenState extends State<MapScreen> {
   StreamSubscription<TxEvent>? _txEventSub;
   StreamSubscription<BeaconingEvent>? _beaconingEventSub;
   bool _northUpLocked = true;
-  int _visibleStationCount = 0;
-  int _totalStationCount = 0;
-  Station? _nearestWxStation;
   LatLng? _pinLocation;
   StationSettingsService? _settingsRef;
+
+  // Last-seen display settings, so the StationService listener (which fires per
+  // packet) rebuilds markers only when a display setting actually changed — not
+  // on every packet. New-station rebuilds flow through the debounced
+  // stationUpdates stream instead. #51 (clustering CPU).
+  int? _lastMaxAge;
+  Set<StationType> _lastHiddenTypes = const {};
+  bool _lastShowTracks = true;
 
   @override
   void initState() {
@@ -96,7 +109,13 @@ class _MapScreenState extends State<MapScreen> {
     _service = widget.service;
     _tileProvider = widget.tileProvider ?? _UncachedTileProvider();
     _service.stationUpdates.listen(_onStationsUpdated);
-    // Rebuild markers when the display filter setting changes (notifyListeners).
+    // Seed the display-setting diff so the first per-packet notify is a no-op.
+    _lastMaxAge = _service.stationMaxAgeMinutes;
+    _lastHiddenTypes = _service.hiddenTypes;
+    _lastShowTracks = _service.showTracks;
+    // Rebuild markers when a display filter setting changes. StationService
+    // also notifies per packet, so _onServiceSettingChanged diffs the settings
+    // and ignores packet-only notifies.
     _service.addListener(_onServiceSettingChanged);
     // Seed markers from persisted stations already loaded before runApp.
     _onStationsUpdated(_service.currentStations);
@@ -174,6 +193,7 @@ class _MapScreenState extends State<MapScreen> {
     _txEventSub?.cancel();
     _beaconingEventSub?.cancel();
     _service.removeListener(_onServiceSettingChanged);
+    _renderData.dispose();
     _settingsRef?.removeListener(_onFilterSettingsChanged);
     _tileProvider.dispose();
     super.dispose();
@@ -195,9 +215,23 @@ class _MapScreenState extends State<MapScreen> {
   /// happens until the next viewport move fires.
   void _onFilterSettingsChanged() => _pushFilterConfigToConnection();
 
-  /// Called when [StationService] notifies — e.g. when [stationMaxAgeMinutes]
-  /// changes. Rebuilds markers so the display filter takes effect immediately.
+  /// Called on every [StationService] notify. Since that fires per packet, we
+  /// rebuild markers here only when a display setting that affects the visible
+  /// set actually changed (age window, hidden types, tracks) — packet-only
+  /// notifies are ignored, and new-station rebuilds flow through the debounced
+  /// [stationUpdates] stream instead (#51, clustering CPU).
   void _onServiceSettingChanged() {
+    final maxAge = _service.stationMaxAgeMinutes;
+    final hidden = _service.hiddenTypes;
+    final showTracks = _service.showTracks;
+    final changed =
+        maxAge != _lastMaxAge ||
+        showTracks != _lastShowTracks ||
+        !setEquals(hidden, _lastHiddenTypes);
+    if (!changed) return;
+    _lastMaxAge = maxAge;
+    _lastHiddenTypes = hidden;
+    _lastShowTracks = showTracks;
     _rebuildMarkers();
   }
 
@@ -320,21 +354,25 @@ class _MapScreenState extends State<MapScreen> {
   /// debounce that may never fire in a busy packet stream.
   void _rebuildMarkers() {
     if (!mounted) return;
-    setState(() {
-      final visible = _visibleStations();
-      final clusters = _clusterStations(visible);
-      _markers = clusters
-          .map(
-            (g) => g.stations.length == 1
-                ? _buildMarker(g.stations.first)
-                : _buildClusterMarker(g),
-          )
-          .toList();
-      _trackPolylines = _buildTrackPolylines(visible);
-      _visibleStationCount = visible.length;
-      _totalStationCount = _service.currentStations.length;
-      _nearestWxStation = _nearestWeatherStation();
-    });
+    // Publish to the notifier instead of calling setState: only MeridianMap's
+    // marker/polyline/overlay ValueListenableBuilders rebuild — not this
+    // screen's scaffold, AppBar, FABs, or filter chips (#51).
+    final visible = _visibleStations();
+    final clusters = _clusterStations(visible);
+    final markers = clusters
+        .map(
+          (g) => g.stations.length == 1
+              ? _buildMarker(g.stations.first)
+              : _buildClusterMarker(g),
+        )
+        .toList();
+    _renderData.value = MapRenderData(
+      markers: markers,
+      trackPolylines: _buildTrackPolylines(visible),
+      visibleStationCount: visible.length,
+      totalStationCount: _service.currentStations.length,
+      nearestWxStation: _nearestWeatherStation(),
+    );
   }
 
   /// Returns the subset of stations that pass the current display filters,
@@ -431,8 +469,8 @@ class _MapScreenState extends State<MapScreen> {
           showTracks: _service.showTracks,
           onMaxAgeChanged: (v) => stationService.setStationMaxAgeMinutes(v),
           onShowTracksChanged: (v) => _service.setShowTracks(v),
-          visibleStationCount: _visibleStationCount,
-          totalStationCount: _totalStationCount,
+          visibleStationCount: _renderData.value.visibleStationCount,
+          totalStationCount: _renderData.value.totalStationCount,
           currentHiddenTypes: stationService.hiddenTypes,
           onHiddenTypesChanged: (types) => stationService.setHiddenTypes(types),
         ),
@@ -607,23 +645,31 @@ class _MapScreenState extends State<MapScreen> {
       ThemeMode.system => MediaQuery.of(context).platformBrightness,
     };
 
-    final stationService = context.watch<StationService>();
+    // select, not watch: this build() only needs three display settings to
+    // label/badge the filter chrome. StationService notifies per packet, so a
+    // watch here would re-run build() (and rebuild the whole scaffold) on every
+    // packet. We select the derived *values* — never the hiddenTypes Set, whose
+    // getter allocates a fresh `Set.unmodifiable` each call and would defeat the
+    // record's value equality. The markers themselves flow through _renderData
+    // (#51).
+    final (maxAge, hasHiddenTypes, showTracks) = context
+        .select<StationService, (int?, bool, bool)>(
+          (s) =>
+              (s.stationMaxAgeMinutes, s.hiddenTypes.isNotEmpty, s.showTracks),
+        );
 
     // Show an active-filter chip when the time window is non-default (≠60 min).
-    final maxAge = stationService.stationMaxAgeMinutes;
     final activeFilterLabel = _activeFilterLabel(maxAge);
 
     // Badge the filter FAB when any filter deviates from defaults (60 min,
     // all types visible, tracks on).
-    final isFilterActive =
-        maxAge != 60 ||
-        stationService.hiddenTypes.isNotEmpty ||
-        !stationService.showTracks;
+    final isFilterActive = maxAge != 60 || hasHiddenTypes || !showTracks;
 
-    // Pin marker: shown while a long-press pin sheet is open.
-    final allMarkers = _pinLocation != null
+    // Pin marker: shown while a long-press pin sheet is open. Passed as a
+    // transient overlay; the station markers are composed in MeridianMap from
+    // _renderData so this screen does not rebuild them per packet.
+    final overlayMarkers = _pinLocation != null
         ? [
-            ..._markers,
             Marker(
               point: _pinLocation!,
               width: 40,
@@ -635,12 +681,13 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ]
-        : _markers;
+        : const <Marker>[];
 
     return ResponsiveLayout(
       service: _service,
       mapController: _mapController,
-      markers: allMarkers,
+      renderData: _renderData,
+      overlayMarkers: overlayMarkers,
       tileUrl: _tileProvider.tileUrl(brightness),
       meridianTileProvider: _tileProvider,
       onNavigateToSettings: _navigateToSettings,
@@ -648,13 +695,9 @@ class _MapScreenState extends State<MapScreen> {
       initialZoom: widget.initialZoom,
       northUpLocked: _northUpLocked,
       onToggleNorthUp: _toggleNorthUp,
-      showTracks: _service.showTracks,
-      trackPolylines: _trackPolylines,
+      showTracks: showTracks,
       onOpenFilterPanel: _openFilterPanel,
       activeFilterLabel: activeFilterLabel,
-      visibleStationCount: _visibleStationCount,
-      totalStationCount: _totalStationCount,
-      nearestWxStation: _nearestWxStation,
       isFilterActive: isFilterActive,
       onMapLongPress: _dropPin,
     );

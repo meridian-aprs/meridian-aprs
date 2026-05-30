@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -21,6 +22,7 @@ import '../widgets/connection_nav_icon.dart';
 import '../widgets/meridian_status_pill.dart';
 import '../widgets/meridian_wordmark.dart';
 import '../widgets/station_info_sheet.dart';
+import 'map_render_data.dart';
 import 'meridian_map.dart';
 
 /// Tablet (600–1024 px) scaffold: collapsed navigation rail + full map +
@@ -34,28 +36,26 @@ class TabletScaffold extends StatefulWidget {
     super.key,
     required this.service,
     required this.mapController,
-    required this.markers,
+    required this.renderData,
     required this.tileUrl,
     required this.meridianTileProvider,
     required this.onNavigateToSettings,
+    this.overlayMarkers = const <Marker>[],
     this.initialCenter = const LatLng(39.0, -77.0),
     this.initialZoom = 9.0,
     this.northUpLocked = true,
     required this.onToggleNorthUp,
     this.showTracks = false,
-    this.trackPolylines = const [],
     required this.onOpenFilterPanel,
     this.activeFilterLabel,
-    this.visibleStationCount = 0,
-    this.totalStationCount = 0,
-    this.nearestWxStation,
     this.isFilterActive = false,
     this.onMapLongPress,
   });
 
   final StationService service;
   final MapController mapController;
-  final List<Marker> markers;
+  final ValueListenable<MapRenderData> renderData;
+  final List<Marker> overlayMarkers;
   final String tileUrl;
   final MeridianTileProvider meridianTileProvider;
   final VoidCallback onNavigateToSettings;
@@ -64,12 +64,8 @@ class TabletScaffold extends StatefulWidget {
   final bool northUpLocked;
   final VoidCallback onToggleNorthUp;
   final bool showTracks;
-  final List<Polyline> trackPolylines;
   final VoidCallback onOpenFilterPanel;
   final String? activeFilterLabel;
-  final int visibleStationCount;
-  final int totalStationCount;
-  final Station? nearestWxStation;
   final bool isFilterActive;
   final void Function(LatLng)? onMapLongPress;
 
@@ -189,15 +185,21 @@ class _TabletScaffoldState extends State<TabletScaffold> {
 
   @override
   Widget build(BuildContext context) {
-    final registry = context.watch<ConnectionRegistry>();
+    // Select only the connection state this scaffold renders, so it rebuilds on
+    // connection-state transitions rather than every registry notify. See the
+    // provider-read convention in mobile_scaffold.dart (#57).
+    final (status, isAnyConnected) = context
+        .select<ConnectionRegistry, (ConnectionStatus, bool)>(
+          (r) => (r.aggregateStatus, r.isAnyConnected),
+        );
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 4,
         title: const MeridianWordmark.horizontal(height: 28),
         actions: [
           MeridianStatusPill(
-            status: registry.aggregateStatus,
-            label: _aggregateLabel(registry.aggregateStatus),
+            status: status,
+            label: _aggregateLabel(status),
             onTap: _navigateToConnection,
           ),
           IconButton(
@@ -308,29 +310,26 @@ class _TabletScaffoldState extends State<TabletScaffold> {
                     Expanded(
                       child: MeridianMap(
                         mapController: widget.mapController,
-                        markers: widget.markers,
+                        renderData: widget.renderData,
+                        overlayMarkers: widget.overlayMarkers,
                         tileUrl: widget.tileUrl,
                         tileProvider: widget.meridianTileProvider
                             .buildTileProvider(),
-                        connectionStatus: registry.aggregateStatus,
+                        connectionStatus: status,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
-                        isAnyConnected: registry.isAnyConnected,
+                        isAnyConnected: isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
                         showTracks: widget.showTracks,
-                        trackPolylines: widget.trackPolylines,
                         activeFilterLabel: widget.activeFilterLabel,
                         onActiveFilterTap: widget.onOpenFilterPanel,
-                        visibleStationCount: widget.visibleStationCount,
-                        totalStationCount: widget.totalStationCount,
-                        nearestWxStation: widget.nearestWxStation,
                         onMapLongPress: widget.onMapLongPress,
                       ),
                     ),
                     // Collapsed bottom panel — tapping switches to the Log tab.
                     _BottomPanel(
-                      service: widget.service,
+                      renderData: widget.renderData,
                       onTap: () => setState(() => _selectedIndex = 1),
                     ),
                   ],
@@ -360,9 +359,9 @@ class _TabletScaffoldState extends State<TabletScaffold> {
 }
 
 class _BottomPanel extends StatelessWidget {
-  const _BottomPanel({required this.service, required this.onTap});
+  const _BottomPanel({required this.renderData, required this.onTap});
 
-  final StationService service;
+  final ValueListenable<MapRenderData> renderData;
   final VoidCallback onTap;
 
   @override
@@ -382,10 +381,15 @@ class _BottomPanel extends StatelessWidget {
               color: theme.colorScheme.onSurfaceVariant,
             ),
             const SizedBox(width: 8),
-            Text(
-              '${service.currentStations.length} stations nearby',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+            // Keep the live station count fresh now that TabletScaffold.build()
+            // no longer rebuilds per packet (#51) — listen to the render data.
+            ValueListenableBuilder<MapRenderData>(
+              valueListenable: renderData,
+              builder: (_, data, _) => Text(
+                '${data.totalStationCount} stations nearby',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             const Spacer(),
