@@ -195,7 +195,7 @@ Delivered:
 - ✅ Selected `universal_ble` (six-platform support; BSD-3-Clause). Alternatives (`flutter_reactive_ble` — no desktop; FBP fork — maintenance burden; `bluetooth_low_energy` — smaller community) recorded in ADR-068
 - ✅ Rebuilt `BleDeviceAdapter` as a plugin-agnostic seam (neutral `BleGattService`/`BleLinkState`/`String` UUIDs); production impl `UniversalBleDeviceAdapter` uses universal_ble's per-device streams
 - ✅ Connected-path now fully unit-tested through the fakeable seam (subscribe / notification RX / chunked TX); all tests green
-- ⏳ Hardware validation on Mobilinkd TNC4 (Android + iOS) and BTECH UV-Pro (Android) — pending; checklist in ADR-068
+- 🔶 Hardware validation — **partial (Android complete, iOS pending)**: Mobilinkd TNC4 (Android) and BTECH UV-Pro (Android) verified for scan / connect / TX beacon → aprs.fi; Mobilinkd TNC4 (iOS) still to validate. Checklist in ADR-068; tracked in #114
 - ✅ ADR-068 documents the chosen plugin, the seam rebuild, dropped capabilities (`clearGattCache`, `requestConnectionPriority`), the MTU strategy, and the `autoConnect` Windows/Linux gap
 - Tracked at #114; pre-1.0 blocker
 

@@ -314,6 +314,7 @@ class _EventTile extends StatelessWidget {
       case BleEventKind.reconnectAttempt:
       case BleEventKind.waitingPhase:
       case BleEventKind.serviceDiscoveryRetry:
+      case BleEventKind.connectRetry:
         return cs.tertiary;
       default:
         return cs.onSurface;

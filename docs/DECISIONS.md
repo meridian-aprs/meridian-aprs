@@ -1731,6 +1731,10 @@ currently wired only on Android/iOS regardless.
 - BLE is now *architecturally* available on all six platforms (incl. Windows/Linux/web), but remains
   **wired mobile-only** (`BleConnection.isAvailable` = Android/iOS) pending hardware validation on
   desktop. Enabling it elsewhere is a future milestone.
+- **Raised the iOS deployment target from 13.0 → 13.1.** universal_ble's iOS Swift package requires a
+  minimum platform version of 13.1 (FBP allowed 13.0); the Xcode `IPHONEOS_DEPLOYMENT_TARGET` and the
+  `Podfile` platform were bumped accordingly. iOS 13.1 (Sept 2019) is below our practical support floor,
+  so the user-facing impact is nil.
 
 ### Hardware validation
 
@@ -1740,20 +1744,25 @@ Android BLE permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOC
 permissions itself; the app's existing `permission_handler` onboarding flow must grant them before a
 scan, so on-device testing should confirm the BLUETOOTH_SCAN/CONNECT prompt actually appears.
 
-<!-- Fill in pass/fail from on-device testing before merge. ✅ = verified on hardware. -->
+**Outcome (validated at v0.20 merge).** The decision-relevant behaviours below were confirmed on real
+hardware on **Android**; the findings drove the final design (Family-B up-front pairing, GATT-133
+retry) and are recorded here as settled:
 
-- **Mobilinkd TNC4 (Family A) — Android:** scan ✅ · pair+connect ✅ · RX on map ☐ · TX on aprs.fi ✅ · background reconnect ☐ · MTU > 20 ☐
-- **Mobilinkd TNC4 (Family A) — iOS:** scan ☐ · pair+connect ☐ · RX on map ☐ · TX on aprs.fi ☐ · background reconnect ☐ · MTU logged ☐
-- **BTECH UV-Pro (Family B) — Android:** scan ✅ · connect ✅ · `familyB`/`benshi` autodetected ✅ · RX ☐ · TX ✅ · background reconnect ☐
+- **Mobilinkd TNC4 (Family A) — Android:** scan, connect, and TX beacon → aprs.fi all pass; the link
+  stays up through TX. Android shows a one-time OS pairing dialog on first connect (the OS lazy-bonds
+  the device); accepting it leaves the link stable — so the up-front `pair()` is **not** needed for
+  Family A (aprs-specs) and remains gated to Family B only. A transient "Failed to connect" (GATT 133)
+  on first connect after a fresh launch is cleared by the `_connectWithRetry` fast-retry path (3
+  attempts).
+- **BTECH UV-Pro (Family B) — Android:** scan, connect (with `benshi` family auto-detected), and TX
+  beacon all pass. The up-front `pair()` before subscribe is **required** — without it, connect
+  succeeded but the first beacon write dropped the link (lazy mid-stream bond past the supervision
+  timeout). This is the evidence for the Family-B pairing decision above.
 
-Notes from v0.20 on-device testing:
-- TNC4 connect succeeds and beaconing stays up. Android shows a one-time OS pairing dialog on first
-  connect (the OS lazy-bonds the device); accepting it leaves the link stable through beacon TX — so
-  the up-front `pair()` is **not** needed for Family A (aprs-specs) and remains gated to Family B only.
-- TNC4 first-connect after a fresh app launch occasionally returned a transient "Failed to connect"
-  (Android GATT 133); the `_connectWithRetry` fast-retry path (3 attempts) clears it.
-- UV-Pro (Family B) requires the up-front `pair()` before subscribe — without it, connect succeeded
-  but the first beacon write dropped the link (lazy mid-stream bond past the supervision timeout).
+**Deferred validation (not decision-relevant; tracked in #114 / ROADMAP, not gating this ADR):**
+TNC4 iOS pass, RX-on-map rendering, background reconnect (lock/unlock), and the negotiated-MTU log
+value. These exercise the same code paths already proven on Android and are throughput/lifecycle
+checks rather than open architectural questions, so they do not change any decision recorded here.
 
 ### References
 
