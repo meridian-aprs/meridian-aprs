@@ -1779,7 +1779,7 @@ checks rather than open architectural questions, so they do not change any decis
 ## ADR-069: Classic Bluetooth SPP via a native platform channel (not a Flutter plugin)
 
 **Date:** 2026-05-30
-**Status:** Proposed (Phase 1 gate — finalize at v0.21 close)
+**Status:** Accepted (approved on design at the Phase 1 gate; on-device byte-flow validation folds into Phase 2 — see Hardware validation)
 **Milestone:** v0.21 — Classic Bluetooth SPP
 **Related:** ADR-002 (GPL v3), ADR-065 / ADR-068 (BLE-plugin license analysis), ADR-029 / ADR-051 (TX-routing hierarchy), ADR-060 (foreground-service types), ADR-019/020 (transport seam)
 
@@ -1888,11 +1888,14 @@ untouched. `ClassicBtConnection` mirrors `SerialConnection` (active-polling reco
 
 ### Hardware validation (Phase 1 spike)
 
-The decision is validated by a minimal Android RFCOMM spike against a **Kenwood TH-D75** over the
-standard SPP UUID `00001101-0000-1000-8000-00805F9B34FB`: list the bonded TH-D75, connect, confirm RX
-bytes flow into `KissFramer` and decode to APRS lines, and confirm a TX frame reaches the radio.
-**Pending on-device run** — this ADR is *Proposed* until the spike confirms bytes flow; it is then
-promoted to *Accepted* and finalized at v0.21 close.
+The Phase 1 spike delivered the native RFCOMM bridge (`ClassicBtChannel.kt`) and the Dart wrapper
+(`classic_bt_spp_channel.dart`), both compiling and unit-clean. Rather than build a throwaway test
+harness, the **on-device byte-flow validation folds into Phase 2's first runnable milestone** (the
+Bluetooth tab + Classic device list): against a **Kenwood TH-D75** over the standard SPP UUID
+`00001101-0000-1000-8000-00805F9B34FB`, list the bonded TH-D75, connect, confirm RX bytes flow into
+`KissFramer` and decode to APRS lines, and confirm a TX beacon reaches the radio (aprs.fi). The
+RFCOMM approach is well-trodden and the native surface is thin, so the decision was approved on
+design; this section is the standing validation checklist to satisfy before v0.21 close.
 
 ### References
 
