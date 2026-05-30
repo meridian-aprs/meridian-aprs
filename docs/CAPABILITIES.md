@@ -4,7 +4,7 @@ A consolidated reference of what Meridian can do today, organized by user-facing
 
 > **Maintenance:** This document is generated and maintained by Claude Code as part of milestone close-out. When a milestone changes user-visible capabilities or platform behavior, update this file alongside `ROADMAP.md` and `DECISIONS.md`. Source of truth is the codebase, not aspiration — partially implemented or untested capabilities are flagged explicitly.
 
-**Last updated:** 2026-05-30 (v0.19 Performance shipped; v0.20 BLE Plugin Replacement next)
+**Last updated:** 2026-05-30 (v0.20 BLE Plugin Replacement shipped — `universal_ble`, ADR-068; v0.21 Classic Bluetooth SPP next)
 
 ---
 
@@ -16,11 +16,11 @@ Three concurrent transports, each modeled as a `MeridianConnection` and register
 |---|---|---|
 | APRS-IS (direct TCP) | Android, iOS, macOS, Windows, Linux | Shipped (v0.1) |
 | APRS-IS (WebSocket proxy) | Web | Architectural placeholder; proxy server not yet deployed |
-| BLE TNC | Android, iOS | Shipped (v0.4); validated on common BLE-UART hardware |
+| BLE TNC | Android, iOS | Shipped (v0.4); validated on common BLE-UART hardware. Plugin: `universal_ble` (BSD-3-Clause) since v0.20. Architecturally cross-platform (incl. Windows/Linux/web) but wired mobile-only pending desktop hardware validation |
 | USB Serial TNC | macOS, Windows, Linux | Shipped (v0.3); Linux validated, macOS / Windows pending physical testing |
 
 - **APRS-IS:** server `rotate.aprs2.net:14580`; user-overridable host/port; passcode in platform secure storage; viewport-adaptive bounding-box filter (`b/`) with 25 % padding and 50 km minimum radius
-- **BLE TNC:** scan + connect from in-app sheet; Mobilinkd-compatible UART-over-BLE GATT profile; MTU-negotiated chunking; auto-reconnect via `ReconnectableMixin`
+- **BLE TNC:** scan + connect from in-app sheet; two BLE-KISS GATT families autodetected (aprs-specs / Benshi, ADR-066); MTU-negotiated chunking; auto-reconnect via `ReconnectableMixin`. Built on `universal_ble` behind the plugin-agnostic `BleDeviceAdapter` seam (ADR-068)
 - **USB Serial TNC:** static preset registry of common TNC hardware; runtime KISS configuration
 - **TX routing:** unconditional priority Serial > BLE > APRS-IS (ADR-029, ADR-051) — no per-message override
 - **Per-connection beaconing toggle:** each connection has its own `beacon_enabled_<id>` preference

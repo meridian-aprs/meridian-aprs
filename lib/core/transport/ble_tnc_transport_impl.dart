@@ -1,12 +1,11 @@
 library;
 
 import 'dart:async';
-import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:universal_ble/universal_ble.dart';
 
 import 'aprs_transport.dart' show ConnectionStatus;
 import 'ble_constants.dart';
@@ -15,84 +14,157 @@ import 'kiss_framer.dart';
 import 'kiss_tnc_transport.dart';
 
 // ---------------------------------------------------------------------------
+// Platform-neutral BLE types
+// ---------------------------------------------------------------------------
+//
+// The transport speaks only these FBP-free types, so swapping the underlying
+// BLE plugin never reaches past [BleDeviceAdapter]. UUIDs are plain lower-case
+// strings (callers compare case-insensitively); there is no plugin-specific
+// GUID/characteristic-object type anywhere above the adapter.
+
+/// A discovered GATT service and the UUIDs of its characteristics.
+class BleGattService {
+  const BleGattService(this.uuid, this.characteristicUuids);
+
+  final String uuid;
+  final List<String> characteristicUuids;
+}
+
+/// Neutral link state surfaced on [BleDeviceAdapter.connectionState].
+enum BleLinkState { connected, disconnected }
+
+// ---------------------------------------------------------------------------
 // Testability abstraction
 // ---------------------------------------------------------------------------
 
-/// Thin wrapper around a [BluetoothDevice] for test injection.
+/// Plugin-agnostic seam for a single BLE peripheral, keyed by its device id.
 ///
-/// Production code uses [DefaultBleDeviceAdapter]. Tests inject a fake.
+/// Production code uses [UniversalBleDeviceAdapter]; tests inject a fake. The
+/// interface is intentionally free of any BLE-plugin type so the transport and
+/// everything above it compiles without a plugin dependency.
 abstract interface class BleDeviceAdapter {
+  /// Stable platform device identifier (MAC on Android, UUID on iOS).
+  String get deviceId;
+
+  /// Friendly name for diagnostics/logs (advertised name when known).
+  String get displayName;
+
   Future<void> connect({Duration timeout, bool autoConnect});
   Future<void> disconnect();
+
+  /// Requests an MTU and returns the negotiated ATT MTU (full frame size,
+  /// including the 3-byte ATT header — callers subtract it for payload size).
   Future<int> requestMtu(int desired);
-  int get mtu;
-  Future<List<BluetoothService>> discoverServices();
 
-  /// Clears the Android GATT service cache for this device.
-  ///
-  /// A no-op on iOS/desktop — implementations should swallow any
-  /// platform exception so callers never need to handle it.
-  Future<void> clearGattCache();
+  Future<List<BleGattService>> discoverServices();
 
-  /// Asks the OS BLE stack to use [priority] for this connection.
-  ///
-  /// Android only. Implementations on iOS / desktop must silently no-op.
-  /// Returns normally on success; throws when the OS rejects the request —
-  /// callers should treat that as advisory and continue.
-  Future<void> requestConnectionPriority(ConnectionPriority priority);
+  /// Enables notifications on [charUuid] and routes its values to
+  /// [notifications]. Only one notify characteristic is subscribed at a time.
+  Future<void> subscribe(String serviceUuid, String charUuid);
 
-  Stream<BluetoothConnectionState> get connectionState;
-  String get platformName;
+  Future<void> writeValue(
+    String serviceUuid,
+    String charUuid,
+    Uint8List value, {
+    required bool withResponse,
+  });
+
+  /// Bytes delivered by the subscribed notify characteristic.
+  Stream<Uint8List> get notifications;
+
+  /// OS link state for this device. Survives session teardown so a late drop
+  /// still reaches the transport's error path — see [BleTncTransport].
+  Stream<BleLinkState> get connectionState;
 }
 
-/// Production [BleDeviceAdapter] backed by a [BluetoothDevice].
-class DefaultBleDeviceAdapter implements BleDeviceAdapter {
-  DefaultBleDeviceAdapter(this._device);
+/// Production [BleDeviceAdapter] backed by `universal_ble`'s static,
+/// device-id-keyed API.
+///
+/// universal_ble exposes per-device streams keyed by `deviceId`
+/// ([UniversalBle.connectionStream] / [UniversalBle.characteristicValueStream]),
+/// so this adapter needs no global-callback demultiplexing — each stream is
+/// already scoped to this device. The connection stream survives session
+/// teardown naturally, which is what lets a late OS-side drop still reach the
+/// transport's error path (see [BleTncTransport]).
+class UniversalBleDeviceAdapter implements BleDeviceAdapter {
+  UniversalBleDeviceAdapter(this.deviceId, {String? displayName})
+    : displayName = (displayName == null || displayName.isEmpty)
+          ? deviceId
+          : displayName;
 
-  final BluetoothDevice _device;
+  @override
+  final String deviceId;
+
+  @override
+  final String displayName;
+
+  /// Set by [subscribe]; identifies the notify characteristic whose values
+  /// flow on [notifications].
+  String? _notifyCharUuid;
+
+  @override
+  Stream<BleLinkState> get connectionState =>
+      UniversalBle.connectionStream(deviceId).map(
+        (isConnected) =>
+            isConnected ? BleLinkState.connected : BleLinkState.disconnected,
+      );
+
+  @override
+  Stream<Uint8List> get notifications {
+    final charUuid = _notifyCharUuid;
+    if (charUuid == null) return const Stream<Uint8List>.empty();
+    return UniversalBle.characteristicValueStream(deviceId, charUuid);
+  }
 
   @override
   Future<void> connect({
     Duration timeout = const Duration(seconds: 15),
     bool autoConnect = false,
-  }) => _device.connect(timeout: timeout, autoConnect: autoConnect);
+  }) => UniversalBle.connect(
+    deviceId,
+    timeout: timeout,
+    autoConnect: autoConnect,
+  );
 
   @override
-  Future<void> disconnect() => _device.disconnect();
+  Future<void> disconnect() => UniversalBle.disconnect(deviceId);
 
   @override
-  Future<int> requestMtu(int desired) => _device.requestMtu(desired);
+  Future<int> requestMtu(int desired) =>
+      UniversalBle.requestMtu(deviceId, desired);
 
   @override
-  int get mtu => _device.mtuNow;
-
-  @override
-  Future<List<BluetoothService>> discoverServices() =>
-      _device.discoverServices();
-
-  @override
-  Future<void> clearGattCache() async {
-    try {
-      await _device.clearGattCache();
-    } catch (_) {
-      // Not supported on iOS/desktop — silently ignore.
-    }
+  Future<List<BleGattService>> discoverServices() async {
+    final services = await UniversalBle.discoverServices(deviceId);
+    return services
+        .map(
+          (s) => BleGattService(
+            s.uuid,
+            s.characteristics.map((c) => c.uuid).toList(growable: false),
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
-  Future<void> requestConnectionPriority(ConnectionPriority priority) async {
-    if (!Platform.isAndroid) return;
-    await _device.requestConnectionPriority(
-      connectionPriorityRequest: priority,
-    );
+  Future<void> subscribe(String serviceUuid, String charUuid) async {
+    _notifyCharUuid = charUuid;
+    await UniversalBle.subscribeNotifications(deviceId, serviceUuid, charUuid);
   }
 
   @override
-  Stream<BluetoothConnectionState> get connectionState =>
-      _device.connectionState;
-
-  @override
-  String get platformName => _device.platformName;
+  Future<void> writeValue(
+    String serviceUuid,
+    String charUuid,
+    Uint8List value, {
+    required bool withResponse,
+  }) => UniversalBle.write(
+    deviceId,
+    serviceUuid,
+    charUuid,
+    value,
+    withoutResponse: !withResponse,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +189,9 @@ class DefaultBleDeviceAdapter implements BleDeviceAdapter {
 /// existing [KissFramer]. Outgoing frames are KISS-encoded and split into
 /// MTU-sized chunks before writing to the RX characteristic.
 class BleTncTransport extends KissTncTransport {
-  /// Construct a transport for a given device.
+  /// Construct a transport for a given device id.
+  ///
+  /// [deviceName] is a friendly label used only for diagnostics/logs.
   ///
   /// [family] selects the BLE-KISS GATT family. When `null` (default), the
   /// transport autodetects the family at connect time by scanning the
@@ -125,10 +199,13 @@ class BleTncTransport extends KissTncTransport {
   /// known from advertisement data — it skips one round of service-list
   /// inspection and produces clearer error messages on mismatch.
   BleTncTransport(
-    BluetoothDevice device, {
+    String deviceId, {
+    String? deviceName,
     BleDeviceAdapter? adapter,
     BleKissFamily? family,
-  }) : _adapter = adapter ?? DefaultBleDeviceAdapter(device),
+  }) : _adapter =
+           adapter ??
+           UniversalBleDeviceAdapter(deviceId, displayName: deviceName),
        _hintedFamily = family;
 
   final BleDeviceAdapter _adapter;
@@ -158,11 +235,8 @@ class BleTncTransport extends KissTncTransport {
 
   final _kissFramer = KissFramer();
   StreamSubscription<Uint8List>? _framesSub;
-  StreamSubscription<List<int>>? _notifySub;
-  StreamSubscription<BluetoothConnectionState>? _connStateSub;
-
-  BluetoothCharacteristic? _txChar;
-  BluetoothCharacteristic? _rxChar;
+  StreamSubscription<Uint8List>? _notifySub;
+  StreamSubscription<BleLinkState>? _connStateSub;
 
   final _framesController = StreamController<Uint8List>.broadcast();
   final _stateController = StreamController<ConnectionStatus>.broadcast();
@@ -194,7 +268,7 @@ class BleTncTransport extends KissTncTransport {
   Future<void> _connect({required bool autoConnect}) async {
     BleDiagnostics.I.log(
       BleEventKind.connectStart,
-      'device=${_adapter.platformName} autoConnect=$autoConnect',
+      'device=${_adapter.displayName} autoConnect=$autoConnect',
     );
     _setStatus(
       autoConnect
@@ -202,20 +276,16 @@ class BleTncTransport extends KissTncTransport {
           : ConnectionStatus.connecting,
     );
     try {
-      // 1. Clear the Android GATT cache before connecting.
-      //    Stale cached service tables from prior sessions are the most
-      //    common cause of GATT status 133 (ANDROID_SPECIFIC_ERROR) on
-      //    reconnect. Clearing forces fresh service discovery.
-      //    Skipped for autoConnect — the OS manages that session and the
-      //    cache is not the source of issues there.
-      if (!autoConnect) {
-        await _adapter.clearGattCache();
-      }
-
-      // 2. Connect to the device.
+      // 1. Connect to the device.
       //    autoConnect: true — OS manages background scanning; no explicit
       //    timeout needed beyond a ceiling to avoid hanging forever if the
       //    device is turned off permanently.
+      //
+      //    NOTE: There is no GATT-cache clear here. The previous BLE plugin
+      //    offered clearGattCache() to dodge Android GATT status 133 on stale
+      //    service tables; universal_ble has no equivalent. The reconnect cascade in
+      //    BleConnection (ReconnectableMixin) absorbs a transient 133 by
+      //    retrying, so the practical impact is an occasional extra retry.
       await _adapter.connect(
         timeout: autoConnect
             ? const Duration(hours: 1)
@@ -223,43 +293,50 @@ class BleTncTransport extends KissTncTransport {
         autoConnect: autoConnect,
       );
 
-      // 2a. Subscribe to BLE connection-state events as soon as the OS
+      // 1a. Subscribe to BLE connection-state events as soon as the OS
       //     considers the link established. The subscription is intentionally
       //     attached BEFORE the rest of setup so an early adverse event
       //     (e.g. a peer-side drop during service discovery) is captured.
       //     It is also intentionally NOT torn down by [_cleanupSubscriptions]
-      //     so that a late OS state event still drives the error path.
+      //     so that a late OS state event still drives the error path. The
+      //     adapter keeps its underlying global callback alive until its own
+      //     disconnect() runs, which only happens via [disconnect] /
+      //     transport teardown — never from [_cleanupSubscriptions].
       _connStateSub ??= _adapter.connectionState.listen(_onBleConnectionState);
 
-      // 2b. Connection-priority request is deliberately skipped for all
-      //     families. The Mobilinkd TNC4 drops the link within the 5.12 s
-      //     LINK_SUPERVISION_TIMEOUT if `requestConnectionPriority(high)` is
-      //     called immediately after `connect()` (2026-04-30 drive-test
-      //     diagnostics showed identical 5.4 s drop cycles with HIGH priority
-      //     enabled, stable 110 s keepalive cadence with it disabled). The
-      //     Benshi family is untested here — apply the same conservative
-      //     default until proven safe per-family. Re-introducing the priority
-      //     request needs family-aware gating; track in a follow-up.
-      BleDiagnostics.I.log(
-        BleEventKind.connectionPriorityRequested,
-        'priority=balanced (skipped: TNC4 drops link if renegotiated)',
-      );
+      // 1b. Connection-priority request is deliberately not made. The Mobilinkd
+      //     TNC4 dropped the link within the 5.12 s LINK_SUPERVISION_TIMEOUT
+      //     when a high-priority connection was requested immediately after
+      //     connect (2026-04-30 drive-test diagnostics: identical 5.4 s drop
+      //     cycles with HIGH priority enabled, stable 110 s with it disabled).
+      //     universal_ble DOES expose a priority API
+      //     (`UniversalBle.requestConnectionPriority` / `BleConnectionPriority`),
+      //     but we deliberately neither call it nor surface it on
+      //     [BleDeviceAdapter] — the seam has no priority method, so this hazard
+      //     cannot be reintroduced without consciously widening the interface.
+      //     Re-enabling it needs family-aware gating proven safe on hardware.
 
-      // 3. Read the negotiated MTU.
-      //    flutter_blue_plus on Android auto-requests MTU 512 inside
-      //    connect(); issuing a second requestMtu() immediately after causes
-      //    Mobilinkd (and some other TNCs) to drop the link with
-      //    LINK_SUPERVISION_TIMEOUT. On iOS the OS manages MTU negotiation
-      //    and explicit requests are unnecessary. _adapter.mtu reflects the
-      //    negotiated value once connect() resolves.
-      //    ATT overhead is 3 bytes; subtract to get usable payload bytes.
-      final negotiated = _adapter.mtu;
+      // 2. Request and read the negotiated MTU.
+      //    Unlike the previous BLE plugin (which auto-negotiated MTU inside
+      //    connect() and exposed it via a getter), universal_ble only surfaces the MTU as
+      //    the return value of an explicit requestMtu(). A failed/declined
+      //    request falls back to the 23-byte ATT default (20-byte payload),
+      //    which still carries APRS-sized frames fine. ATT overhead is 3 bytes.
+      int negotiated;
+      try {
+        negotiated = await _adapter.requestMtu(512);
+      } catch (e) {
+        debugPrint(
+          'BleTncTransport: requestMtu failed ($e); using ATT default',
+        );
+        negotiated = 23;
+      }
       _mtu = max(20, negotiated - 3);
       debugPrint('BleTncTransport: MTU $negotiated, using $_mtu byte chunks');
 
-      // 4. Discover services (retry up to 3× — Android BLE stacks sometimes
+      // 3. Discover services (retry up to 3× — Android BLE stacks sometimes
       //    need a moment after connect() before the GATT cache is ready).
-      List<BluetoothService>? services;
+      List<BleGattService>? services;
       for (int attempt = 1; attempt <= 3; attempt++) {
         try {
           if (attempt == 1) {
@@ -281,7 +358,7 @@ class BleTncTransport extends KissTncTransport {
         }
       }
 
-      // 5. Resolve the GATT profile (which BLE-KISS family this device speaks)
+      // 4. Resolve the GATT profile (which BLE-KISS family this device speaks)
       //    and find the matching service. When [_hintedFamily] was provided we
       //    look for that exact service; otherwise we scan the discovered list
       //    for the first known family service and adopt it.
@@ -289,49 +366,46 @@ class BleTncTransport extends KissTncTransport {
       if (profile == null) {
         throw Exception(
           'BleTncTransport: no supported BLE-KISS service found on '
-          '${_adapter.platformName}. Make sure KISS mode is enabled — '
+          '${_adapter.displayName}. Make sure KISS mode is enabled — '
           'BTECH/Vero radios require enabling KISS in the radio menu.',
         );
       }
       _profile = profile;
-      final service = services
-          .where((s) => s.serviceUuid == Guid(profile.serviceUuid))
-          .first;
 
-      // 6. Find the notify (host RX) and write (host TX) characteristics.
-      final notifyGuid = Guid(profile.notifyCharUuid);
-      final writeGuid = Guid(profile.writeCharUuid);
-      _txChar = service.characteristics
-          .where((c) => c.characteristicUuid == notifyGuid)
-          .firstOrNull;
-      _rxChar = service.characteristics
-          .where((c) => c.characteristicUuid == writeGuid)
-          .firstOrNull;
-
-      if (_txChar == null || _rxChar == null) {
+      // 5. Confirm the notify (host RX) and write (host TX) characteristics
+      //    exist on the resolved service.
+      final service = services.firstWhere(
+        (s) => s.uuid.toLowerCase() == profile.serviceUuid.toLowerCase(),
+      );
+      final chars = service.characteristicUuids
+          .map((c) => c.toLowerCase())
+          .toSet();
+      final hasNotify = chars.contains(profile.notifyCharUuid.toLowerCase());
+      final hasWrite = chars.contains(profile.writeCharUuid.toLowerCase());
+      if (!hasNotify || !hasWrite) {
         throw Exception(
           'BleTncTransport: notify or write characteristic not found for '
-          '${profile.family.name}. notify=${_txChar != null} write=${_rxChar != null}',
+          '${profile.family.name}. notify=$hasNotify write=$hasWrite',
         );
       }
 
-      // 7. Subscribe to TX characteristic notifications.
-      await _txChar!.setNotifyValue(true);
-      _notifySub = _txChar!.onValueReceived.listen(_onBleChunk);
+      // 6. Subscribe to TX (notify) characteristic notifications.
+      await _adapter.subscribe(profile.serviceUuid, profile.notifyCharUuid);
+      _notifySub = _adapter.notifications.listen(_onBleChunk);
 
-      // 8. Wire KissFramer output → frameStream.
+      // 7. Wire KissFramer output → frameStream.
       _framesSub = _kissFramer.frames.listen(_framesController.add);
 
       _setStatus(ConnectionStatus.connected);
       debugPrint(
-        'BleTncTransport: connected to ${_adapter.platformName}, starting keepalive timer',
+        'BleTncTransport: connected to ${_adapter.displayName}, starting keepalive timer',
       );
       BleDiagnostics.I.log(
         BleEventKind.connectSuccess,
-        'device=${_adapter.platformName} family=${profile.family.name} mtu=$_mtu',
+        'device=${_adapter.displayName} family=${profile.family.name} mtu=$_mtu',
       );
 
-      // 10. Start the idle keepalive timer.
+      // 8. Start the idle keepalive timer.
       //    Acts as an application-level self-watchdog so a wedged peripheral
       //    TX path is detected promptly without waiting on the OS supervision
       //    timeout. The keepalive sends a single TXDELAY frame every
@@ -354,12 +428,12 @@ class BleTncTransport extends KissTncTransport {
       debugPrint('BleTncTransport connect failed: $e');
       BleDiagnostics.I.log(
         BleEventKind.connectFailed,
-        'device=${_adapter.platformName} error=$e',
+        'device=${_adapter.displayName} error=$e',
       );
       _setStatus(ConnectionStatus.error);
       // Best-effort cleanup before rethrowing — including the connection-state
-      // listener, since a failed connect produces no live session for it to
-      // observe.
+      // listener and the adapter's global callbacks, since a failed connect
+      // produces no live session for them to observe.
       await _cleanupSubscriptions();
       await _cancelConnStateSub();
       try {
@@ -391,18 +465,13 @@ class BleTncTransport extends KissTncTransport {
       wasInternal
           ? BleEventKind.disconnectInternal
           : BleEventKind.disconnectUser,
-      'device=${_adapter.platformName}',
+      'device=${_adapter.displayName}',
     );
     _keepaliveTimer?.cancel();
     _keepaliveTimer = null;
     _setStatus(ConnectionStatus.disconnected);
     await _cleanupSubscriptions();
     await _cancelConnStateSub();
-    try {
-      await _txChar?.setNotifyValue(false);
-    } catch (_) {}
-    _txChar = null;
-    _rxChar = null;
     _profile = null;
     try {
       await _adapter.disconnect();
@@ -412,8 +481,8 @@ class BleTncTransport extends KissTncTransport {
 
   @override
   Future<void> sendFrame(Uint8List ax25Frame) async {
-    final rxChar = _rxChar;
-    if (rxChar == null || !isConnected) {
+    final profile = _profile;
+    if (profile == null || !isConnected) {
       throw StateError('BleTncTransport: not connected');
     }
     _keepaliveTimer?.cancel();
@@ -427,8 +496,13 @@ class BleTncTransport extends KissTncTransport {
       int offset = 0;
       while (offset < kissFrame.length) {
         final end = min(offset + _mtu, kissFrame.length);
-        final chunk = kissFrame.sublist(offset, end);
-        await rxChar.write(chunk, withoutResponse: false);
+        final chunk = Uint8List.sublistView(kissFrame, offset, end);
+        await _adapter.writeValue(
+          profile.serviceUuid,
+          profile.writeCharUuid,
+          chunk,
+          withResponse: true,
+        );
         offset = end;
       }
     } finally {
@@ -449,10 +523,8 @@ class BleTncTransport extends KissTncTransport {
   /// connects take, since the family is already known from advertisement data.
   /// When no hint is provided (cold reconnect from persisted device id),
   /// scan the discovered service list for the first known family.
-  BleKissProfile? _resolveProfile(List<BluetoothService> services) {
-    final advertised = services
-        .map((s) => s.serviceUuid.str.toLowerCase())
-        .toSet();
+  BleKissProfile? _resolveProfile(List<BleGattService> services) {
+    final advertised = services.map((s) => s.uuid.toLowerCase()).toSet();
     if (_hintedFamily != null) {
       final hinted = BleKissProfile.forFamily(_hintedFamily);
       if (advertised.contains(hinted.serviceUuid.toLowerCase())) {
@@ -470,20 +542,20 @@ class BleTncTransport extends KissTncTransport {
     return null;
   }
 
-  void _onBleChunk(List<int> chunk) {
+  void _onBleChunk(Uint8List chunk) {
     _kissFramer.addBytes(chunk);
   }
 
-  void _onBleConnectionState(BluetoothConnectionState state) {
+  void _onBleConnectionState(BleLinkState state) {
     BleDiagnostics.I.log(BleEventKind.bleStateChanged, state.name);
-    if (state == BluetoothConnectionState.disconnected &&
+    if (state == BleLinkState.disconnected &&
         _status == ConnectionStatus.connected) {
       debugPrint(
-        'BleTncTransport: unexpected disconnect from ${_adapter.platformName}',
+        'BleTncTransport: unexpected disconnect from ${_adapter.displayName}',
       );
       BleDiagnostics.I.log(
         BleEventKind.disconnectUnexpected,
-        'device=${_adapter.platformName}',
+        'device=${_adapter.displayName}',
       );
       // _status is set synchronously before the unawaited cleanup, so a
       // second delivery of this event cannot re-enter (guard is already false).
@@ -542,11 +614,16 @@ class BleTncTransport extends KissTncTransport {
   /// reconnect cascade. If the retry also fails the link is marked as error.
   Future<void> _onKeepalive() async {
     if (!isConnected) return;
-    final rxChar = _rxChar;
-    if (rxChar == null) return;
+    final profile = _profile;
+    if (profile == null) return;
     final payload = Uint8List.fromList([0xC0, 0x01, 30, 0xC0]);
     try {
-      await rxChar.write(payload, withoutResponse: true);
+      await _adapter.writeValue(
+        profile.serviceUuid,
+        profile.writeCharUuid,
+        payload,
+        withResponse: false,
+      );
       BleDiagnostics.I.log(BleEventKind.keepaliveSent);
       _resetKeepalive();
       return;
@@ -558,10 +635,15 @@ class BleTncTransport extends KissTncTransport {
     // mid-delay (e.g. user tapped disconnect).
     await Future<void>.delayed(keepaliveRetryDelay);
     if (!isConnected) return;
-    final retryRx = _rxChar;
-    if (retryRx == null) return;
+    final retryProfile = _profile;
+    if (retryProfile == null) return;
     try {
-      await retryRx.write(payload, withoutResponse: true);
+      await _adapter.writeValue(
+        retryProfile.serviceUuid,
+        retryProfile.writeCharUuid,
+        payload,
+        withResponse: false,
+      );
       BleDiagnostics.I.log(BleEventKind.keepaliveRetried, 'recovered=true');
       _resetKeepalive();
       return;
@@ -573,7 +655,7 @@ class BleTncTransport extends KissTncTransport {
       if (_status == ConnectionStatus.connected) {
         BleDiagnostics.I.log(
           BleEventKind.disconnectKeepaliveFailed,
-          'device=${_adapter.platformName}',
+          'device=${_adapter.displayName}',
         );
         _status = ConnectionStatus.error;
         _stateController.add(ConnectionStatus.error);

@@ -3,8 +3,8 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:material_symbols_icons/symbols.dart';
+import 'package:universal_ble/universal_ble.dart';
 
 import '../../core/connection/ble_connection.dart';
 import '../../core/transport/ble_constants.dart';
@@ -61,11 +61,15 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
   String? _bleError;
   String? _connectingDeviceId;
 
-  // Track unique devices by remoteId (deduplicates scan updates).
-  final _deviceMap = <DeviceIdentifier, ScanResult>{};
+  // Track unique devices by deviceId (deduplicates scan updates).
+  final _deviceMap = <String, BleDevice>{};
 
-  StreamSubscription<List<ScanResult>>? _scanSub;
-  StreamSubscription<BluetoothAdapterState>? _adapterSub;
+  StreamSubscription<BleDevice>? _scanSub;
+
+  /// universal_ble has no built-in scan timeout, so we stop the scan ourselves
+  /// after this duration (matching the prior BLE plugin's scan behaviour).
+  static const _scanTimeout = Duration(seconds: 15);
+  Timer? _scanTimer;
 
   @override
   void initState() {
@@ -76,8 +80,8 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
   @override
   void dispose() {
     _scanSub?.cancel();
-    _adapterSub?.cancel();
-    if (_scanning) FlutterBluePlus.stopScan();
+    _scanTimer?.cancel();
+    if (_scanning) UniversalBle.stopScan();
     super.dispose();
   }
 
@@ -87,18 +91,27 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
       return;
     }
     // On desktop Linux/macOS/Windows BLE may be unavailable.
-    final state = await FlutterBluePlus.adapterState.first;
-    if (state == BluetoothAdapterState.off) {
-      setState(
-        () => _bleError =
-            'Bluetooth is off. Enable it in Settings to connect a BLE TNC.',
-      );
-    } else if (state == BluetoothAdapterState.unavailable) {
-      setState(() => _bleError = 'Bluetooth is not available on this device.');
-    } else if (state == BluetoothAdapterState.unauthorized) {
-      setState(
-        () => _bleError = 'Bluetooth permission is required to connect a TNC.',
-      );
+    final state = await UniversalBle.getBluetoothAvailabilityState();
+    if (!mounted) return;
+    switch (state) {
+      case AvailabilityState.poweredOff:
+        setState(
+          () => _bleError =
+              'Bluetooth is off. Enable it in Settings to connect a BLE TNC.',
+        );
+      case AvailabilityState.unsupported:
+        setState(
+          () => _bleError = 'Bluetooth is not available on this device.',
+        );
+      case AvailabilityState.unauthorized:
+        setState(
+          () =>
+              _bleError = 'Bluetooth permission is required to connect a TNC.',
+        );
+      case AvailabilityState.poweredOn:
+      case AvailabilityState.unknown:
+      case AvailabilityState.resetting:
+        break;
     }
   }
 
@@ -109,50 +122,58 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
       _bleError = null;
     });
 
-    _scanSub?.cancel();
+    await _scanSub?.cancel();
+    _scanTimer?.cancel();
 
     // When the "show all" toggle is off, ask the OS to filter advertisements
     // at parse time using the supported family service UUIDs. This is
     // strictly equivalent to filtering in-app, but cheaper on the radio.
     final withServices = _showAllDevices
-        ? const <Guid>[]
-        : [Guid(kBleKissServiceUuid), Guid(kBenshiKissServiceUuid)];
+        ? const <String>[]
+        : <String>[kBleKissServiceUuid, kBenshiKissServiceUuid];
+
+    _scanSub = UniversalBle.scanStream.listen((device) {
+      if (!mounted) return;
+      setState(() => _deviceMap[device.deviceId] = device);
+    });
 
     try {
-      await FlutterBluePlus.startScan(
-        timeout: const Duration(seconds: 15),
-        withServices: withServices,
+      await UniversalBle.startScan(
+        scanFilter: ScanFilter(withServices: withServices),
       );
-    } on FlutterBluePlusException catch (e) {
-      setState(() {
-        _bleError = _friendlyBleError(e.description ?? e.toString());
-        _scanning = false;
-      });
+    } catch (e) {
+      await _scanSub?.cancel();
+      _scanSub = null;
+      if (mounted) {
+        setState(() {
+          _bleError = _friendlyBleError(e.toString());
+          _scanning = false;
+        });
+      }
       return;
     }
 
-    _scanSub = FlutterBluePlus.onScanResults.listen((results) {
-      if (!mounted) return;
-      setState(() {
-        for (final r in results) {
-          _deviceMap[r.device.remoteId] = r;
-        }
-      });
-    });
-
-    // FlutterBluePlus stops on timeout; listen for adapter state to detect
-    // early stop.
-    FlutterBluePlus.isScanning.listen((isScanning) {
-      if (!isScanning && mounted) {
-        setState(() => _scanning = false);
-      }
+    // Self-imposed timeout — universal_ble scans until explicitly stopped.
+    _scanTimer = Timer(_scanTimeout, () {
+      if (mounted && _scanning) _stopScan();
     });
   }
 
-  Future<void> _connect(ScanResult result) async {
-    await FlutterBluePlus.stopScan();
+  Future<void> _stopScan() async {
+    _scanTimer?.cancel();
+    _scanTimer = null;
+    await _scanSub?.cancel();
+    _scanSub = null;
+    try {
+      await UniversalBle.stopScan();
+    } catch (_) {}
+    if (mounted) setState(() => _scanning = false);
+  }
+
+  Future<void> _connect(BleDevice device) async {
+    await _stopScan();
     setState(() {
-      _connectingDeviceId = result.device.remoteId.str;
+      _connectingDeviceId = device.deviceId;
       _bleError = null;
     });
 
@@ -160,11 +181,12 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
       // Resolve the GATT family from advertisement data so the transport can
       // skip post-discovery autodetection. Falls back to null (autodetect)
       // when the device only advertised an unrelated service.
-      final advertisedUuids = result.advertisementData.serviceUuids.map(
-        (g) => g.str,
+      final family = bleKissFamilyForServiceUuids(device.services);
+      await widget.bleConnection.connectToDevice(
+        device.deviceId,
+        deviceName: device.name,
+        family: family,
       );
-      final family = bleKissFamilyForServiceUuids(advertisedUuids);
-      await widget.bleConnection.connectToDevice(result.device, family: family);
       if (mounted) {
         if (widget.onBack != null) {
           widget.onBack!();
@@ -174,10 +196,12 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
       }
     } catch (e) {
       if (mounted) {
+        final name = (device.name != null && device.name!.isNotEmpty)
+            ? device.name!
+            : 'device';
         setState(() {
           _connectingDeviceId = null;
-          _bleError =
-              'Could not connect to ${result.device.platformName.isNotEmpty ? result.device.platformName : "device"}. Try again.';
+          _bleError = 'Could not connect to $name. Try again.';
         });
       }
     }
@@ -213,7 +237,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final devices = _deviceMap.values.toList()
-      ..sort((a, b) => b.rssi.compareTo(a.rssi));
+      ..sort((a, b) => (b.rssi ?? -1000).compareTo(a.rssi ?? -1000));
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -291,7 +315,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
             Row(
               children: [
                 FilledButton.icon(
-                  onPressed: _scanning ? null : _startScan,
+                  onPressed: _scanning ? _stopScan : _startScan,
                   icon: Icon(_scanning ? Symbols.stop : Symbols.search),
                   label: Text(_scanning ? 'Scanning…' : 'Scan'),
                 ),
@@ -345,21 +369,22 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
 
           // Device list.
           if (devices.isNotEmpty)
-            ...devices.map((result) {
-              final advertisedName = result.device.platformName.isNotEmpty
-                  ? result.device.platformName
+            ...devices.map((device) {
+              final advertisedName =
+                  (device.name != null && device.name!.isNotEmpty)
+                  ? device.name
                   : null;
               final known = BleTncKnownDevice.matchByName(advertisedName);
               final displayName =
-                  known?.displayName ??
-                  advertisedName ??
-                  result.device.remoteId.str;
+                  known?.displayName ?? advertisedName ?? device.deviceId;
+              final rssiText = device.rssi != null
+                  ? '${device.rssi} dBm'
+                  : '— dBm';
               final subtitle = known != null && advertisedName != null
-                  ? '$advertisedName • RSSI ${result.rssi} dBm'
-                  : 'RSSI: ${result.rssi} dBm';
+                  ? '$advertisedName • RSSI $rssiText'
+                  : 'RSSI: $rssiText';
               final leadingIcon = known?.icon ?? Symbols.bluetooth;
-              final isConnecting =
-                  _connectingDeviceId == result.device.remoteId.str;
+              final isConnecting = _connectingDeviceId == device.deviceId;
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 8),
@@ -372,7 +397,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
                         right: -2,
                         bottom: -2,
                         child: Icon(
-                          _rssiIcon(result.rssi),
+                          _rssiIcon(device.rssi ?? -100),
                           size: 12,
                           color: theme.colorScheme.outline,
                         ),
@@ -392,7 +417,7 @@ class _BleScannerSheetState extends State<BleScannerSheet> {
                       : FilledButton.tonal(
                           onPressed: _connectingDeviceId != null
                               ? null
-                              : () => _connect(result),
+                              : () => _connect(device),
                           child: const Text('Connect'),
                         ),
                 ),

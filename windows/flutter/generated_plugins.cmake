@@ -9,6 +9,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   geolocator_windows
   local_notifier
   permission_handler_windows
+  universal_ble
   url_launcher_windows
 )
 

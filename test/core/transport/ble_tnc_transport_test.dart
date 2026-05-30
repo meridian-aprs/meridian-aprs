@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meridian_aprs/core/transport/aprs_transport.dart';
+import 'package:meridian_aprs/core/transport/ble_constants.dart';
 import 'package:meridian_aprs/core/transport/ble_diagnostics.dart';
 import 'package:meridian_aprs/core/transport/ble_tnc_transport_impl.dart';
 import 'package:meridian_aprs/core/transport/kiss_framer.dart';
@@ -32,47 +32,47 @@ Uint8List _buildKissFrame(String src, String dst, String aprsInfo) {
   return KissFramer.encode(Uint8List.fromList(frame));
 }
 
+/// A GATT service advertising the aprs-specs (Family A) KISS profile, so the
+/// fake adapter lets a [BleTncTransport] reach [ConnectionStatus.connected].
+BleGattService _aprsSpecsService() => BleGattService(
+  kBleKissServiceUuid,
+  const [kBleKissNotifyCharUuid, kBleKissWriteCharUuid],
+);
+
 // ---------------------------------------------------------------------------
 // FakeBleDeviceAdapter
 // ---------------------------------------------------------------------------
 
 /// Fake [BleDeviceAdapter] for unit-testing [BleTncTransport].
 ///
-/// Characteristic-level operations (setNotifyValue, write, onValueReceived)
-/// are performed on real [BluetoothCharacteristic] objects inside the
-/// transport, which require the native platform. These cannot be tested
-/// here — those paths are exercised by integration tests.
-///
-/// This fake covers:
-///   - Device-level connect / disconnect
-///   - MTU negotiation
-///   - Service discovery (configurable result)
-///   - Connection-state stream for unexpected-disconnect tests
+/// The seam is fully plugin-agnostic, so this fake can now drive every path —
+/// including the connected path (subscribe / notifications / writes) that
+/// previously required the native stack.
 class FakeBleDeviceAdapter implements BleDeviceAdapter {
   // ----- configuration knobs -----
   bool connectThrows = false;
   bool discoverThrows = false;
-  bool requestPriorityThrows = false;
   int fakeMtu = 512;
-  List<BluetoothService> services = [];
+  List<BleGattService> services = [];
 
   // ----- call tracking -----
   int connectCallCount = 0;
   int disconnectCallCount = 0;
   int requestMtuCallCount = 0;
   int discoverCallCount = 0;
-  int clearGattCacheCallCount = 0;
-  final List<ConnectionPriority> requestedPriorities = [];
+  int subscribeCallCount = 0;
+  final List<Uint8List> writes = [];
+  final List<bool> writeWithResponse = [];
 
-  // ----- connection state stream -----
-  final _connStateController =
-      StreamController<BluetoothConnectionState>.broadcast();
-
-  @override
-  String platformName = 'FakeTNC';
+  // ----- streams -----
+  final _connStateController = StreamController<BleLinkState>.broadcast();
+  final _notificationsController = StreamController<Uint8List>.broadcast();
 
   @override
-  int get mtu => fakeMtu;
+  String deviceId = 'AA:BB:CC:DD:EE:FF';
+
+  @override
+  String displayName = 'FakeTNC';
 
   @override
   Future<void> connect({
@@ -91,12 +91,11 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   @override
   Future<int> requestMtu(int desired) async {
     requestMtuCallCount++;
-    // Simulate a small MTU so chunking logic can be observed.
     return fakeMtu;
   }
 
   @override
-  Future<List<BluetoothService>> discoverServices() async {
+  Future<List<BleGattService>> discoverServices() async {
     discoverCallCount++;
     if (discoverThrows) {
       throw Exception('FakeBleDeviceAdapter: discoverServices failed');
@@ -105,31 +104,42 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   }
 
   @override
-  Future<void> clearGattCache() async {
-    clearGattCacheCallCount++;
+  Future<void> subscribe(String serviceUuid, String charUuid) async {
+    subscribeCallCount++;
   }
 
   @override
-  Future<void> requestConnectionPriority(ConnectionPriority priority) async {
-    requestedPriorities.add(priority);
-    if (requestPriorityThrows) {
-      throw Exception(
-        'FakeBleDeviceAdapter: requestConnectionPriority refused',
-      );
-    }
+  Future<void> writeValue(
+    String serviceUuid,
+    String charUuid,
+    Uint8List value, {
+    required bool withResponse,
+  }) async {
+    writes.add(value);
+    writeWithResponse.add(withResponse);
   }
 
   @override
-  Stream<BluetoothConnectionState> get connectionState =>
-      _connStateController.stream;
+  Stream<Uint8List> get notifications => _notificationsController.stream;
 
-  /// Push a [BluetoothConnectionState] value onto the stream as if the
-  /// platform reported a state change.
-  void emitConnectionState(BluetoothConnectionState state) {
+  @override
+  Stream<BleLinkState> get connectionState => _connStateController.stream;
+
+  /// Push a [BleLinkState] value onto the stream as if the platform reported a
+  /// state change.
+  void emitConnectionState(BleLinkState state) {
     _connStateController.add(state);
   }
 
-  Future<void> close() => _connStateController.close();
+  /// Push notify-characteristic bytes as if the peripheral sent them.
+  void emitNotification(List<int> bytes) {
+    _notificationsController.add(Uint8List.fromList(bytes));
+  }
+
+  Future<void> close() async {
+    await _connStateController.close();
+    await _notificationsController.close();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -143,9 +153,6 @@ void main() {
     late FakeBleDeviceAdapter fakeAdapter;
     late BleTncTransport transport;
     late BleDiagnostics savedDiag;
-    // A dummy BluetoothDevice — the transport constructor requires one even
-    // when an adapter is injected. fromId avoids any platform call.
-    final dummyDevice = BluetoothDevice.fromId('AA:BB:CC:DD:EE:FF');
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({});
@@ -161,7 +168,11 @@ void main() {
       // instrumentation actually fires.
       await BleDiagnostics.I.setEnabled(true);
       fakeAdapter = FakeBleDeviceAdapter();
-      transport = BleTncTransport(dummyDevice, adapter: fakeAdapter);
+      transport = BleTncTransport(
+        'AA:BB:CC:DD:EE:FF',
+        deviceName: 'FakeTNC',
+        adapter: fakeAdapter,
+      );
     });
 
     tearDown(() async {
@@ -206,20 +217,12 @@ void main() {
     });
 
     // 3a ----------------------------------------------------------------------
-    test('connect() clears GATT cache before connecting', () async {
+    test('connect() requests an MTU before discovering services', () async {
       await expectLater(transport.connect(), throwsA(isA<Exception>()));
 
-      expect(fakeAdapter.clearGattCacheCallCount, 1);
-    });
-
-    // 3b ----------------------------------------------------------------------
-    test('connectBackground() skips GATT cache clear', () async {
-      await expectLater(
-        transport.connectBackground(),
-        throwsA(isA<Exception>()),
-      );
-
-      expect(fakeAdapter.clearGattCacheCallCount, 0);
+      // universal_ble does not auto-negotiate inside connect(); the transport
+      // must explicitly request the MTU to learn the usable payload size.
+      expect(fakeAdapter.requestMtuCallCount, 1);
     });
 
     // 4 -----------------------------------------------------------------------
@@ -264,27 +267,17 @@ void main() {
     });
 
     // 7 -----------------------------------------------------------------------
-    test('unexpected BLE disconnection sets status to error', () async {
-      // Drive transport into error state (service not found after connect) so
-      // it has registered the connectionState listener.
-      // We need to simulate the transport being connected; the only path that
-      // sets up _connStateSub is a successful connect(). Since characteristic
-      // operations require the native stack, we cannot reach ConnectionStatus.connected
-      // in unit tests. Instead we verify that the _onBleConnectionState handler
-      // sets status=error when it receives a disconnected event while status==connected.
-      //
-      // We test this by reaching into the state change via the stream directly:
-      // The transport registers _adapter.connectionState.listen(_onBleConnectionState)
-      // only after a successful connect. We can't reach that point without
-      // characteristic mocking. This test verifies the behaviour when we are
-      // in the disconnected state (no listener registered) — the stream emission
-      // is silently ignored and status stays disconnected.
-      fakeAdapter.emitConnectionState(BluetoothConnectionState.disconnected);
-      await Future<void>.delayed(Duration.zero);
+    test(
+      'unexpected BLE disconnection while disconnected is ignored',
+      () async {
+        // No successful connect() yet → no conn-state listener registered → a
+        // disconnected emission must be silently ignored and status unchanged.
+        fakeAdapter.emitConnectionState(BleLinkState.disconnected);
+        await Future<void>.delayed(Duration.zero);
 
-      // No listener registered yet — status must remain disconnected.
-      expect(transport.currentStatus, ConnectionStatus.disconnected);
-    });
+        expect(transport.currentStatus, ConnectionStatus.disconnected);
+      },
+    );
 
     // 8 -----------------------------------------------------------------------
     test('sendFrame throws StateError when not connected', () async {
@@ -322,61 +315,31 @@ void main() {
       },
     );
 
-    // 8c ----------------------------------------------------------------------
-    test(
-      'connect does NOT call requestConnectionPriority (TNC4 supervision-timeout drop guard)',
-      () async {
-        // Regression guard. The 2026-04-30 drive test showed every cycle
-        // dropping at ~5.4 s when HIGH priority was requested immediately
-        // after connect — same TNC4 firmware quirk that already forbids
-        // requestMtu here. Re-introducing the priority request needs
-        // hardware-specific gating; this test fails loudly if someone wires
-        // it up unconditionally.
-        await expectLater(transport.connect(), throwsA(isA<Exception>()));
-
-        expect(fakeAdapter.requestedPriorities, isEmpty);
-        // The decision is still recorded in diagnostics so session logs
-        // explain why BALANCED priority is in effect.
-        final priorityEvents = BleDiagnostics.I.events
-            .where((e) => e.kind == BleEventKind.connectionPriorityRequested)
-            .toList();
-        expect(priorityEvents, hasLength(1));
-        expect(priorityEvents.single.detail, contains('skipped'));
-      },
-    );
-
     // 8e ----------------------------------------------------------------------
-    test(
-      'connection-state listener survives _cleanupSubscriptions on connect failure',
-      () async {
-        // After a failed connect, the conn-state listener is also cancelled
-        // (no live session for it to observe). Verify that a subsequent state
-        // emission does NOT re-enter the disconnect handler — i.e. we don't
-        // see disconnectUnexpected in the log.
-        await expectLater(transport.connect(), throwsA(isA<Exception>()));
-        BleDiagnostics.I.clear();
+    test('connection-state listener is torn down on connect failure', () async {
+      // After a failed connect, the conn-state listener is also cancelled
+      // (no live session for it to observe). Verify that a subsequent state
+      // emission does NOT re-enter the disconnect handler — i.e. we don't
+      // see disconnectUnexpected in the log.
+      await expectLater(transport.connect(), throwsA(isA<Exception>()));
+      BleDiagnostics.I.clear();
 
-        fakeAdapter.emitConnectionState(BluetoothConnectionState.disconnected);
-        await Future<void>.delayed(Duration.zero);
+      fakeAdapter.emitConnectionState(BleLinkState.disconnected);
+      await Future<void>.delayed(Duration.zero);
 
-        final unexpected = BleDiagnostics.I.events
-            .where((e) => e.kind == BleEventKind.disconnectUnexpected)
-            .toList();
-        expect(unexpected, isEmpty);
-      },
-    );
+      final unexpected = BleDiagnostics.I.events
+          .where((e) => e.kind == BleEventKind.disconnectUnexpected)
+          .toList();
+      expect(unexpected, isEmpty);
+    });
 
     // 8f ----------------------------------------------------------------------
     test(
       'markInternalTeardown causes the next disconnect to log as internal',
       () async {
-        // Force a session so disconnect actually runs (status != disconnected).
-        // We can't reach connected via the fake (characteristic ops need
-        // native), but we can drive a partial state by emitting connecting →
-        // then calling disconnect.
+        // After a failed connect status is `error`, so disconnect() runs.
         fakeAdapter.connectThrows = true;
         await expectLater(transport.connect(), throwsA(isA<Exception>()));
-        // After a failed connect status is `error`, so disconnect() runs.
         transport.markInternalTeardown();
         BleDiagnostics.I.clear();
 
@@ -413,6 +376,80 @@ void main() {
         expect(user, hasLength(1));
       },
     );
+
+    // 11 — connected path (now fully fakeable through the neutral seam) -------
+    group('connected session', () {
+      setUp(() {
+        fakeAdapter.services = [_aprsSpecsService()];
+      });
+
+      test(
+        'connect() reaches connected and subscribes to notify char',
+        () async {
+          await transport.connect();
+
+          expect(transport.currentStatus, ConnectionStatus.connected);
+          expect(transport.isConnected, isTrue);
+          expect(transport.activeFamily, BleKissFamily.aprsSpecs);
+          expect(fakeAdapter.subscribeCallCount, 1);
+        },
+      );
+
+      test('negotiated MTU drives the chunk payload size', () async {
+        fakeAdapter.fakeMtu = 23; // ATT default → 20-byte payload.
+        await transport.connect();
+
+        // A frame larger than one chunk must be split into withResponse writes.
+        final ax25 = Uint8List.fromList(List.generate(80, (i) => i & 0xFF));
+        await transport.sendFrame(ax25);
+
+        expect(fakeAdapter.writes, isNotEmpty);
+        expect(fakeAdapter.writes.length, greaterThan(1));
+        for (final chunk in fakeAdapter.writes) {
+          expect(chunk.length, lessThanOrEqualTo(20));
+        }
+        // sendFrame uses write-with-response for backpressure.
+        expect(fakeAdapter.writeWithResponse, everyElement(isTrue));
+      });
+
+      test(
+        'a notification reassembles into an APRS frame on frameStream',
+        () async {
+          await transport.connect();
+
+          final frames = <Uint8List>[];
+          final sub = transport.frameStream.listen(frames.add);
+
+          final kiss = _buildKissFrame(
+            'W1AW',
+            'APRS',
+            '!4903.50N/07201.75W-BLE',
+          );
+          fakeAdapter.emitNotification(kiss);
+          await Future<void>.delayed(Duration.zero);
+          await sub.cancel();
+
+          expect(frames, hasLength(1));
+        },
+      );
+
+      test(
+        'unexpected disconnect after connect sets status to error',
+        () async {
+          await transport.connect();
+          expect(transport.isConnected, isTrue);
+
+          fakeAdapter.emitConnectionState(BleLinkState.disconnected);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(transport.currentStatus, ConnectionStatus.error);
+          final unexpected = BleDiagnostics.I.events
+              .where((e) => e.kind == BleEventKind.disconnectUnexpected)
+              .toList();
+          expect(unexpected, hasLength(1));
+        },
+      );
+    });
 
     // 9 -----------------------------------------------------------------------
     group('KISS framer reassembly (BLE chunked delivery)', () {

@@ -3,7 +3,6 @@ library;
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../ax25/ax25_encoder.dart';
@@ -52,7 +51,12 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // Inner transport state
   // ---------------------------------------------------------------------------
 
-  BluetoothDevice? _device;
+  /// Stable platform device id of the target peripheral, retained so automatic
+  /// reconnect attempts target the same device. Null when no device is set.
+  String? _deviceId;
+
+  /// Friendly device name (from the scanner advertisement) for diagnostics.
+  String? _deviceName;
 
   /// Optional family hint for the active session, supplied by the scanner via
   /// [connectToDevice]. When null, the transport autodetects the family from
@@ -73,9 +77,9 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // ---------------------------------------------------------------------------
 
   /// Override in tests to inject a [FakeKissTncTransport] instead of a real
-  /// [BleTncTransport].
+  /// [BleTncTransport]. Receives the target device id.
   @visibleForTesting
-  KissTncTransport Function(BluetoothDevice)? transportFactory;
+  KissTncTransport Function(String deviceId)? transportFactory;
 
   // ---------------------------------------------------------------------------
   // MeridianConnection — identity
@@ -167,23 +171,27 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
 
   /// Set the target device and connect.
   ///
-  /// Stores [device] so that automatic reconnect attempts use the same device.
-  /// [family] is an optional hint about which BLE-KISS GATT family this device
-  /// implements — supply it from the scanner when known from advertised
-  /// service UUIDs to skip a round of post-discovery autodetection.
+  /// Stores [deviceId] so that automatic reconnect attempts use the same
+  /// device. [deviceName] is an optional friendly label used only for
+  /// diagnostics. [family] is an optional hint about which BLE-KISS GATT
+  /// family this device implements — supply it from the scanner when known
+  /// from advertised service UUIDs to skip a round of post-discovery
+  /// autodetection.
   Future<void> connectToDevice(
-    BluetoothDevice device, {
+    String deviceId, {
+    String? deviceName,
     BleKissFamily? family,
   }) {
-    _device = device;
+    _deviceId = deviceId;
+    _deviceName = deviceName;
     _family = family;
     return connect();
   }
 
   @override
   Future<void> connect() async {
-    final device = _device;
-    if (device == null) {
+    final deviceId = _deviceId;
+    if (deviceId == null) {
       throw StateError(
         'BleConnection: no device set — call connectToDevice() first',
       );
@@ -192,14 +200,15 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     // is plumbing, not a user-initiated disconnect, and the diagnostics log
     // should reflect that.
     await _tearDownTransport(internal: true);
-    _buildAndAttachTransport(device);
+    _buildAndAttachTransport(deviceId);
     await _transport!.connect();
   }
 
   @override
   Future<void> disconnect() async {
     cancelReconnect();
-    _device = null;
+    _deviceId = null;
+    _deviceName = null;
     _family = null;
     await _tearDownTransport(internal: false);
     _emitStatus(ConnectionStatus.disconnected);
@@ -228,18 +237,16 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
 
   @override
   Future<void> doAttemptReconnect() async {
-    final device = _device;
-    if (device == null) return; // disconnect() was called
+    final deviceId = _deviceId;
+    if (deviceId == null) return; // disconnect() was called
 
-    debugPrint('BleConnection: attempting reconnect to ${device.platformName}');
-    BleDiagnostics.I.log(
-      BleEventKind.reconnectAttempt,
-      'device=${device.platformName}',
-    );
+    final label = _deviceName ?? deviceId;
+    debugPrint('BleConnection: attempting reconnect to $label');
+    BleDiagnostics.I.log(BleEventKind.reconnectAttempt, 'device=$label');
     await _tearDownTransport(internal: true);
-    if (_device == null) return; // disconnect() called during teardown
+    if (_deviceId == null) return; // disconnect() called during teardown
 
-    _buildAndAttachTransport(device);
+    _buildAndAttachTransport(deviceId);
     try {
       await _transport!.connect();
     } catch (e) {
@@ -252,21 +259,19 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   @override
   @protected
   Future<void> doWaitingPhaseReconnect() async {
-    final device = _device;
-    if (device == null) return;
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
 
+    final label = _deviceName ?? deviceId;
     debugPrint(
-      'BleConnection: entering OS auto-connect waiting phase for ${device.platformName}',
+      'BleConnection: entering OS auto-connect waiting phase for $label',
     );
-    BleDiagnostics.I.log(
-      BleEventKind.waitingPhase,
-      'device=${device.platformName}',
-    );
+    BleDiagnostics.I.log(BleEventKind.waitingPhase, 'device=$label');
     await _tearDownTransport(internal: true);
-    if (_device == null) return;
+    if (_deviceId == null) return;
 
-    _buildAndAttachTransport(device);
-    if (_device == null) {
+    _buildAndAttachTransport(deviceId);
+    if (_deviceId == null) {
       await _tearDownTransport(internal: true);
       return;
     }
@@ -274,11 +279,11 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
     try {
       await _transport!.connectBackground();
     } catch (e) {
-      if (_device == null) return; // intentional disconnect, no error
+      if (_deviceId == null) return; // intentional disconnect, no error
       debugPrint(
         'BleConnection: OS auto-connect failed (device may be off): $e',
       );
-      _device = null;
+      _deviceId = null;
       _emitStatus(ConnectionStatus.error);
       notifyListeners();
     }
@@ -288,12 +293,12 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
   // Internal — transport management
   // ---------------------------------------------------------------------------
 
-  KissTncTransport _buildTransport(BluetoothDevice device) =>
-      transportFactory?.call(device) ??
-      BleTncTransport(device, family: _family);
+  KissTncTransport _buildTransport(String deviceId) =>
+      transportFactory?.call(deviceId) ??
+      BleTncTransport(deviceId, deviceName: _deviceName, family: _family);
 
-  void _buildAndAttachTransport(BluetoothDevice device) {
-    final t = _buildTransport(device);
+  void _buildAndAttachTransport(String deviceId) {
+    final t = _buildTransport(deviceId);
     _transport = t;
 
     _transportStateSub = t.connectionState.listen(_onTransportStatus);
@@ -326,7 +331,7 @@ class BleConnection extends MeridianConnection with ReconnectableMixin {
       markSessionConnected();
     } else if (s == ConnectionStatus.error &&
         shouldAttemptReconnect() &&
-        _device != null) {
+        _deviceId != null) {
       BleDiagnostics.I.log(BleEventKind.reconnectScheduled);
       scheduleReconnect(_emitStatus);
     }
