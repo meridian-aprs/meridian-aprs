@@ -5,6 +5,19 @@
 **Domains:** meridianaprs.com / meridianaprs.app
 **License:** GPL v3
 
+This file is the durable **index** for agents — rules, conventions, and pointers. It deliberately does **not** mirror the code, the file layout, or the roadmap, because those rot. For current state, read the source of truth directly:
+
+| Question | Authoritative source |
+|---|---|
+| What does Meridian do today? | `docs/CAPABILITIES.md` |
+| How is it structured? | `docs/ARCHITECTURE.md` |
+| Why was it built this way? | `docs/DECISIONS.md` (ADRs) |
+| What's planned, and in what order? | `docs/ROADMAP.md` |
+| What's deferred past v1.0? | `docs/FUTURE_FEATURES.md` |
+| What's the file / symbol layout? | the code itself (+ `docs/ARCHITECTURE.md`) |
+
+When you change behavior, **update those docs and point at them** — don't re-describe them here.
+
 ---
 
 ## Tech Stack
@@ -13,12 +26,15 @@
 |---|---|
 | Framework | Flutter (stable channel) |
 | Map | flutter_map + OpenStreetMap tiles |
-| BLE | flutter_blue_plus |
+| BLE | flutter_blue_plus (pinned v1.x — v2 is GPL-incompatible, ADR-065) |
 | Serial/USB | flutter_libserialport |
 | APRS-IS | Direct TCP to `rotate.aprs2.net:14580` (WebSocket proxy on web) |
 | Packet parsing | Pure Dart (no FFI for core logic) |
-| Android background | flutter_foreground_task (foreground service keepalive, v0.7) |
-| Permissions | permission_handler (background location, notifications, v0.7) |
+| Persistence | drift / SQLite (`meridian.db`) for structured data; SharedPreferences for flat settings (ADR-067) |
+| Android background | flutter_foreground_task (foreground service keepalive) |
+| Permissions | permission_handler (background location, notifications) |
+
+Full dependency rationale and the platform transport matrix live in `docs/ARCHITECTURE.md`.
 
 ---
 
@@ -27,234 +43,78 @@
 ```
 UI Layer          →  lib/ui/, lib/screens/
 Service Layer     →  lib/services/
+Persistence       →  lib/database/ (drift/SQLite — DAOs, tables)
 Packet Core       →  lib/core/packet/, lib/core/ax25/
 Transport Core    →  lib/core/transport/
-Platform Channels →  platform-specific code (android/, ios/, etc.)
+Platform Channels →  android/, ios/, linux/, macos/, windows/, web/
 ```
 
-Each layer depends only on layers below it. The Packet Core has no platform dependencies — it is pure Dart and must remain so.
+Each layer depends only on layers below it. The **Packet Core is pure Dart** — no platform imports, no FFI — and must remain so, so it runs identically on all six platforms including web.
 
 **Transport strategy by platform:**
 - Mobile (iOS/Android): APRS-IS TCP, KISS/BLE
 - Desktop (Linux/macOS/Windows): APRS-IS TCP, KISS/USB serial
-- Web: APRS-IS via WebSocket proxy (direct TCP not available in browser)
-
-See `docs/ARCHITECTURE.md` for full detail.
+- Web: APRS-IS via WebSocket proxy (browsers cannot open raw TCP)
 
 ---
 
-## Milestone Roadmap
+## Current Status
 
-| Milestone | Focus |
-|---|---|
-| ~~v0.1~~ | ~~Foundation — Flutter scaffold, map, APRS-IS, station display~~ ✓ |
-| ~~v0.2~~ | ~~Packets — AX.25/APRS parser, packet log, message decoding~~ ✓ |
-| ~~v0.3~~ | ~~TNC — KISS over USB serial, desktop platforms first~~ ✓ |
-| ~~v0.4~~ | ~~BLE — KISS over BLE, mobile platforms~~ ✓ |
-| ~~v0.5~~ | ~~Beaconing — Transmit path, position beaconing, message sending~~ ✓ |
-| ~~v0.6~~ | ~~Connection UI + Map Polish~~ ✓ |
-| ~~v0.7~~ | ~~Android Background Beaconing (foreground service + persistent notification)~~ ✓ |
-| ~~v0.8~~ | ~~Cross-platform parity pass (iOS Cupertino audit, Stadia Maps tile swap)~~ ✓ |
-| ~~v0.9~~ | ~~iOS Background Beaconing (background location + Live Activity)~~ ✓ |
-| ~~v0.10~~ | ~~Map experience — viewport-adaptive APRS-IS filter, time filter, track history, cluster markers, station type filters, object/item display~~ ✓ |
-| ~~v0.11~~ | ~~Background notifications + in-app banner system~~ ✓ |
-| ~~v0.12~~ | ~~Onboarding improvements~~ ✓ |
-| ~~v0.13~~ | ~~Security & connectivity (passcode secure storage, APRS-IS filter config)~~ ✓ |
-| ~~v0.14~~ | ~~Base-callsign message matching (cross-SSID capture, addressee badges, conversation grouping)~~ ✓ |
-| ~~v0.17~~ | ~~Groups & Bulletins — APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure~~ ✓ |
-| ~~v0.18~~ | ~~Foundations — architecture, testing, and dependency foundations~~ ✓ |
-| **v0.19** | Performance — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery/memory/throughput baselines |
-| **v0.20** | Polish & A11y — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests |
-| **v1.0** | Launch — release pipeline, signing, App Group, physical-device validation, store submission |
+**v0.19 shipped (Performance). Next: v0.20 — BLE Plugin Replacement.**
 
-> **v0.15 and v0.16 numbers are skipped.** They were used historically as the "Battery & Performance" and "Bug Triage" milestones; the 2026-04-25 reorganization split that scope across v0.18/v0.19/v0.20 and the numbers are not reused.
+The full milestone list, per-task breakdowns, and completion state live in `docs/ROADMAP.md`; architectural decisions in `docs/DECISIONS.md` (ADRs 001–067). Do not duplicate that state here.
 
-**Current status: v0.18 shipped (Foundations). Next: v0.19 — Performance.**
-
-The active milestones are now structured as:
-- ~~**v0.18 — Foundations**~~ ✓ — clock injection, service-level tests, double-subscription cleanup, dependency upgrades (`flutter_local_notifications` v21; `flutter_blue_plus` pinned to v1.x — v2 is proprietary-licensed and GPL-incompatible, ADR-065), CI platform matrix, BeaconFAB widget regression guard.
-- **v0.19 — Performance** — MapScreen rebuild fix, Selector convention, non-builder ListView sweep, SQLite/drift evaluation, battery drain profiling, memory audit, packet throughput baseline.
-- **v0.20 — Polish & A11y** — Semantics audit, adaptive widget consistency, MapScreen helper extraction, one-per-screen widget tests.
-- **v1.0 — Launch** — Android signing, iOS App Group, release-build CI, physical iPhone 16 Pro validation, Smart Beaconing drive test, store submission.
-
-ADRs 001–060 in `docs/DECISIONS.md`. v0.17 added: addressee matcher with load-bearing `Bulletin → Direct → Group` precedence (ADR-055); group subscriptions with per-group `notify`/`matchMode`/`replyMode` (ADR-056); bulletin receive store with `(source,addressee)` upsert; outgoing bulletins with fixed-interval retransmission + initial pulse + max lifetime (ADR-057); `BulletinScheduler` on the main isolate + parallel background-isolate bulletin timer; Messaging tab split into Direct / Groups / Bulletins via platform-adaptive segmented control (ADR-059); shared `ChatBubble` widget; APRS-IS filter extension `g/BLN0..9` + `g/BLN*NAME` per subscription (ADR-058); client-side bulletin distance filter (haversine); new notification channels with broadcast-noisy defaults muted. Key v0.17 files: `lib/core/callsign/addressee_matcher.dart`, `lib/core/callsign/operator_identity.dart`, `lib/core/callsign/message_classification.dart`, `lib/core/connection/aprs_is_filter_builder.dart`, `lib/services/bulletin_scheduler.dart`, `lib/services/bulletin_service.dart`, `lib/services/bulletin_subscription_service.dart`, `lib/services/group_subscription_service.dart`, `lib/services/messaging_settings_service.dart`, `lib/screens/group_channel_screen.dart`, `lib/screens/groups_tab.dart`, `lib/screens/bulletins_tab.dart`, `lib/screens/bulletin_detail_screen.dart`, `lib/screens/bulletin_compose_screen.dart`, `lib/ui/widgets/chat_bubble.dart`.
-
-**Conventions added in v0.5:**
-- `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once iOS theme is validated
-- `geolocator` package added for GPS access (required permissions: Android `ACCESS_FINE_LOCATION`/`ACCESS_COARSE_LOCATION`, iOS `NSLocationWhenInUseUsageDescription`, macOS entitlement + plist key)
-
-See `docs/ROADMAP.md` for per-milestone task breakdowns.
-
----
-
-## Reference Projects
-
-These are used as **logic references only**. Do not copy code from them.
-
-| Project | Language | Notes |
-|---|---|---|
-| Dire Wolf | C | TNC, AX.25, APRS decoding reference |
-| APRSDroid | Kotlin/Java | Android APRS client, connection model reference |
-| aprslib | Python | Clean APRS parser — logic reference |
-| Xastir | C | Feature-complete APRS client, comprehensive packet type coverage |
-
----
-
-## GitHub Workflow Conventions
-
-**Branch naming:**
-- `feat/<short-description>` — new features
-- `fix/<short-description>` — bug fixes
-- `docs/<short-description>` — documentation only
-- `infra/<short-description>` — CI, tooling, repo config
-
-**Labels:** Use the full label taxonomy (Type + Area + Priority + Status). Every issue and PR should have at least one label from each of Type and Status.
-
-**Milestones:** Assign every issue and PR to the appropriate milestone.
-
----
-
-## Agent Team
-
-Project-scoped sub-agents are defined in `.claude/agents/`. Delegate to them by name:
-
-| Agent | When to use |
-|---|---|
-| `meridian-core` | Cross-cutting architectural decisions, ADR logging, CLAUDE.md updates, refactoring that spans multiple layers |
-| `meridian-packet` | AX.25 and APRS packet parsing, decoding, encoding — `lib/core/packet/`, `lib/core/ax25/`, `test/packet/` |
-| `meridian-transport` | APRS-IS TCP, KISS/USB serial, KISS/BLE, transport abstractions — `lib/core/transport/` |
-| `meridian-ui` | All UI work — screens, widgets, map integration, design system — `lib/ui/`, `lib/screens/` |
-| `meridian-infra` | CI/CD, GitHub configuration, tooling, automation — `.github/` |
-| `aprs-auditor` | APRS/AX.25 protocol correctness audits — verifies parsers against APRS 1.0.1 + addenda, Mic-E errata, aprs-deviceid, and Dire Wolf; research-only, never modifies code |
-
----
-
-## Docs Maintenance
-
-Keep these files current as the project evolves:
-
-- `docs/ARCHITECTURE.md` — update when layers or platform strategy changes
-- `docs/DECISIONS.md` — add an ADR for every significant architectural decision
-- `docs/ROADMAP.md` — mark tasks complete, add tasks as scope clarifies
-- `docs/FUTURE_FEATURES.md` — graduate items to `ROADMAP.md` when they get a milestone, add new items as they surface
-- `docs/CAPABILITIES.md` — single-file reference of current user-facing and architectural capabilities; update at every milestone close-out alongside ROADMAP and DECISIONS so it stays the authoritative "what does Meridian do today?" answer
+> v0.15 / v0.16 milestone numbers are retired (the historical "Battery & Performance" / "Bug Triage" milestones) and are not reused.
 
 ---
 
 ## Rules for All Agents
 
-- No credentials, API keys, or sensitive info in any committed file
-- No copying code from reference projects — logic reference only
-- Pure Dart for all packet core logic (no FFI in `lib/core/`)
-- Follow existing Flutter/Dart conventions in the codebase
-- Run `flutter analyze` and `flutter test` before considering any task done
+- No credentials, API keys, or sensitive info in any committed file.
+- **Reference projects are logic references only — never copy code from them.** Do not name external reference projects in shipped code, comments, ADRs, or docs; attribution lives solely on the dedicated licensing page.
+- Pure Dart for all packet core logic (no FFI in `lib/core/`).
+- Follow the existing Flutter/Dart conventions already in the codebase.
+- Run `flutter analyze` and `flutter test` before considering any task done; run `dart format .` before committing or opening a PR.
+
+---
+
+## Conventions
+
+- `TODO(ios)` — marks `MaterialPageRoute` calls that should become `CupertinoPageRoute` once the iOS theme is validated.
+
+**Branches:** `feat/` (features), `fix/` (bug fixes), `docs/` (documentation), `infra/` (CI/tooling/repo config). One logical unit of work per branch; feature work never lands directly on `main`.
+
+**PRs:** open against `main` with a description and a test-coverage summary. `main` must always pass CI (format → analyze → test).
+
+**Issues & PRs:** use the full label taxonomy (Type + Area + Priority + Status — at least one Type and one Status each), and assign every issue and PR to its milestone.
+
+---
+
+## Docs Maintenance
+
+Keep these current as the project evolves — they are the source of truth this file points to:
+
+- `docs/ARCHITECTURE.md` — update when layers or platform strategy change
+- `docs/DECISIONS.md` — add an ADR for every significant architectural decision
+- `docs/ROADMAP.md` — mark tasks complete; add tasks as scope clarifies
+- `docs/FUTURE_FEATURES.md` — graduate items to `ROADMAP.md` when they get a milestone; add new items as they surface
+- `docs/CAPABILITIES.md` — the authoritative "what does Meridian do today?" reference; update at every milestone close-out alongside ROADMAP and DECISIONS
 
 ---
 
 ## Local Development
 
 ### Map Tiles
-Stadia Maps is used for tile serving. An API key is required.
+Stadia Maps serves the map tiles and requires an API key. The key is never committed — see `.env.example` for the template.
 
-Run the app with:
 ```
 flutter run --dart-define=STADIA_MAPS_API_KEY=your_key_here
 ```
 
-For CI/CD, set `STADIA_MAPS_API_KEY` as a GitHub Actions secret. The key is never committed to source — see `.env.example` for the template.
+For CI/CD, set `STADIA_MAPS_API_KEY` as a GitHub Actions secret.
 
 ---
 
-## UI Components Inventory
+## Project Agents
 
-### Theme System (`lib/theme/`) — Three-Tier Platform Architecture
-
-All three tiers fully implemented. iOS pending simulator validation.
-
-| File | Class | Description |
-|---|---|---|
-| `meridian_colors.dart` | `MeridianColors` | Brand color tokens: `brandSeed`, tonal palettes (`brand`, `neutral`, `neutralVariant`), semantic colors (`signal`, `warning`, `danger`, `info`) |
-| `theme_controller.dart` | `ThemeController` | ChangeNotifier for `themeMode` + `seedColor`; persists both to SharedPreferences |
-| `android_theme.dart` | `buildAndroidTheme()` | Builds Android ThemeData pair; uses `DynamicColorBuilder` schemes or `brandSeed` fallback; applies M3 Expressive via `m3e_design` |
-| `ios_theme.dart` | `buildIosTheme()` | Returns `CupertinoThemeData` for given brightness; `primaryColor` = Meridian Purple (`brandSeed`); structurally complete, pending iOS simulator validation |
-| `desktop_theme.dart` | `buildDesktopTheme()` | Returns M3 static brand ThemeData pair; fixed `MeridianColors.brandSeed` seed; no dynamic color; Windows/macOS/Linux |
-
-### Layout System (`lib/ui/layout/`)
-
-| File | Class | Description |
-|---|---|---|
-| `meridian_map.dart` | `MeridianMap` | Encapsulates flutter_map; accepts `mapController`, `markers`, `tileUrl` |
-| `mobile_scaffold.dart` | `MobileScaffold` | Full-screen map + FAB cluster + bottom sheets (< 600 px) |
-| `tablet_scaffold.dart` | `TabletScaffold` | Collapsed NavigationRail + map + bottom panel (600–1024 px) |
-| `desktop_scaffold.dart` | `DesktopScaffold` | Extended NavigationRail (240 px) + map + side panel (> 1024 px) |
-| `responsive_layout.dart` | `ResponsiveLayout` | Selects scaffold by `MediaQuery` width; breakpoints 600 px and 1024 px |
-
-### Widget Library (`lib/ui/widgets/`)
-
-| File | Class | Description |
-|---|---|---|
-| `aprs_symbol_widget.dart` | `AprsSymbolWidget` | APRS symbol rendering; Material icons now, sprite sheet at v1.0 |
-| `beacon_fab.dart` | `BeaconFAB` | Large FAB; idle=primary (theme-resolved), beaconing=danger red + pulse animation; spinner while sending |
-| `callsign_field.dart` | `CallsignField` | Validated callsign TextFormField; regex + inline error |
-| `meridian_bottom_sheet.dart` | `MeridianBottomSheet` | Draggable bottom sheet with drag handle; theming wrapper |
-| `meridian_status_pill.dart` | `MeridianStatusPill` | Connection status pill; green/amber/red dot + label; pulsing on connecting |
-| `packet_detail_sheet.dart` | `PacketDetailSheet` | Full decoded packet field view + selectable raw line |
-| `station_info_sheet.dart` | `StationInfoSheet` | Station summary bottom sheet (callsign, symbol, comment, last heard) |
-| `station_list_tile.dart` | `StationListTile` | ListTile for station list; symbol + callsign + relative timestamp |
-| `station_search_delegate.dart` | `StationSearchDelegate` | `SearchDelegate<Station?>` for callsign search; Nominatim-powered map pan |
-| `in_app_banner_overlay.dart` | `InAppBannerOverlay`, `InAppBannerController` | Slide-in notification banner at app root; `InAppBannerController` triggers from `NotificationService`; full-width mobile, 320 px top-right desktop |
-| `meridian_icon.dart` | `MeridianIcon` | Meridian pin icon for in-app UI; auto-switches light/dark SVG variant based on brightness; NOT for launcher icons |
-| `meridian_wordmark.dart` | `MeridianWordmark` | Wordmark lockup (icon + text); `.horizontal()` and `.stacked()` auto-switch dark SVG variant; mono constructors are explicit/fixed |
-
-### Screens (`lib/screens/`)
-
-| File | Class | Description |
-|---|---|---|
-| `map_screen.dart` | `MapScreen` | Root screen; owns StationService lifecycle; delegates to ResponsiveLayout |
-| `packet_log_screen.dart` | `PacketLogScreen` | Real-time packet list; type filter chips; tap → PacketDetailSheet |
-| `settings_screen.dart` | `SettingsScreen` | Responsive settings shell; ≥840dp → master/detail two-pane; <840dp → push-nav; 8 categories in `settings/category/`; Advanced User Mode toggle via `AdvancedModeController` |
-| `onboarding/onboarding_screen.dart` | `OnboardingScreen` | 3-page PageView; shown on first launch; saves onboarding_complete flag |
-| `onboarding/onboarding_welcome_page.dart` | `OnboardingWelcomePage` | Page 1: logo, tagline, Get Started / skip |
-| `onboarding/onboarding_callsign_page.dart` | `OnboardingCallsignPage` | Page 2: CallsignField, SSID picker, passcode field |
-| `onboarding/onboarding_connect_page.dart` | `OnboardingConnectPage` | Page 3: APRS-IS / BLE / USB option cards, Start Listening |
-| `connection_screen.dart` | `ConnectionScreen` | Full-screen Connection destination (v0.6); Active Connections cards, segmented control, APRS-IS/BLE/Serial tabs; BLE tab shows connected state when TNC active |
-
----
-
-## Service Layer (`lib/services/`, `lib/core/transport/`, `lib/core/ax25/`)
-
-### Transport and TNC files (v0.3+, extended in v0.4)
-
-| File | Class / Symbol | Description |
-|---|---|---|
-| `lib/core/transport/kiss_tnc_transport.dart` | `KissTncTransport` | Abstract interface for hardware TNCs; emits `Stream<Uint8List>` (raw AX.25 bytes) |
-| `lib/core/transport/transport_manager.dart` | `TransportManager`, `TransportType` | ChangeNotifier; holds active `KissTncTransport`; bridges `frameStream` + `connectionState`; `connectSerial`/`connectBle`/`disconnect` |
-| `lib/core/transport/tnc_preset.dart` | `TncPreset` | Immutable static preset model + `TncPreset.all` registry of known TNC hardware |
-| `lib/core/transport/tnc_config.dart` | `TncConfig` | Runtime serial + KISS configuration; `fromPreset` factory; `toPrefsMap`/`fromPrefsMap` for SharedPreferences persistence |
-| `lib/core/transport/kiss_framer.dart` | `KissFramer` | Pure Dart KISS framer; stateful `addBytes` stream processor; static `encode` method |
-| `lib/core/ax25/ax25_parser.dart` | `Ax25Parser` | Pure Dart AX.25 UI frame decoder; sealed `Ax25ParseResult` (`Ax25Ok` \| `Ax25Err`); never throws |
-| `lib/core/transport/serial_kiss_transport.dart` | `SerialKissTransport` | Implements `KissTncTransport`; platform-conditional export; desktop only (Linux/macOS/Windows) |
-| `lib/core/transport/ble_tnc_transport.dart` | `BleTncTransport` | Implements `KissTncTransport`; platform-conditional export; mobile only (iOS/Android); supports both BLE-KISS GATT families (`aprs-specs` standard + Benshi/BTECH); autodetects family at connect time |
-| `lib/core/transport/ble_constants.dart` | `kBleKiss*`, `kBenshiKiss*`, `BleKissFamily`, `BleKissProfile` | BLE-KISS GATT service/characteristic UUIDs for both supported families (aprs-specs + Benshi); family enum + resolver helper |
-| `lib/services/tnc_service.dart` | `TncService` | ChangeNotifier; owns `TransportManager`; parses AX.25 frames via `AprsParser`; bridges to `StationService.ingestLine` |
-| `lib/ui/widgets/ble_scanner_sheet.dart` | `BleScannerSheet` | BLE scan + connect UI; default filters to known BLE-KISS family service UUIDs (aprs-specs + Benshi); "Show all Bluetooth devices" advanced toggle; friendly model labels via `BleTncKnownDevice` registry |
-| `lib/ui/widgets/ble_tnc_known_device.dart` | `BleTncKnownDevice` | Static registry of known BLE TNC models (Mobilinkd TNC3/TNC4, PicoAPRS, B.B. Link, BTECH UV-Pro, Vero VR-N76/N7500, Radioddity GA-5WB, RPC ESP32, CA2RXU); name-regex match → display name + icon + family |
-
-### Notification files (v0.11)
-
-| File | Class / Symbol | Description |
-|---|---|---|
-| `lib/services/notification_service.dart` | `NotificationService` | ChangeNotifier; subscribes to `MessageService`; dispatches via `flutter_local_notifications` (mobile/macOS) or `local_notifier` (desktop); triggers `InAppBannerController`; handles inline reply + cold-start navigation |
-| `lib/models/notification_preferences.dart` | `NotificationPreferences`, `NotificationChannels` | Immutable prefs model; per-channel enabled/sound/vibration; `load`/`save` via SharedPreferences; `copyWith*` helpers |
-| `lib/ui/widgets/in_app_banner_overlay.dart` | `InAppBannerOverlay`, `InAppBannerController` | Slide-in banner at app root; auto-dismiss 4s; swipe-up dismiss; tap → `MessageThreadScreen`; desktop anchors top-right 320 px |
-
----
-
-## Branching & PR Conventions
-
-- All feature work happens on feature branches, never directly on `main`
-- Branch naming: `feat/<short>`, `fix/<short>`, `docs/<short>`, `infra/<short>`
-- v0.1 feature branches: `feature/v0.1-scaffold`, `feature/packet-core-tests`, `feature/aprs-is-connection`
-- One logical unit of work per branch
-- PRs to `main` with description + test coverage summary
-- `main` must always pass CI (format, analyze, test)
+Project-specific Claude Code sub-agents may live locally in `.claude/agents/` (gitignored — not part of the repo). They are optional helpers; nothing in the workflow depends on them being present.

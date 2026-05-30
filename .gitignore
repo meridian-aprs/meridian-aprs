@@ -58,7 +58,8 @@ flutter_*.png
 /android/app/profile
 /android/app/release
 
-# Claude Code agent memory and worktrees (local only)
+# Claude Code agents, agent memory, and worktrees (local only)
+.claude/agents/
 .claude/agent-memory/
 .claude/worktrees/
 

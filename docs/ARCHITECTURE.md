@@ -10,7 +10,8 @@ Meridian APRS is structured as a layered architecture. Each layer has a single r
 ├─────────────────────────────────────┤
 │         Service Layer               │  lib/services/
 ├─────────────────────────────────────┤
-│         Packet Core                 │  lib/core/packet/, lib/core/ax25/
+│   Persistence      │   Packet Core  │  lib/database/ (drift/SQLite)
+│   (drift/SQLite)   │                │  lib/core/packet/, lib/core/ax25/
 ├─────────────────────────────────────┤
 │        Transport Core               │  lib/core/transport/
 ├─────────────────────────────────────┤
@@ -29,6 +30,12 @@ Renders the application. Contains screens, widgets, and map integration. Observe
 ### Service Layer (`lib/services/`)
 
 Orchestrates application logic. Manages connection lifecycle, routes incoming packets to the parser, maintains station state, and exposes streams/notifiers to the UI layer. Acts as the boundary between the platform-aware transport world and the pure-Dart packet world.
+
+### Persistence Layer (`lib/database/`)
+
+Structured/volumetric storage, backed by **drift** (MIT, type-safe SQLite ORM) since v0.19 (ADR-067). One database file (`meridian.db`) with eight tables — `stations`, `position_history`, `packets`, `conversations`, `message_entries`, `group_message_entries` (reserved, unused in v0.19), `bulletins`, `outgoing_bulletins`. Accessed only through DAOs (`StationDao`, `PacketDao`, `MessageDao`, `BulletinDao`), which the Service Layer constructs and injects. `database_provider.dart` owns DB creation and the multi-isolate wiring: the main isolate spawns a `DriftIsolate`, registers its `connectPort` under `meridian_drift_port` via `IsolateNameServer`, and the Android background isolate looks it up lazily so foreground and background share one store (resolves the ADR-057/061 state-drift). iOS is main-isolate-only (ADR-032); web opens the DB directly with no isolate machinery.
+
+SharedPreferences is retained **only** for flat settings/preferences, onboarding state, and group subscriptions; credentials live in `SecureCredentialStore`. Schema is version 1, `onCreate`-only — no migration from the pre-v0.19 SharedPreferences JSON (a silent reset; stations/packets backfill from APRS-IS within minutes). DAO `prune*` methods take a clock-injected `DateTime cutoff` rather than calling `DateTime.now()`, preserving deterministic test clocks.
 
 ### Packet Core (`lib/core/packet/`, `lib/core/ax25/`)
 
@@ -664,7 +671,8 @@ The APRS-IS passcode migrated from plaintext SharedPreferences to `SecureCredent
 | `local_notifier` | Desktop system tray toast notifications on macOS, Windows, and Linux (added v0.11) |
 | `provider` | ChangeNotifier wiring throughout service layer |
 | `flutter_secure_storage` | Platform-backed credential storage — Android EncryptedSharedPreferences, iOS/macOS Keychain, Windows Credential Manager, Linux libsecret (added v0.13) |
-| `shared_preferences` | Theme mode, settings, beaconing config, and session state persistence |
+| `drift` / `drift_flutter` | Type-safe SQLite persistence for stations, position history, packets, conversations, messages, and bulletins; multi-isolate via `DriftIsolate` + `IsolateNameServer` (added v0.19, ADR-067) |
+| `shared_preferences` | Flat settings, onboarding state, group subscriptions, beaconing config (structured/volumetric data moved to drift in v0.19) |
 | `dynamic_color` | Android 12+ wallpaper-derived ColorScheme |
 | `m3e_design` | M3 Expressive ThemeExtension (shapes, spacing, motion, typography tokens) |
 | `flutter_m3shapes` | M3 Expressive shape widgets (M3Container) |

@@ -25,9 +25,9 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | ✅ Complete |
-| v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
-| v0.21 — BLE Plugin Replacement | Replace `flutter_blue_plus` with a GPL-compatible BLE plugin behind the existing `BleTncTransport` seam (#114, ADR-065) | — |
-| v0.22 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
+| v0.20 — BLE Plugin Replacement | Replace `flutter_blue_plus` with a GPL-compatible BLE plugin behind the existing `BleTncTransport` seam (#114, ADR-065) | — |
+| v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
+| v0.22 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v0.23 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
 | v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
 
@@ -183,18 +183,7 @@ Performance pass — measurable baselines and the structural fixes that move the
 
 ---
 
-### v0.20 — Polish & A11y
-
-Pre-launch polish. The same surfaces being touched for accessibility and adaptive-widget cleanup are the ones that need pinning widget tests, so this milestone co-locates all three.
-
-- Semantics audit — only 3 annotations exist in the codebase today; pass over all interactive widgets (#61)
-- Adaptive widget consistency — `Switch.adaptive` / `CircularProgressIndicator.adaptive` etc. across iOS-rendered surfaces (#62)
-- MapScreen helper extraction — `MapScreen.build()` is ~380 lines; extract helpers (#65)
-- Widget tests — one-per-screen pass for PacketLogScreen, ConnectionScreen, MapScreen, Settings, Messaging tabs (#91, sibling of #86 in v0.18)
-
----
-
-### v0.21 — BLE Plugin Replacement
+### v0.20 — BLE Plugin Replacement
 
 Replace `flutter_blue_plus` with a GPL-compatible BLE plugin. This is the follow-on to ADR-065 — v0.18 pinned `flutter_blue_plus` to v1.x because v2 switched to a proprietary license incompatible with GPL v3, and that pin must not become permanent before v1.0 ships.
 
@@ -211,7 +200,7 @@ Deliverables:
 
 ---
 
-### v0.22 — Classic Bluetooth SPP
+### v0.21 — Classic Bluetooth SPP
 
 Add Classic Bluetooth SPP as a fourth transport alongside APRS-IS, BLE TNC, and Serial TNC. Unlocks a meaningful slice of installed-base hardware — APRS-capable HTs and mobiles with built-in or add-on classic Bluetooth, and older Bluetooth-equipped TNCs that predate BLE.
 
@@ -235,6 +224,17 @@ Deliverables:
 - Per-platform integration covering Android first, then Linux / Windows / macOS
 - ADR documenting the platform-channel strategy and the iOS exclusion
 - Settings copy / connection screen messaging that explains the iOS limitation rather than hiding it
+
+---
+
+### v0.22 — Polish & A11y
+
+Pre-launch polish. The same surfaces being touched for accessibility and adaptive-widget cleanup are the ones that need pinning widget tests, so this milestone co-locates all three.
+
+- Semantics audit — only 3 annotations exist in the codebase today; pass over all interactive widgets (#61)
+- Adaptive widget consistency — `Switch.adaptive` / `CircularProgressIndicator.adaptive` etc. across iOS-rendered surfaces (#62)
+- MapScreen helper extraction — `MapScreen.build()` is ~380 lines; extract helpers (#65)
+- Widget tests — one-per-screen pass for PacketLogScreen, ConnectionScreen, MapScreen, Settings, Messaging tabs (#91, sibling of #86 in v0.18)
 
 ---
 
@@ -288,4 +288,4 @@ Items that were filed as issues but deferred without scheduling. Each is tracked
 
 ---
 
-*Last updated: 2026-05-29*
+*Last updated: 2026-05-30*
