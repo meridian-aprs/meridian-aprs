@@ -175,6 +175,13 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    // Reactively track the connection state the map banner/nudge depend on, so
+    // they update immediately on a registry change — matching mobile/tablet and
+    // the #57 convention (was a non-reactive context.read).
+    final (status, isAnyConnected) = context
+        .select<ConnectionRegistry, (ConnectionStatus, bool)>(
+          (r) => (r.aggregateStatus, r.isAnyConnected),
+        );
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -303,15 +310,11 @@ class _DesktopScaffoldState extends State<DesktopScaffold> {
                         tileUrl: widget.tileUrl,
                         tileProvider: widget.meridianTileProvider
                             .buildTileProvider(),
-                        connectionStatus: context
-                            .read<ConnectionRegistry>()
-                            .aggregateStatus,
+                        connectionStatus: status,
                         initialCenter: widget.initialCenter,
                         initialZoom: widget.initialZoom,
                         northUpLocked: widget.northUpLocked,
-                        isAnyConnected: context
-                            .read<ConnectionRegistry>()
-                            .isAnyConnected,
+                        isAnyConnected: isAnyConnected,
                         onNotConnectedTap: _navigateToConnection,
                         showTracks: widget.showTracks,
                         activeFilterLabel: widget.activeFilterLabel,

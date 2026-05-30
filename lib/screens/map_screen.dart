@@ -102,6 +102,11 @@ class _MapScreenState extends State<MapScreen> {
   int? _lastMaxAge;
   Set<StationType> _lastHiddenTypes = const {};
   bool _lastShowTracks = true;
+  // Weather-overlay settings feed _nearestWeatherStation(), so a change to any
+  // of them must also force a marker rebuild to refresh the WX chip.
+  bool _lastShowWeatherOverlay = false;
+  int _lastWeatherRadiusKm = 0;
+  int _lastWeatherMaxAgeMinutes = 0;
 
   @override
   void initState() {
@@ -113,6 +118,9 @@ class _MapScreenState extends State<MapScreen> {
     _lastMaxAge = _service.stationMaxAgeMinutes;
     _lastHiddenTypes = _service.hiddenTypes;
     _lastShowTracks = _service.showTracks;
+    _lastShowWeatherOverlay = _service.showWeatherOverlay;
+    _lastWeatherRadiusKm = _service.weatherOverlayRadiusKm;
+    _lastWeatherMaxAgeMinutes = _service.weatherOverlayMaxAgeMinutes;
     // Rebuild markers when a display filter setting changes. StationService
     // also notifies per packet, so _onServiceSettingChanged diffs the settings
     // and ignores packet-only notifies.
@@ -224,14 +232,23 @@ class _MapScreenState extends State<MapScreen> {
     final maxAge = _service.stationMaxAgeMinutes;
     final hidden = _service.hiddenTypes;
     final showTracks = _service.showTracks;
+    final showWeather = _service.showWeatherOverlay;
+    final weatherRadiusKm = _service.weatherOverlayRadiusKm;
+    final weatherMaxAge = _service.weatherOverlayMaxAgeMinutes;
     final changed =
         maxAge != _lastMaxAge ||
         showTracks != _lastShowTracks ||
+        showWeather != _lastShowWeatherOverlay ||
+        weatherRadiusKm != _lastWeatherRadiusKm ||
+        weatherMaxAge != _lastWeatherMaxAgeMinutes ||
         !setEquals(hidden, _lastHiddenTypes);
     if (!changed) return;
     _lastMaxAge = maxAge;
     _lastHiddenTypes = hidden;
     _lastShowTracks = showTracks;
+    _lastShowWeatherOverlay = showWeather;
+    _lastWeatherRadiusKm = weatherRadiusKm;
+    _lastWeatherMaxAgeMinutes = weatherMaxAge;
     _rebuildMarkers();
   }
 
