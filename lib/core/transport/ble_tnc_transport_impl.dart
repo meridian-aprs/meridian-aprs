@@ -290,6 +290,56 @@ class BleTncTransport extends KissTncTransport {
   @override
   Future<void> connect() => _connect(autoConnect: false);
 
+  /// Foreground connect timeout, per attempt.
+  static const _connectTimeout = Duration(seconds: 15);
+
+  /// Max foreground connect attempts before giving up. Android intermittently
+  /// fails the first GATT connect with status 133 (commonly a stale service
+  /// cache the previous plugin cleared explicitly); a quick retry usually wins.
+  @visibleForTesting
+  static int maxConnectAttempts = 3;
+
+  /// Base inter-attempt backoff; the Nth retry waits `base * N`.
+  @visibleForTesting
+  static Duration connectRetryBaseDelay = const Duration(milliseconds: 300);
+
+  /// Connect with a bounded retry for transient (status-133-class) failures.
+  ///
+  /// Only *fast* failures are retried: a 133 fails almost immediately, whereas
+  /// a genuinely-absent device fails only at the full [_connectTimeout]. We
+  /// surface the latter right away so "device powered off" doesn't spin for
+  /// attempts × timeout. The autoConnect/waiting-phase path is a single
+  /// long OS-managed attempt and is never fast-retried here.
+  Future<void> _connectWithRetry({required bool autoConnect}) async {
+    if (autoConnect) {
+      await _adapter.connect(
+        timeout: const Duration(hours: 1),
+        autoConnect: true,
+      );
+      return;
+    }
+    for (int attempt = 1; ; attempt++) {
+      final sw = Stopwatch()..start();
+      try {
+        await _adapter.connect(timeout: _connectTimeout, autoConnect: false);
+        return;
+      } catch (e) {
+        sw.stop();
+        final transient = sw.elapsed < _connectTimeout * 0.7;
+        if (attempt >= maxConnectAttempts || !transient) rethrow;
+        BleDiagnostics.I.log(
+          BleEventKind.connectRetry,
+          'attempt=$attempt elapsedMs=${sw.elapsedMilliseconds} error=$e',
+        );
+        // Drop any half-open connection before the next attempt.
+        try {
+          await _adapter.disconnect();
+        } catch (_) {}
+        await Future<void>.delayed(connectRetryBaseDelay * attempt);
+      }
+    }
+  }
+
   Future<void> _connect({required bool autoConnect}) async {
     BleDiagnostics.I.log(
       BleEventKind.connectStart,
@@ -308,15 +358,14 @@ class BleTncTransport extends KissTncTransport {
       //
       //    NOTE: There is no GATT-cache clear here. The previous BLE plugin
       //    offered clearGattCache() to dodge Android GATT status 133 on stale
-      //    service tables; universal_ble has no equivalent. The reconnect cascade in
-      //    BleConnection (ReconnectableMixin) absorbs a transient 133 by
-      //    retrying, so the practical impact is an occasional extra retry.
-      await _adapter.connect(
-        timeout: autoConnect
-            ? const Duration(hours: 1)
-            : const Duration(seconds: 15),
-        autoConnect: autoConnect,
-      );
+      //    service tables; universal_ble has no equivalent. Instead we retry the
+      //    connect itself (see _connectWithRetry): a 133 is transient and a
+      //    fresh attempt almost always succeeds. This can't lean on the
+      //    BleConnection reconnect cascade, because that only fires after a
+      //    session has connected once (ReconnectableMixin._sessionEverConnected)
+      //    — an *initial* connect failure would otherwise be a hard error the
+      //    user has to retry by hand.
+      await _connectWithRetry(autoConnect: autoConnect);
 
       // 1a. Subscribe to BLE connection-state events as soon as the OS
       //     considers the link established. The subscription is intentionally

@@ -1675,8 +1675,14 @@ Diagnostics: `pairingStarted` / `pairingSucceeded` / `pairingFailed`.
 **Dropped / deliberately-unused capabilities:**
 
 - `clearGattCache()` — **no universal_ble equivalent.** FBP used it pre-connect to dodge Android GATT
-  status 133 from stale service tables. The `ReconnectableMixin` retry cascade absorbs a transient 133
-  by retrying, so the practical cost is an occasional extra reconnect attempt.
+  status 133 from stale service tables. universal_ble's `connect()` throws on the first failure with no
+  internal retry, and the `ReconnectableMixin` cascade does **not** cover this — it only fires after a
+  session has connected once (`_sessionEverConnected`), so an *initial* 133 surfaced as a hard "Failed
+  to connect" the user had to clear by restarting the app (observed on a TNC4 in v0.20 testing).
+  Mitigation: the transport now wraps the connect in a bounded fast-retry (`_connectWithRetry`, 3
+  attempts) that recovers transient 133s in place. It retries only *fast* failures — a 133 fails almost
+  immediately, whereas an absent device fails at the full timeout, which is surfaced without spinning
+  through retries. Diagnostics: `connectRetry`.
 - Connection priority — **universal_ble *does* expose this**
   (`UniversalBle.requestConnectionPriority` / `BleConnectionPriority`), but we **deliberately do not
   call it, and deliberately keep it out of the `BleDeviceAdapter` seam.** Requesting a high-priority

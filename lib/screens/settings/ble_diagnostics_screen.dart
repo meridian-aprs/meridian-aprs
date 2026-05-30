@@ -270,6 +270,7 @@ class _EventTile extends StatelessWidget {
       case BleEventKind.bleStateChanged:
         return Symbols.swap_horiz;
       case BleEventKind.serviceDiscoveryRetry:
+      case BleEventKind.connectRetry:
         return Symbols.refresh;
       case BleEventKind.connectionPriorityRequested:
       case BleEventKind.connectionPriorityFailed:

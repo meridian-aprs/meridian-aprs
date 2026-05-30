@@ -35,6 +35,7 @@ enum BleEventKind {
   pairingStarted,
   pairingSucceeded,
   pairingFailed,
+  connectRetry,
 }
 
 /// One entry in the BLE diagnostics log.

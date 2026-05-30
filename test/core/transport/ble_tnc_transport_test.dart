@@ -57,6 +57,9 @@ BleGattService _benshiService() => BleGattService(
 class FakeBleDeviceAdapter implements BleDeviceAdapter {
   // ----- configuration knobs -----
   bool connectThrows = false;
+  // Throw on the first N connect() calls, then succeed (simulates a transient
+  // status-133-class failure that a retry recovers from).
+  int connectFailTimes = 0;
   bool discoverThrows = false;
   bool pairThrows = false;
   bool paired = false;
@@ -91,6 +94,9 @@ class FakeBleDeviceAdapter implements BleDeviceAdapter {
   }) async {
     connectCallCount++;
     if (connectThrows) throw Exception('FakeBleDeviceAdapter: connect failed');
+    if (connectCallCount <= connectFailTimes) {
+      throw Exception('FakeBleDeviceAdapter: transient connect failure');
+    }
   }
 
   @override
@@ -190,6 +196,9 @@ void main() {
       // didn't ask for; transport tests need capture ON to assert
       // instrumentation actually fires.
       await BleDiagnostics.I.setEnabled(true);
+      // Keep connect-retry instant in tests; reset attempts to production value.
+      BleTncTransport.connectRetryBaseDelay = Duration.zero;
+      BleTncTransport.maxConnectAttempts = 3;
       fakeAdapter = FakeBleDeviceAdapter();
       transport = BleTncTransport(
         'AA:BB:CC:DD:EE:FF',
@@ -205,6 +214,9 @@ void main() {
       } catch (_) {}
       await fakeAdapter.close();
       BleDiagnostics.I = savedDiag;
+      // Restore production defaults so the mutated statics don't leak.
+      BleTncTransport.connectRetryBaseDelay = const Duration(milliseconds: 300);
+      BleTncTransport.maxConnectAttempts = 3;
     });
 
     // 1 -----------------------------------------------------------------------
@@ -252,6 +264,8 @@ void main() {
     test(
       'connect() transitions to error when adapter.connect() throws',
       () async {
+        // Single attempt here — the retry path has its own tests below.
+        BleTncTransport.maxConnectAttempts = 1;
         fakeAdapter.connectThrows = true;
 
         final capturedStates = <ConnectionStatus>[];
@@ -279,6 +293,48 @@ void main() {
         // The implementation retries up to 3× before rethrowing.
         expect(fakeAdapter.discoverCallCount, 3);
         expect(transport.currentStatus, ConnectionStatus.error);
+      },
+    );
+
+    // 5a — connect retry (transient GATT-133-class failure) -------------------
+    test(
+      'connect() retries a transient connect failure and succeeds',
+      () async {
+        // First connect attempt fails fast (e.g. Android status 133), second
+        // succeeds — the transport must recover without surfacing an error.
+        fakeAdapter.services = [_aprsSpecsService()];
+        fakeAdapter.connectFailTimes = 1;
+
+        await transport.connect();
+
+        expect(fakeAdapter.connectCallCount, 2);
+        expect(transport.currentStatus, ConnectionStatus.connected);
+        final retries = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.connectRetry)
+            .toList();
+        expect(retries, hasLength(1));
+      },
+    );
+
+    // 5b ----------------------------------------------------------------------
+    test(
+      'connect() gives up after maxConnectAttempts transient failures',
+      () async {
+        fakeAdapter.services = [_aprsSpecsService()];
+        fakeAdapter.connectFailTimes = 99; // every attempt fails fast
+
+        await expectLater(transport.connect(), throwsA(isA<Exception>()));
+
+        expect(
+          fakeAdapter.connectCallCount,
+          BleTncTransport.maxConnectAttempts,
+        );
+        expect(transport.currentStatus, ConnectionStatus.error);
+        final retries = BleDiagnostics.I.events
+            .where((e) => e.kind == BleEventKind.connectRetry)
+            .toList();
+        // Retry is logged before each re-attempt, not before the final give-up.
+        expect(retries, hasLength(BleTncTransport.maxConnectAttempts - 1));
       },
     );
 
