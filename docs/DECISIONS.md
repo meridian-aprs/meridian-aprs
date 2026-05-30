@@ -1740,11 +1740,20 @@ Android BLE permissions (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`, `ACCESS_FINE_LOC
 permissions itself; the app's existing `permission_handler` onboarding flow must grant them before a
 scan, so on-device testing should confirm the BLUETOOTH_SCAN/CONNECT prompt actually appears.
 
-<!-- Fill in pass/fail from on-device testing before merge. -->
+<!-- Fill in pass/fail from on-device testing before merge. ✅ = verified on hardware. -->
 
-- **Mobilinkd TNC4 (Family A) — Android:** scan ☐ · pair+connect ☐ · RX on map ☐ · TX on aprs.fi ☐ · background reconnect ☐ · MTU > 20 ☐
+- **Mobilinkd TNC4 (Family A) — Android:** scan ✅ · pair+connect ✅ · RX on map ☐ · TX on aprs.fi ✅ · background reconnect ☐ · MTU > 20 ☐
 - **Mobilinkd TNC4 (Family A) — iOS:** scan ☐ · pair+connect ☐ · RX on map ☐ · TX on aprs.fi ☐ · background reconnect ☐ · MTU logged ☐
-- **BTECH UV-Pro (Family B) — Android:** scan ☐ · connect ☐ · `familyB`/`benshi` autodetected ☐ · RX ☐ · TX ☐ · background reconnect ☐
+- **BTECH UV-Pro (Family B) — Android:** scan ✅ · connect ✅ · `familyB`/`benshi` autodetected ✅ · RX ☐ · TX ✅ · background reconnect ☐
+
+Notes from v0.20 on-device testing:
+- TNC4 connect succeeds and beaconing stays up. Android shows a one-time OS pairing dialog on first
+  connect (the OS lazy-bonds the device); accepting it leaves the link stable through beacon TX — so
+  the up-front `pair()` is **not** needed for Family A (aprs-specs) and remains gated to Family B only.
+- TNC4 first-connect after a fresh app launch occasionally returned a transient "Failed to connect"
+  (Android GATT 133); the `_connectWithRetry` fast-retry path (3 attempts) clears it.
+- UV-Pro (Family B) requires the up-front `pair()` before subscribe — without it, connect succeeded
+  but the first beacon write dropped the link (lazy mid-stream bond past the supervision timeout).
 
 ### References
 
