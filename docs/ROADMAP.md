@@ -24,7 +24,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.14 — Base-Callsign Matching | Capture-always cross-SSID message matching, addressee badges, conversation grouping | ✅ Complete |
 | v0.17 — Groups & Bulletins | APRS group messaging (CQ/QST/ALL/custom), bulletins (BLN0-9 + named), matcher precedence, messaging tab restructure | ✅ Complete |
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
-| v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | — |
+| v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | ✅ Complete |
 | v0.20 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v0.21 — BLE Plugin Replacement | Replace `flutter_blue_plus` with a GPL-compatible BLE plugin behind the existing `BleTncTransport` seam (#114, ADR-065) | — |
 | v0.22 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
@@ -175,9 +175,11 @@ Performance pass — measurable baselines and the structural fixes that move the
 - ✅ Selector convention (#57) — documented `Selector` / `context.select` / `context.read` convention (comment block in `mobile_scaffold.dart`); narrowed the over-broad `context.watch<ConnectionRegistry>()` in the mobile + tablet scaffolds to a `(status, isAnyConnected)` record select, matching the existing desktop pattern. Audit confirmed the rest of the UI layer already uses `select`/`read` correctly.
 - ✅ Non-builder `ListView` sweep (#58, absorbed #64) — PacketLogScreen packet list extracted into its own `_PacketList` `StatefulWidget` so incoming packets no longer re-inflate the filter chips. SettingsScreen category list (≤10) and PacketDetailSheet field rows (~25, modal) documented as intentionally eager.
 - ✅ SQLite / drift evaluation spike (#87) — graduated from a decision doc into a full implementation (ADR-067). drift now backs stations, position history, packet log, conversations + message entries, and incoming + outgoing bulletins; multi-isolate access via `DriftIsolate` + `IsolateNameServer` resolves the ADR-057/061 foreground/background state drift. Configurable message/packet/station retention; per-DAO + cross-isolate integration tests.
-- Background service battery drain — profiling report on Android + iOS, plus go/no-go on optimization sub-tasks (#88)
-- Memory audit — stress-test station count target (5k stable), identify allocation hotspots, document baseline (#89)
-- Packet processing throughput — establish baseline at ≥5 packets/second sustained, identify bottlenecks (#90)
+- ⏭️ Background service battery drain — profiling report on Android + iOS, plus go/no-go on optimization sub-tasks (#88) — **deferred to post-v1.0** (needs real-world usage data)
+- ⏭️ Memory audit — stress-test station count target (5k stable), identify allocation hotspots, document baseline (#89) — **deferred to post-v1.0**
+- ⏭️ Packet processing throughput — establish baseline at ≥5 packets/second sustained, identify bottlenecks (#90) — **deferred to post-v1.0**
+
+> v0.19 closed out with the structural fixes shipped (#51/#57/#58) and the drift persistence spike landed (#87). The three profiling-baseline items (#88/#89/#90) are deferred to the **post-v1.0** milestone, since meaningful baselines need real-world usage data after launch.
 
 ---
 
