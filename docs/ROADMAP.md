@@ -26,7 +26,7 @@ Each milestone represents a shippable increment with a focused scope. Features d
 | v0.18 — Foundations | Architecture, testing, and dependency foundations that unblock subsequent performance, polish, and launch work | ✅ Complete |
 | v0.19 — Performance | Performance pass — Selector adoption, MapScreen rebuild fix, ListView hygiene, SQLite spike, battery / memory / throughput baselines | ✅ Complete |
 | v0.20 — BLE Plugin Replacement | Replaced `flutter_blue_plus` with `universal_ble` (BSD-3-Clause) behind the `BleDeviceAdapter` seam (#114, ADR-068) | ✅ Complete |
-| v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs on Android, Linux, Windows, macOS (iOS excluded by platform restriction) | — |
+| v0.21 — Classic Bluetooth SPP | Classic Bluetooth SPP transport for KISS TNCs (ADR-069). Android shipped & hardware-validated on a TH-D75; desktop (Linux/Windows/macOS) carried forward to a follow-on phase; iOS excluded by platform restriction | ✅ Android shipped |
 | v0.22 — Polish & A11y | Pre-launch polish — accessibility audit, iOS adaptive widget consistency, screen refactors, remaining widget tests | — |
 | v0.23 — Offline Maps | Offline tile caching for portable / field / SAR use without cell service, layered onto the existing `MeridianTileProvider` abstraction | — |
 | v1.0 — Launch | Final release pipeline — Android signing, iOS App Group, release-build CI, physical-device validation, tocall bump, store submission | — |
@@ -201,30 +201,32 @@ Delivered:
 
 ---
 
-### v0.21 — Classic Bluetooth SPP
+### v0.21 — Classic Bluetooth SPP ✅ Android shipped
 
-Add Classic Bluetooth SPP as a fourth transport alongside APRS-IS, BLE TNC, and Serial TNC. Unlocks a meaningful slice of installed-base hardware — APRS-capable HTs and mobiles with built-in or add-on classic Bluetooth, and older Bluetooth-equipped TNCs that predate BLE.
+Classic Bluetooth SPP added as a fourth transport alongside APRS-IS, BLE TNC, and Serial TNC (ADR-069). Unlocks a meaningful slice of installed-base hardware — APRS-capable HTs and mobiles with built-in or add-on classic Bluetooth, and older Bluetooth-equipped TNCs that predate BLE.
 
-**Critical platform caveat — must be documented in this milestone's scope and in an ADR:** iOS does not allow third-party apps to speak Classic Bluetooth SPP to non-MFi-certified accessories. This is a platform restriction, not a Meridian limitation. Practical impact:
+**Critical platform caveat (documented in ADR-069):** iOS does not allow third-party apps to speak Classic Bluetooth SPP to non-MFi-certified accessories. This is a platform restriction, not a Meridian limitation:
 
-- Android, Linux, Windows, macOS — Classic BT SPP is implementable
+- Android — shipped (v0.21)
+- Linux, Windows, macOS — implementable; carried forward to the desktop follow-on phase
 - iOS — not possible from the app; iOS users with classic-BT-only hardware need an external BLE↔Classic bridge
 
-Tooling notes:
+**Approach (ADR-069):** a thin native Kotlin platform channel (`meridian/classic_bt` + RX `EventChannel`) opening an RFCOMM socket over the standard SPP UUID, rather than a Flutter plugin — no maintained GPL-compatible Classic-SPP plugin exists, and a native channel is the only desktop path anyway. SPP is the **serial twin** of `SerialConnection`: a raw byte stream through the shared, transport-agnostic `KissFramer`, not the BLE/GATT model.
 
-- The current BLE library is BLE-only — does not cover classic SPP
-- Android: existing third-party packages exist but are lightly maintained; a platform channel may be cleaner
-- Desktop: each platform needs its own classic-BT integration
-- An ADR will document the chosen approach and the iOS exclusion
+Shipped (Android):
 
-Deliverables:
+- `ClassicBtTncTransport implements KissTncTransport` over a shared, single-sink `ClassicBtSppChannel`
+- `ClassicBtConnection extends MeridianConnection with ReconnectableMixin` (active-polling reconnect, like Serial)
+- `ConnectionType.classicBtTnc` / `PacketSource.classicBtTnc` (append-only); TX hierarchy now Serial > Classic > BLE > APRS-IS
+- Merged "Bluetooth" segment in the Connection screen with a `[BLE | Classic]` `ChoiceChip` sub-selector; paired-device picker (no in-app scan — OS owns pairing); runtime `BLUETOOTH_CONNECT` request + legacy `BLUETOOTH` (`maxSdkVersion=30`)
+- Reuses existing KISS framing, AX.25 decode, beaconing, and `ReconnectableMixin`
+- **Hardware-validated on a Kenwood TH-D75:** RX in packet log, TX beacon keys the radio (confirmed on aprs.fi), background reconnect + background RX after screen lock
 
-- New `ClassicBtTncTransport` implementing `KissTncTransport`, registered as a `MeridianConnection` peer of BLE / Serial
-- Pairing UI in the Connection screen, parallel to `BleScannerSheet`
-- Reuse of existing KISS framing, AX.25 decode, beaconing, and `ReconnectableMixin`
-- Per-platform integration covering Android first, then Linux / Windows / macOS
-- ADR documenting the platform-channel strategy and the iOS exclusion
-- Settings copy / connection screen messaging that explains the iOS limitation rather than hiding it
+> **Radio setup note (TH-D75 and similar built-in TNCs):** the internal TNC only forwards decoded packets over KISS when it is in **KISS mode (e.g. "KISS 12")** *and the radio's own beaconing (BCON) is off* — with BCON on, the radio keeps the data path for its own APRS engine and won't pass frames to the host.
+
+Deferred to the desktop follow-on phase (was Phase 3):
+
+- Desktop Classic BT (Linux BlueZ/D-Bus first, then Windows/macOS) and enabling desktop BLE in the same validation pass — see [Future Features](FUTURE_FEATURES.md). Plan-mode required before that native work.
 
 ---
 

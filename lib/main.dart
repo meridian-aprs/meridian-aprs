@@ -19,6 +19,7 @@ import 'ui/widgets/in_app_banner_overlay.dart';
 import 'config/app_config.dart';
 import 'core/connection/aprs_is_connection.dart';
 import 'core/connection/ble_connection.dart';
+import 'core/connection/classic_bt_connection.dart';
 import 'core/connection/connection_registry.dart';
 import 'core/connection/serial_connection.dart';
 import 'core/credentials/secure_credential_store.dart';
@@ -144,10 +145,16 @@ Future<void> main() async {
   // Platform-conditional TNC connections.
   BleConnection? bleConn;
   SerialConnection? serialConn;
+  ClassicBtConnection? classicBtConn;
 
   if (!kIsWeb) {
     if (Platform.isAndroid || Platform.isIOS) {
       bleConn = BleConnection();
+    }
+    // Classic Bluetooth SPP is Android-only in v0.21 (ADR-069); iOS restricts
+    // Classic BT to MFi accessories. Phase 3 widens this to desktop.
+    if (Platform.isAndroid) {
+      classicBtConn = ClassicBtConnection();
     }
     if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
       serialConn = SerialConnection();
@@ -157,6 +164,7 @@ Future<void> main() async {
   final registry = ConnectionRegistry();
   registry.register(aprsIsConn);
   if (bleConn != null) registry.register(bleConn);
+  if (classicBtConn != null) registry.register(classicBtConn);
   if (serialConn != null) registry.register(serialConn);
 
   // Load persisted settings (beaconing toggles, serial config) for all

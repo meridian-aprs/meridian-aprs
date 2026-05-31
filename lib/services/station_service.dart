@@ -378,6 +378,7 @@ class StationService extends ChangeNotifier {
     ConnectionType.aprsIs => PacketSource.aprsIs,
     ConnectionType.bleTnc => PacketSource.bleTnc,
     ConnectionType.serialTnc => PacketSource.serialTnc,
+    ConnectionType.classicBtTnc => PacketSource.classicBtTnc,
   };
 
   Future<void> _handleLine(

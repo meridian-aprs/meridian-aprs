@@ -40,6 +40,9 @@ Two related capabilities sharing the same KISS-over-TCP framing surface:
 
 Should also consider DNS-SD / mDNS discovery of `_kiss-tnc._tcp` services for zero-config pairing on the LAN. The existing `ConnectionRegistry` and `MeridianConnection` abstractions are well-positioned for both directions. Available on all platforms except web (no raw TCP sockets in browser; would need WebSocket bridging). `ReconnectableMixin` handles Wi-Fi drops.
 
+### Desktop Classic Bluetooth SPP
+Extend the Android Classic BT SPP transport (shipped v0.21, ADR-069) to desktop: Linux (BlueZ over D-Bus, the primary dev environment, first), then Windows (`Windows.Devices.Bluetooth`) and macOS (`IOBluetooth`). Each needs its own native RFCOMM channel mirroring `ClassicBtChannel.kt`; the Dart `ClassicBtConnection` / `ClassicBtTncTransport` layer is already cross-platform and only `isAvailable` widens. Best done in a single validation pass that also flips `BleConnection.isAvailable` on for desktop (re-exercising the v0.20 BLE stack against BlueZ/CoreBluetooth/WinRT — note the `autoConnect` gap on Windows/Linux per ADR-068), so the merged "Bluetooth" tab shows BLE + Classic chips consistently across platforms. Plan-mode required before the native work.
+
 ### Inter-app API
 A documented integration surface that lets third-party tools (loggers, dashboards, contest software, automation) observe received traffic and trigger transmissions through Meridian. Android can use broadcast Intents; other platforms likely need URL schemes / shared files / a local HTTP endpoint. Surface candidates include service-state events, received-message events, position-update events, and outbound message / raw packet send. Open question whether to align with any existing community API surface for ecosystem compatibility or design fresh.
 
@@ -136,4 +139,4 @@ A centralized widget (or formatter) for rendering callsigns consistently across 
 
 ---
 
-*Last updated: 2026-04-26*
+*Last updated: 2026-05-30*

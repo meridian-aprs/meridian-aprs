@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../core/connection/aprs_is_connection.dart';
 import '../core/connection/ble_connection.dart';
+import '../core/connection/classic_bt_connection.dart';
 import '../core/connection/connection_registry.dart';
 import '../core/connection/serial_connection.dart';
 import '../core/packet/aprs_packet.dart' show AprsPacket, PacketSource;
@@ -18,6 +19,7 @@ import '../services/station_settings_service.dart';
 import '../theme/meridian_colors.dart';
 import '../ui/widgets/battery_optimization_card.dart';
 import '../ui/widgets/ble_scanner_sheet.dart';
+import '../ui/widgets/classic_bt_device_list.dart';
 import '../ui/widgets/meridian_status_pill.dart';
 import '../ui/widgets/serial_connection_form.dart';
 
@@ -36,11 +38,20 @@ class ConnectionScreen extends StatefulWidget {
 }
 
 class _ConnectionScreenState extends State<ConnectionScreen> {
-  // Segmented control selection index into [ConnectionRegistry.available].
+  // Segmented control selection index into the grouped segment list (BLE and
+  // Classic BT are merged into a single "Bluetooth" segment).
   int _tab = 0;
+
+  // Sub-selector within the merged Bluetooth segment: 0 = BLE, 1 = Classic BT.
+  int _btSubTab = 0;
 
   // Packet counters keyed by connection ID.
   final Map<String, int> _packetCountById = {};
+
+  // Drives the page scroll so we can snap back to the top (where the Active
+  // Connections card shows "Connecting…") when a connect is initiated from a
+  // long device list further down.
+  final _scrollController = ScrollController();
 
   StreamSubscription<AprsPacket>? _packetSub;
 
@@ -56,6 +67,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         PacketSource.tnc => 'ble_tnc',
         PacketSource.bleTnc => 'ble_tnc',
         PacketSource.serialTnc => 'serial_tnc',
+        PacketSource.classicBtTnc => 'classic_bt_tnc',
         PacketSource.aprsIs => 'aprs_is',
       };
       _packetCountById[key] = (_packetCountById[key] ?? 0) + 1;
@@ -69,6 +81,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
           PacketSource.tnc => 'ble_tnc',
           PacketSource.bleTnc => 'ble_tnc',
           PacketSource.serialTnc => 'serial_tnc',
+          PacketSource.classicBtTnc => 'classic_bt_tnc',
           PacketSource.aprsIs => 'aprs_is',
         };
         _packetCountById[key] = (_packetCountById[key] ?? 0) + 1;
@@ -79,7 +92,20 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void dispose() {
     _packetSub?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Snap the page back to the top so the just-initiated connection's
+  /// "Connecting…" card is visible — the device lists can be long enough that a
+  /// tap leaves the user scrolled past the status area.
+  void _scrollToTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -89,15 +115,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   Widget build(BuildContext context) {
     final registry = context.watch<ConnectionRegistry>();
-    final available = registry.available;
+    final segments = _buildSegments(registry.available);
 
     // Clamp tab index to remain valid if registry changes.
-    if (_tab >= available.length && available.isNotEmpty) {
-      _tab = available.length - 1;
+    if (_tab >= segments.length && segments.isNotEmpty) {
+      _tab = segments.length - 1;
     }
 
     final activeConnections = registry.all.where((c) {
       return c.status == ConnectionStatus.connected ||
+          c.status == ConnectionStatus.connecting ||
           c.status == ConnectionStatus.reconnecting ||
           c.status == ConnectionStatus.waitingForDevice;
     }).toList();
@@ -105,6 +132,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Connection')),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -165,14 +193,16 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
             // ── Segmented control + tabs ──────────────────────────────────
             const SizedBox(height: 20),
-            if (available.length > 1)
+            if (segments.length > 1)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: _buildSegmentedControl(available),
+                child: _buildSegmentedControl(segments),
               ),
             const SizedBox(height: 20),
-            if (available.isNotEmpty)
-              _buildTabContent(available[_tab.clamp(0, available.length - 1)]),
+            if (segments.isNotEmpty)
+              _buildSegmentContent(
+                segments[_tab.clamp(0, segments.length - 1)],
+              ),
           ],
         ),
       ),
@@ -180,16 +210,50 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   }
 
   // ---------------------------------------------------------------------------
+  // Segment grouping
+  // ---------------------------------------------------------------------------
+
+  /// Collapse the available connections into presentational segments. BLE and
+  /// Classic BT merge into a single "Bluetooth" segment (they remain two
+  /// distinct registered connections — the merge is purely at the selector
+  /// layer); every other connection is its own segment. Registry order is
+  /// preserved: APRS-IS, Bluetooth, Serial.
+  List<_ConnSegment> _buildSegments(List<MeridianConnection> available) {
+    final bluetooth = available
+        .where(
+          (c) =>
+              c.type == ConnectionType.bleTnc ||
+              c.type == ConnectionType.classicBtTnc,
+        )
+        .toList();
+
+    final segments = <_ConnSegment>[];
+    var bluetoothAdded = false;
+    for (final conn in available) {
+      if (conn.type == ConnectionType.bleTnc ||
+          conn.type == ConnectionType.classicBtTnc) {
+        if (!bluetoothAdded) {
+          segments.add(_ConnSegment('Bluetooth', bluetooth));
+          bluetoothAdded = true;
+        }
+        continue;
+      }
+      segments.add(_ConnSegment(conn.displayName, [conn]));
+    }
+    return segments;
+  }
+
+  // ---------------------------------------------------------------------------
   // Segmented control
   // ---------------------------------------------------------------------------
 
-  Widget _buildSegmentedControl(List<MeridianConnection> available) {
+  Widget _buildSegmentedControl(List<_ConnSegment> segments) {
     if (!kIsWeb && Platform.isIOS) {
       final children = <int, Widget>{
-        for (var i = 0; i < available.length; i++)
+        for (var i = 0; i < segments.length; i++)
           i: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(available[i].displayName),
+            child: Text(segments[i].label),
           ),
       };
       return CupertinoSlidingSegmentedControl<int>(
@@ -201,10 +265,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     return SegmentedButton<int>(
       segments: [
-        for (var i = 0; i < available.length; i++)
-          ButtonSegment(value: i, label: Text(available[i].displayName)),
+        for (var i = 0; i < segments.length; i++)
+          ButtonSegment(value: i, label: Text(segments[i].label)),
       ],
-      selected: {_tab.clamp(0, available.length - 1)},
+      selected: {_tab.clamp(0, segments.length - 1)},
       onSelectionChanged: (s) => setState(() => _tab = s.first),
     );
   }
@@ -213,14 +277,83 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Tab content dispatch
   // ---------------------------------------------------------------------------
 
-  Widget _buildTabContent(MeridianConnection conn) {
+  Widget _buildSegmentContent(_ConnSegment segment) {
+    if (segment.isBluetooth) return _buildBluetoothTab(segment);
+    final conn = segment.connections.first;
     if (conn is AprsIsConnection) return _buildAprsTab(conn);
-    if (conn is BleConnection) return _buildBleTab(conn);
     if (conn is SerialConnection) return _buildSerialTab(conn);
     // Fallback for test fakes or unknown connection types.
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Text(conn.displayName),
+    );
+  }
+
+  // ── Bluetooth tab (BLE + Classic BT) ─────────────────────────────────────────
+
+  Widget _buildBluetoothTab(_ConnSegment segment) {
+    final bleList = segment.connections.whereType<BleConnection>().toList();
+    final classicList = segment.connections
+        .whereType<ClassicBtConnection>()
+        .toList();
+    final ble = bleList.isEmpty ? null : bleList.first;
+    final classic = classicList.isEmpty ? null : classicList.first;
+    final theme = Theme.of(context);
+
+    // Chip row renders only when both sub-transports are available (Android).
+    // iOS → BLE only (no chips); desktop (Phase 3) → Classic only (no chips).
+    final showChips = ble != null && classic != null;
+
+    final Widget content;
+    if (showChips) {
+      content = _btSubTab == 0
+          ? _buildBleContent(ble)
+          : _buildClassicContent(classic);
+    } else if (ble != null) {
+      content = _buildBleContent(ble);
+    } else if (classic != null) {
+      content = _buildClassicContent(classic);
+    } else {
+      content = const SizedBox.shrink();
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: _SectionLabel('Bluetooth TNC'),
+          ),
+          if (showChips) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                children: [
+                  ChoiceChip(
+                    label: const Text('BLE'),
+                    selected: _btSubTab == 0,
+                    onSelected: (_) => setState(() => _btSubTab = 0),
+                  ),
+                  ChoiceChip(
+                    label: const Text('Classic'),
+                    selected: _btSubTab == 1,
+                    onSelected: (_) => setState(() => _btSubTab = 1),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          DefaultTextStyle.merge(
+            style: theme.textTheme.bodyMedium,
+            child: content,
+          ),
+        ],
+      ),
     );
   }
 
@@ -300,40 +433,59 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     );
   }
 
-  // ── BLE TNC tab ────────────────────────────────────────────────────────────
+  // ── BLE sub-content (inside the Bluetooth tab) ───────────────────────────────
 
-  Widget _buildBleTab(BleConnection conn) {
+  Widget _buildBleContent(BleConnection conn) {
     final isSessionActive =
         conn.status == ConnectionStatus.connected ||
         conn.status == ConnectionStatus.reconnecting ||
         conn.status == ConnectionStatus.waitingForDevice;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Surfaced whenever the user is on the BLE tab — applies equally
-          // before/after a session is established because the prompt is about
-          // keeping the link alive in the background, not about starting one.
-          const BatteryOptimizationCard(),
-          const SizedBox(height: 12),
-          if (isSessionActive)
-            Text(
-              'Connected — disconnect from the card above.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            )
-          else
-            BleScannerSheet(
-              bleConnection: conn,
-              showDragHandle: false,
-              onBack: () {},
-              showBackButton: false,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Surfaced whenever the user is on the BLE sub-tab — applies equally
+        // before/after a session is established because the prompt is about
+        // keeping the link alive in the background, not about starting one.
+        const BatteryOptimizationCard(),
+        const SizedBox(height: 12),
+        if (isSessionActive)
+          Text(
+            'Connected — disconnect from the card above.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
-        ],
-      ),
+          )
+        else
+          BleScannerSheet(
+            bleConnection: conn,
+            showDragHandle: false,
+            onBack: () {},
+            showBackButton: false,
+          ),
+      ],
+    );
+  }
+
+  // ── Classic BT sub-content (inside the Bluetooth tab) ─────────────────────────
+
+  Widget _buildClassicContent(ClassicBtConnection conn) {
+    final isSessionActive =
+        conn.status == ConnectionStatus.connected ||
+        conn.status == ConnectionStatus.reconnecting ||
+        conn.status == ConnectionStatus.waitingForDevice;
+
+    if (isSessionActive) {
+      return Text(
+        'Connected — disconnect from the card above.',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      );
+    }
+    return ClassicBtDeviceList(
+      connection: conn,
+      onConnectInitiated: _scrollToTop,
     );
   }
 
@@ -345,6 +497,26 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
       child: SerialConnectionForm(connection: conn),
     );
   }
+}
+
+// =============================================================================
+// Segment model
+// =============================================================================
+
+/// A presentational segment in the connection selector. Most segments wrap a
+/// single connection; the "Bluetooth" segment groups the BLE and Classic BT
+/// connections behind one tab with a [ChoiceChip] sub-selector.
+class _ConnSegment {
+  const _ConnSegment(this.label, this.connections);
+
+  final String label;
+  final List<MeridianConnection> connections;
+
+  bool get isBluetooth => connections.any(
+    (c) =>
+        c.type == ConnectionType.bleTnc ||
+        c.type == ConnectionType.classicBtTnc,
+  );
 }
 
 // =============================================================================
@@ -363,6 +535,7 @@ class _ActiveConnectionCard extends StatelessWidget {
   static IconData _iconFor(ConnectionType type) => switch (type) {
     ConnectionType.aprsIs => Symbols.wifi,
     ConnectionType.bleTnc => Symbols.bluetooth,
+    ConnectionType.classicBtTnc => Symbols.bluetooth,
     ConnectionType.serialTnc => Symbols.usb,
   };
 
@@ -370,6 +543,9 @@ class _ActiveConnectionCard extends StatelessWidget {
     if (conn is AprsIsConnection) return conn.serverDisplay;
     if (conn is SerialConnection) {
       return conn.activeConfig?.port ?? 'Serial TNC';
+    }
+    if (conn is ClassicBtConnection) {
+      return conn.deviceName ?? conn.deviceAddress ?? 'Classic BT';
     }
     if (conn.type == ConnectionType.bleTnc) return 'BLE TNC';
     return conn.displayName;
@@ -405,9 +581,11 @@ class _ActiveConnectionCard extends StatelessWidget {
                 ),
                 MeridianStatusPill(
                   status: displayStatus,
-                  label: status == ConnectionStatus.connected
-                      ? 'Connected'
-                      : 'Reconnecting\u2026',
+                  label: switch (status) {
+                    ConnectionStatus.connected => 'Connected',
+                    ConnectionStatus.connecting => 'Connecting\u2026',
+                    _ => 'Reconnecting\u2026',
+                  },
                 ),
                 if (conn.beaconingEnabled) ...[
                   const SizedBox(width: 8),

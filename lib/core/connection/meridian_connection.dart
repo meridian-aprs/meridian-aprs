@@ -10,7 +10,7 @@ export '../transport/aprs_transport.dart' show ConnectionStatus;
 ///
 /// Used by the UI layer to dispatch connection-specific form builders and by
 /// [StationService] to tag ingested packets with the correct [PacketSource].
-enum ConnectionType { aprsIs, bleTnc, serialTnc }
+enum ConnectionType { aprsIs, bleTnc, serialTnc, classicBtTnc }
 
 /// Unified abstraction over all APRS transport connections.
 ///

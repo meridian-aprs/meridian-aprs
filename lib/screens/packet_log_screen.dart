@@ -367,7 +367,10 @@ class _PacketRow extends StatelessWidget {
   static String _transportLabel(AprsPacket p) {
     final transport = switch (p.transportSource) {
       PacketSource.aprsIs => 'Internet',
-      PacketSource.bleTnc || PacketSource.serialTnc || PacketSource.tnc => 'RF',
+      PacketSource.bleTnc ||
+      PacketSource.serialTnc ||
+      PacketSource.classicBtTnc ||
+      PacketSource.tnc => 'RF',
     };
     return p.isOutgoing ? 'Sent · $transport' : transport;
   }

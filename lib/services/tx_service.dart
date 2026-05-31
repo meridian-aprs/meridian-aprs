@@ -1,8 +1,8 @@
 /// TX router that fans out outgoing APRS packets across all connected and
 /// beaconing-enabled [MeridianConnection]s.
 ///
-/// Per-message routing follows the unconditional Serial > BLE > APRS-IS
-/// hierarchy (ADR-029). Per-beacon routing honours
+/// Per-message routing follows the unconditional Serial > Classic BT > BLE >
+/// APRS-IS hierarchy (ADR-029, ADR-069). Per-beacon routing honours
 /// [MeridianConnection.beaconingEnabled] on each connection. There is no
 /// per-message transport override.
 library;
@@ -22,10 +22,12 @@ import 'station_settings_service.dart';
 /// Events emitted by [TxService] to drive banner UI.
 sealed class TxEvent {}
 
-/// A TNC (BLE or Serial) disconnected while RF was the active TX path.
+/// A TNC (Serial, Classic BT, or BLE) disconnected while RF was the active TX
+/// path.
 class TxEventTncDisconnected extends TxEvent {}
 
-/// A TNC (BLE or Serial) reconnected — notify the user that RF is live again.
+/// A TNC (Serial, Classic BT, or BLE) reconnected — notify the user that RF is
+/// live again.
 class TxEventTncReconnected extends TxEvent {}
 
 /// A TX attempt was rejected because the user is not marked as a licensed
@@ -56,6 +58,7 @@ class TxService extends ChangeNotifier {
     ConnectionType.aprsIs => PacketSource.aprsIs,
     ConnectionType.bleTnc => PacketSource.bleTnc,
     ConnectionType.serialTnc => PacketSource.serialTnc,
+    ConnectionType.classicBtTnc => PacketSource.classicBtTnc,
   };
 
   bool _tncWasConnected = false;
@@ -97,6 +100,7 @@ class TxService extends ChangeNotifier {
     if (conn == null) return 'Auto';
     return switch (conn.type) {
       ConnectionType.serialTnc => 'Auto [Serial]',
+      ConnectionType.classicBtTnc => 'Auto [Classic BT]',
       ConnectionType.bleTnc => 'Auto [BLE]',
       ConnectionType.aprsIs => 'Auto [APRS-IS]',
     };
@@ -105,10 +109,12 @@ class TxService extends ChangeNotifier {
   /// Send [aprsLine] via the resolved effective connection.
   ///
   /// When [forceVia] is provided, the first connected connection of that type
-  /// is used; otherwise the hierarchy (Serial > BLE > APRS-IS) is applied.
+  /// is used; otherwise the hierarchy (Serial > Classic BT > BLE > APRS-IS) is
+  /// applied.
   ///
   /// [digipeaterPath] overrides the default digipeater aliases when the
-  /// effective connection is RF (BLE or Serial). APRS-IS connections ignore
+  /// effective connection is RF (Serial, Classic BT, or BLE). APRS-IS
+  /// connections ignore
   /// this. Used by v0.17 group-message / bulletin send.
   ///
   /// No-op when the user is unlicensed — TX is unconditionally blocked.
@@ -128,11 +134,12 @@ class TxService extends ChangeNotifier {
   }
 
   /// Send a bulletin packet honoring the per-bulletin transport flags. Unlike
-  /// [sendLine], this does *not* use the Serial > BLE > APRS-IS hierarchy —
-  /// bulletins can independently go via RF, APRS-IS, or both, per the user's
-  /// `viaRf` / `viaAprsIs` settings on each `OutgoingBulletin` (ADR-057).
+  /// [sendLine], this does *not* use the Serial > Classic BT > BLE > APRS-IS
+  /// hierarchy — bulletins can independently go via RF, APRS-IS, or both, per
+  /// the user's `viaRf` / `viaAprsIs` settings on each `OutgoingBulletin`
+  /// (ADR-057).
   ///
-  /// When [viaRf] is true, the first live TNC (Serial preferred over BLE)
+  /// When [viaRf] is true, the first live TNC (Serial, Classic BT, or BLE)
   /// receives the line with [rfPath] as the digipeater path. When [viaAprsIs]
   /// is true, the APRS-IS connection receives the line (paths ignored). If
   /// both are true and both are connected, the line goes to both.
@@ -164,6 +171,7 @@ class TxService extends ChangeNotifier {
           .where(
             (c) =>
                 (c.type == ConnectionType.serialTnc ||
+                    c.type == ConnectionType.classicBtTnc ||
                     c.type == ConnectionType.bleTnc) &&
                 c.isConnected,
           )
@@ -203,7 +211,7 @@ class TxService extends ChangeNotifier {
     }
   }
 
-  /// Send [aprsLine] to the first connected TNC (Serial takes priority over BLE).
+  /// Send [aprsLine] to the first connected TNC (Serial, Classic BT, or BLE).
   ///
   /// Used by [BackgroundServiceManager] to forward background-isolate IPC
   /// beacon/bulletin requests to the live TNC connection. [digipeaterPath]
@@ -216,6 +224,7 @@ class TxService extends ChangeNotifier {
         .where(
           (c) =>
               (c.type == ConnectionType.serialTnc ||
+                  c.type == ConnectionType.classicBtTnc ||
                   c.type == ConnectionType.bleTnc) &&
               c.isConnected,
         )
@@ -226,11 +235,12 @@ class TxService extends ChangeNotifier {
     }
   }
 
-  /// True when any TNC (BLE or Serial) is currently live.
+  /// True when any TNC (Serial, Classic BT, or BLE) is currently live.
   bool get _tncAvailable => _registry.all.any(
     (c) =>
         (c.type == ConnectionType.bleTnc ||
-            c.type == ConnectionType.serialTnc) &&
+            c.type == ConnectionType.serialTnc ||
+            c.type == ConnectionType.classicBtTnc) &&
         c.isConnected,
   );
 
@@ -258,6 +268,7 @@ class TxService extends ChangeNotifier {
     }
     const order = [
       ConnectionType.serialTnc,
+      ConnectionType.classicBtTnc,
       ConnectionType.bleTnc,
       ConnectionType.aprsIs,
     ];

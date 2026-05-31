@@ -799,7 +799,9 @@ class BackgroundServiceManager extends ChangeNotifier
     final connected = _registry.connected;
     final hasTnc = connected.any(
       (c) =>
-          c.type == ConnectionType.bleTnc || c.type == ConnectionType.serialTnc,
+          c.type == ConnectionType.bleTnc ||
+          c.type == ConnectionType.serialTnc ||
+          c.type == ConnectionType.classicBtTnc,
     );
     final hasAprsIs = connected.any((c) => c.type == ConnectionType.aprsIs);
     if (hasTnc && hasAprsIs) return 'Meridian — TNC + APRS-IS';
