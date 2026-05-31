@@ -139,4 +139,4 @@ A centralized widget (or formatter) for rendering callsigns consistently across 
 
 ---
 
-*Last updated: 2026-04-26*
+*Last updated: 2026-05-30*

@@ -62,7 +62,7 @@ Each layer depends only on layers below it. The **Packet Core is pure Dart** —
 
 **v0.21 shipped on Android (Classic Bluetooth SPP — native RFCOMM channel, ADR-069; hardware-validated on a TH-D75; desktop deferred). Next: v0.22 — Polish & A11y.**
 
-The full milestone list, per-task breakdowns, and completion state live in `docs/ROADMAP.md`; architectural decisions in `docs/DECISIONS.md` (ADRs 001–068). Do not duplicate that state here.
+The full milestone list, per-task breakdowns, and completion state live in `docs/ROADMAP.md`; architectural decisions in `docs/DECISIONS.md` (ADRs 001–069). Do not duplicate that state here.
 
 > v0.15 / v0.16 milestone numbers are retired (the historical "Battery & Performance" / "Bug Triage" milestones) and are not reused.
 

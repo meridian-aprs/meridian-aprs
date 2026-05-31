@@ -12,6 +12,8 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.IOException
 import java.util.UUID
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Classic Bluetooth SPP (RFCOMM) bridge for Meridian's KISS TNC transport.
@@ -54,6 +56,15 @@ class ClassicBtChannel(
     // threads and the platform thread all touch these.
     @Volatile private var socket: BluetoothSocket? = null
     @Volatile private var readThread: Thread? = null
+
+    // Bumped on every teardown. A connect worker captures the epoch when it
+    // starts and bails if it changed by the time its blocking connect() returns,
+    // so a stale worker can't resurrect a torn-down session or leak a socket.
+    @Volatile private var connectEpoch = 0
+
+    // Serializes writes so concurrent KISS frames cannot interleave on the
+    // output stream. Single-threaded → FIFO ordering.
+    private val writeExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     init {
         MethodChannel(messenger, METHOD_CHANNEL).setMethodCallHandler(this)
@@ -112,6 +123,7 @@ class ClassicBtChannel(
         // the rx event stream, not this Result (which returns immediately).
         teardown(emitState = false, reason = null)
         emitState("connecting", null)
+        val myEpoch = connectEpoch
 
         Thread({
             // Discovery is heavy and slows/breaks an RFCOMM connect.
@@ -137,6 +149,14 @@ class ClassicBtChannel(
                 emitState("error", "BLUETOOTH_CONNECT not granted")
                 return@Thread
             }
+            // A teardown (or newer connect) happened while we blocked in
+            // connect() — this worker is stale. Close and bail without touching
+            // shared state, so we neither resurrect a dead session nor leak the
+            // socket.
+            if (myEpoch != connectEpoch) {
+                try { sock.close() } catch (_: IOException) {}
+                return@Thread
+            }
             socket = sock
             emitState("connected", null)
             startReadLoop(sock)
@@ -151,16 +171,27 @@ class ClassicBtChannel(
             result.error("not_connected", "No active SPP socket", null)
             return
         }
-        // Writes can block; keep them off the platform thread.
-        Thread({
+        // Enqueue on the single write worker so concurrent frames serialize and
+        // cannot interleave on the output stream. The Result is completed only
+        // after write+flush finishes, and always back on the platform thread.
+        writeExecutor.execute {
+            if (socket !== sock) {
+                mainHandler.post {
+                    result.error("not_connected", "Socket no longer active", null)
+                }
+                return@execute
+            }
             try {
                 sock.outputStream.write(bytes)
                 sock.outputStream.flush()
+                mainHandler.post { result.success(null) }
             } catch (e: IOException) {
                 teardown(emitState = true, reason = e.message ?: "write failed")
+                mainHandler.post {
+                    result.error("write_failed", e.message ?: "write failed", null)
+                }
             }
-        }, "classic-bt-write").start()
-        result.success(null)
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -203,6 +234,7 @@ class ClassicBtChannel(
     // ---------------------------------------------------------------------------
 
     private fun teardown(emitState: Boolean, reason: String?) {
+        connectEpoch++
         val sock = socket
         socket = null
         readThread?.interrupt()

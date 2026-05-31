@@ -48,6 +48,11 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   // Packet counters keyed by connection ID.
   final Map<String, int> _packetCountById = {};
 
+  // Drives the page scroll so we can snap back to the top (where the Active
+  // Connections card shows "Connecting…") when a connect is initiated from a
+  // long device list further down.
+  final _scrollController = ScrollController();
+
   StreamSubscription<AprsPacket>? _packetSub;
 
   @override
@@ -87,7 +92,20 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
   @override
   void dispose() {
     _packetSub?.cancel();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Snap the page back to the top so the just-initiated connection's
+  /// "Connecting…" card is visible — the device lists can be long enough that a
+  /// tap leaves the user scrolled past the status area.
+  void _scrollToTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -114,6 +132,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Connection')),
       body: SingleChildScrollView(
+        controller: _scrollController,
         padding: const EdgeInsets.only(bottom: 32),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -464,7 +483,10 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
         ),
       );
     }
-    return ClassicBtDeviceList(connection: conn);
+    return ClassicBtDeviceList(
+      connection: conn,
+      onConnectInitiated: _scrollToTop,
+    );
   }
 
   // ── Serial TNC tab ─────────────────────────────────────────────────────────

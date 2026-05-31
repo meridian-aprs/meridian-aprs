@@ -15,9 +15,17 @@ import '../../core/transport/classic_bt_spp_channel.dart';
 /// Requests the `BLUETOOTH_CONNECT` runtime permission (Android 12+/API 31+)
 /// before listing; the native bridge also degrades gracefully if it is denied.
 class ClassicBtDeviceList extends StatefulWidget {
-  const ClassicBtDeviceList({super.key, required this.connection});
+  const ClassicBtDeviceList({
+    super.key,
+    required this.connection,
+    this.onConnectInitiated,
+  });
 
   final ClassicBtConnection connection;
+
+  /// Called the moment a device tap kicks off a connect, before the (slow)
+  /// RFCOMM handshake. Lets the host scroll its status area into view.
+  final VoidCallback? onConnectInitiated;
 
   @override
   State<ClassicBtDeviceList> createState() => _ClassicBtDeviceListState();
@@ -60,6 +68,7 @@ class _ClassicBtDeviceListState extends State<ClassicBtDeviceList> {
   }
 
   Future<void> _connect(ClassicBtPairedDevice device) async {
+    widget.onConnectInitiated?.call();
     setState(() => _connectingAddress = device.address);
     try {
       await widget.connection.connectToDevice(

@@ -206,7 +206,7 @@ class TxService extends ChangeNotifier {
     }
   }
 
-  /// Send [aprsLine] to the first connected TNC (Serial takes priority over BLE).
+  /// Send [aprsLine] to the first connected TNC (Serial, Classic BT, or BLE).
   ///
   /// Used by [BackgroundServiceManager] to forward background-isolate IPC
   /// beacon/bulletin requests to the live TNC connection. [digipeaterPath]
@@ -219,6 +219,7 @@ class TxService extends ChangeNotifier {
         .where(
           (c) =>
               (c.type == ConnectionType.serialTnc ||
+                  c.type == ConnectionType.classicBtTnc ||
                   c.type == ConnectionType.bleTnc) &&
               c.isConnected,
         )
@@ -229,7 +230,7 @@ class TxService extends ChangeNotifier {
     }
   }
 
-  /// True when any TNC (BLE or Serial) is currently live.
+  /// True when any TNC (Serial, Classic BT, or BLE) is currently live.
   bool get _tncAvailable => _registry.all.any(
     (c) =>
         (c.type == ConnectionType.bleTnc ||

@@ -1,8 +1,9 @@
 /// Tests that [TxService] routes outgoing TX correctly when licensed.
 ///
-/// `sendLine` follows the unconditional Serial > BLE > APRS-IS hierarchy
-/// (ADR-029) with an optional `forceVia` per-message override. `sendBeacon`
-/// fans out to every connected connection where `beaconingEnabled` is true.
+/// `sendLine` follows the unconditional Serial > Classic > BLE > APRS-IS
+/// hierarchy (ADR-029, ADR-069) with an optional `forceVia` per-message
+/// override. `sendBeacon` fans out to every connected connection where
+/// `beaconingEnabled` is true.
 library;
 
 import 'package:flutter_test/flutter_test.dart';
