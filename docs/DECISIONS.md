@@ -1779,7 +1779,7 @@ checks rather than open architectural questions, so they do not change any decis
 ## ADR-069: Classic Bluetooth SPP via a native platform channel (not a Flutter plugin)
 
 **Date:** 2026-05-30
-**Status:** Accepted (approved on design at the Phase 1 gate; on-device byte-flow validation folds into Phase 2 — see Hardware validation)
+**Status:** Accepted & shipped (Android, v0.21; on-device byte-flow validated on a Kenwood TH-D75 — see Hardware validation)
 **Milestone:** v0.21 — Classic Bluetooth SPP
 **Related:** ADR-002 (GPL v3), ADR-065 / ADR-068 (BLE-plugin license analysis), ADR-029 / ADR-051 (TX-routing hierarchy), ADR-060 (foreground-service types), ADR-019/020 (transport seam)
 
@@ -1889,13 +1889,22 @@ untouched. `ClassicBtConnection` mirrors `SerialConnection` (active-polling reco
 ### Hardware validation (Phase 1 spike)
 
 The Phase 1 spike delivered the native RFCOMM bridge (`ClassicBtChannel.kt`) and the Dart wrapper
-(`classic_bt_spp_channel.dart`), both compiling and unit-clean. Rather than build a throwaway test
-harness, the **on-device byte-flow validation folds into Phase 2's first runnable milestone** (the
-Bluetooth tab + Classic device list): against a **Kenwood TH-D75** over the standard SPP UUID
-`00001101-0000-1000-8000-00805F9B34FB`, list the bonded TH-D75, connect, confirm RX bytes flow into
-`KissFramer` and decode to APRS lines, and confirm a TX beacon reaches the radio (aprs.fi). The
-RFCOMM approach is well-trodden and the native surface is thin, so the decision was approved on
-design; this section is the standing validation checklist to satisfy before v0.21 close.
+(`classic_bt_spp_channel.dart`); the on-device byte-flow proof folded into Phase 2's first runnable
+milestone (the Bluetooth tab + Classic device list).
+
+**Validated (Phase 2, 2026-05-30) on a Kenwood TH-D75** over the standard SPP UUID
+`00001101-0000-1000-8000-00805F9B34FB`: listed the bonded radio, connected over a *secure* RFCOMM
+socket, confirmed RX bytes flow into `KissFramer` and decode to APRS lines in the packet log,
+confirmed a TX beacon keys the radio and appears on aprs.fi, and confirmed background reconnect +
+background RX after a screen lock. The secure socket was sufficient — no
+`createInsecureRfcommSocketToServiceRecord` fallback was needed.
+
+**Radio-side requirement discovered during validation:** the TH-D75's built-in TNC only forwards
+decoded packets over KISS when it is in **KISS mode ("KISS 12")** *and the radio's own beaconing
+(BCON) is off*. With BCON enabled the radio retains the data path for its internal APRS engine and
+passes nothing to the host — connection succeeds but the byte stream stays silent in both
+directions. This is a radio configuration requirement, not an app defect; it is documented in
+`docs/CAPABILITIES.md` and `docs/ROADMAP.md` so users with built-in-TNC radios can self-serve.
 
 ### References
 

@@ -4,13 +4,13 @@ A consolidated reference of what Meridian can do today, organized by user-facing
 
 > **Maintenance:** This document is generated and maintained by Claude Code as part of milestone close-out. When a milestone changes user-visible capabilities or platform behavior, update this file alongside `ROADMAP.md` and `DECISIONS.md`. Source of truth is the codebase, not aspiration — partially implemented or untested capabilities are flagged explicitly.
 
-**Last updated:** 2026-05-30 (v0.20 BLE Plugin Replacement shipped — `universal_ble`, ADR-068; v0.21 Classic Bluetooth SPP next)
+**Last updated:** 2026-05-30 (v0.21 Classic Bluetooth SPP shipped on Android — native RFCOMM channel, ADR-069, hardware-validated on a TH-D75; desktop deferred)
 
 ---
 
 ## 1. Connectivity / Transports
 
-Three concurrent transports, each modeled as a `MeridianConnection` and registered with a single `ConnectionRegistry`. The registry is the single source of truth for connection state and available transports per platform.
+Four concurrent transports, each modeled as a `MeridianConnection` and registered with a single `ConnectionRegistry`. The registry is the single source of truth for connection state and available transports per platform.
 
 | Transport | Platforms | Status |
 |---|---|---|
@@ -18,15 +18,17 @@ Three concurrent transports, each modeled as a `MeridianConnection` and register
 | APRS-IS (WebSocket proxy) | Web | Architectural placeholder; proxy server not yet deployed |
 | BLE TNC | Android, iOS | Shipped (v0.4); validated on common BLE-UART hardware. Plugin: `universal_ble` (BSD-3-Clause) since v0.20. Architecturally cross-platform (incl. Windows/Linux/web) but wired mobile-only pending desktop hardware validation |
 | USB Serial TNC | macOS, Windows, Linux | Shipped (v0.3); Linux validated, macOS / Windows pending physical testing |
+| Classic Bluetooth SPP | Android | Shipped (v0.21, ADR-069); hardware-validated on a Kenwood TH-D75. Native RFCOMM channel. Desktop (Linux/Windows/macOS) deferred to a follow-on phase; iOS not possible (MFi restriction) |
 
 - **APRS-IS:** server `rotate.aprs2.net:14580`; user-overridable host/port; passcode in platform secure storage; viewport-adaptive bounding-box filter (`b/`) with 25 % padding and 50 km minimum radius
 - **BLE TNC:** scan + connect from in-app sheet; two BLE-KISS GATT families autodetected (aprs-specs / Benshi, ADR-066); MTU-negotiated chunking; auto-reconnect via `ReconnectableMixin`. Built on `universal_ble` behind the plugin-agnostic `BleDeviceAdapter` seam (ADR-068)
 - **USB Serial TNC:** static preset registry of common TNC hardware; runtime KISS configuration
-- **TX routing:** unconditional priority Serial > BLE > APRS-IS (ADR-029, ADR-051) — no per-message override
+- **Classic Bluetooth SPP (Android):** connect to an already-paired (OS-bonded) Classic BT KISS TNC over RFCOMM — no in-app scan (pairing is owned by Android Bluetooth settings); surfaced under a merged "Bluetooth" segment with a `[BLE | Classic]` sub-selector. Serial twin of the USB path: raw byte stream through the shared `KissFramer`. Radios with a built-in TNC (e.g. Kenwood TH-D75) must be in **KISS mode with the radio's own beaconing (BCON) off** to forward decoded packets to the host
+- **TX routing:** unconditional priority Serial > Classic BT > BLE > APRS-IS (ADR-029, ADR-051) — no per-message override
 - **Per-connection beaconing toggle:** each connection has its own `beacon_enabled_<id>` preference
 
 ### Explicit non-support
-- Classic Bluetooth SPP — planned v0.21 (not supported on iOS due to platform restriction)
+- Classic Bluetooth SPP on iOS — not possible (Apple restricts Classic BT to MFi-certified accessories); shipped on Android (v0.21), desktop deferred
 - TCP KISS TNC (server software TNCs over LAN) — tracked in `FUTURE_FEATURES.md`
 - AFSK soft-modem (audio over phone speaker / mic) — no plans
 - AGW packet engine, KISS-over-IP variants beyond standard KISS-over-TCP
@@ -123,7 +125,7 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 | SmartBeaconing | Adaptive rate via speed + heading-change threshold; `turnSlope` units = degrees·mph (ADR-021) |
 | GPS source | `geolocator` package (foreground); platform background-location permission for backgrounded beaconing |
 | Per-connection enable | `conn.beaconingEnabled` toggle; persisted as `beacon_enabled_<id>` |
-| TX routing | Unconditional Serial > BLE > APRS-IS (ADR-029, ADR-051); no per-message override |
+| TX routing | Unconditional Serial > Classic BT > BLE > APRS-IS (ADR-029, ADR-051); no per-message override |
 | Tocall | `APMDN0` (v0.x); `APMDN?` allocated for v1.0; `APMDNZ` reserved for dev/nightly |
 | Manual beacon | One-tap via `BeaconFAB` while in `manual` mode |
 | Long-press cooldown | Cooldown guard on `BeaconFAB` to prevent accidental rapid send |
@@ -253,7 +255,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 | APRS-IS RX | Y | Y | Y | Y | Y | P (proxy not deployed) |
 | BLE TNC | Y | Y | — | — | — | — |
 | USB Serial TNC | — | — | P | P | Y | — |
-| Classic BT SPP | Planned v0.21 | — (platform restriction) | Planned v0.21 | Planned v0.21 | Planned v0.21 | — |
+| Classic BT SPP | Y (v0.21) | — (platform restriction) | Deferred | Deferred | Deferred | — |
 | TX (beacon + message) | Y | Y | Y | Y | Y | P (depends on transport) |
 | Background packet RX | Y | Y | — | — | — | — |
 | Background beaconing | Y | Y | — | — | — | — |
@@ -271,7 +273,7 @@ Y = supported, P = partial / pending validation, — = not supported.
 ## 13. Known Limitations / Explicit Non-Support
 
 ### Tracked, planned, deferred
-- **Classic Bluetooth SPP** — v0.21
+- **Classic Bluetooth SPP (desktop)** — Linux/Windows/macOS deferred to a follow-on phase (Android shipped v0.21)
 - **Offline maps** — v0.23
 - **TCP KISS TNC** — `FUTURE_FEATURES.md`
 - **Inter-app API** — `FUTURE_FEATURES.md`

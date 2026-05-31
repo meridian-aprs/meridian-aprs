@@ -106,6 +106,7 @@ class _ConnectionScreenState extends State<ConnectionScreen> {
 
     final activeConnections = registry.all.where((c) {
       return c.status == ConnectionStatus.connected ||
+          c.status == ConnectionStatus.connecting ||
           c.status == ConnectionStatus.reconnecting ||
           c.status == ConnectionStatus.waitingForDevice;
     }).toList();
@@ -558,9 +559,11 @@ class _ActiveConnectionCard extends StatelessWidget {
                 ),
                 MeridianStatusPill(
                   status: displayStatus,
-                  label: status == ConnectionStatus.connected
-                      ? 'Connected'
-                      : 'Reconnecting\u2026',
+                  label: switch (status) {
+                    ConnectionStatus.connected => 'Connected',
+                    ConnectionStatus.connecting => 'Connecting\u2026',
+                    _ => 'Reconnecting\u2026',
+                  },
                 ),
                 if (conn.beaconingEnabled) ...[
                   const SizedBox(width: 8),
