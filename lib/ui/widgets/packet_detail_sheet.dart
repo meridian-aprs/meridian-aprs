@@ -218,6 +218,7 @@ class PacketDetailSheet extends StatelessWidget {
         if (p.rainfall24h != null) {
           m['Rainfall 24h'] = '${(p.rainfall24h! / 100).toStringAsFixed(2)} in';
         }
+        if (p.timestamp != null) m['Packet time'] = p.timestamp.toString();
 
       case ObjectPacket():
         m['Type'] = 'Object';
@@ -274,6 +275,14 @@ class PacketDetailSheet extends StatelessWidget {
         if (p.comment != null && p.comment!.isNotEmpty) {
           m['Comment'] = p.comment!;
         }
+
+      case QueryPacket():
+        m['Type'] = 'Query';
+        if (p.query.isNotEmpty) m['Query'] = p.query;
+
+      case CapabilitiesPacket():
+        m['Type'] = 'Capabilities';
+        if (p.capabilities.isNotEmpty) m['Capabilities'] = p.capabilities;
 
       case UnknownPacket():
         m['Type'] = 'Unknown';

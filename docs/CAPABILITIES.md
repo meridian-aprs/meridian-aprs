@@ -46,9 +46,12 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 - **ObjectPacket** — APRS objects with live/killed flag
 - **ItemPacket** — APRS items
 - **StatusPacket** — text status reports
-- **WeatherPacket** — weather report fields parsed and surfaced on station detail
+- **WeatherPacket** — standalone (`_`) reports **and** weather embedded in an uncompressed position report (`_` symbol code: wind dir/speed from the course/speed slot + wx fields), binned as weather with position so it lands on the map
 - **TelemetryPacket** — `T#` data reports (sequence, up to five analog channels, digital bits); definition messages (PARM/UNIT/EQNS/BITS) tracked for a follow-up
+- **QueryPacket** — general queries (DTI `?`, e.g. `?APRS?`); decoded for visibility, no auto-response
+- **CapabilitiesPacket** — station capabilities (DTI `<`, e.g. `IGATE,MSG_CNT,LOC_CNT`)
 - **Third-party traffic (`}`)** — unwrapped and re-parsed to the inner packet, attributed to the inner source with the relaying gateway recorded (`thirdPartyVia`, shown as "Relayed via" in the detail sheet)
+- **Mic-E vendor IDs** — Kenwood legacy prefix/suffix incl. TH-D75 (`>`+`&`); Yaesu / Anytone / Byonics suffixes
 
 ### Parsed but minimally surfaced
 - Capability flags (e.g., messaging-capable indicator on station sheet)
@@ -63,7 +66,10 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 ### Explicit non-support
 - Object / Item *creation* — display only (creation tracked in `FUTURE_FEATURES.md`)
 - Telemetry *definitions* (PARM/UNIT/EQNS/BITS) — data reports decode now; labelled/scaled channels via a definition store are a planned follow-up
-- DX-cluster packets, NMEA passthrough, raw GPS sentences
+- Weather embedded in *compressed* positions and in object/item/Mic-E reports — only uncompressed position weather is promoted today (follow-up)
+- Position data extensions PHG / RNG / DFS — left in the comment, not separately decoded
+- Query auto-response — queries are decoded for visibility only
+- DX-cluster packets, NMEA passthrough, raw GPS sentences (`$`), Peet Bros (`#`/`*`), Agrelo (`%`), Maidenhead grid beacons (`[`), user-defined (`{`) — fall back to `UnknownPacket`
 
 ### AX.25 Layer
 - Pure-Dart UI-frame decoder; sealed `Ax25ParseResult` (`Ax25Ok` / `Ax25Err`); never throws

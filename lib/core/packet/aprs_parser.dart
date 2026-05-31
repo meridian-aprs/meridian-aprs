@@ -18,6 +18,20 @@ class _CsT {
   final String comment;
 }
 
+/// Mutable scratch holder for the scalar fields scanned out of a weather-data
+/// string. Used by both standalone (`_`) and positioned weather parsing.
+class _WxFields {
+  int? windDir;
+  double? windSpeed;
+  double? windGust;
+  double? temperature;
+  int? humidity;
+  double? pressure;
+  double? rainfall1h;
+  double? rainfall24h;
+  double? rainSinceMidnight;
+}
+
 /// Full APRS packet parser.
 ///
 /// [parse] accepts an APRS-IS text line and returns a typed [AprsPacket].
@@ -289,6 +303,31 @@ class AprsParser {
 
       case '>':
         return _parseStatus(
+          info: info,
+          rawLine: rawLine,
+          source: source,
+          destination: destination,
+          path: path,
+          receivedAt: receivedAt,
+          transportSource: transportSource,
+        );
+
+      // General query (e.g. ?APRS?). Directed queries arrive inside a message
+      // (DTI ':') and are handled there.
+      case '?':
+        return _parseQuery(
+          info: info,
+          rawLine: rawLine,
+          source: source,
+          destination: destination,
+          path: path,
+          receivedAt: receivedAt,
+          transportSource: transportSource,
+        );
+
+      // Station capabilities (e.g. <IGATE,MSG_CNT=2,LOC_CNT=18).
+      case '<':
+        return _parseCapabilities(
           info: info,
           rawLine: rawLine,
           source: source,
@@ -649,6 +688,30 @@ class AprsParser {
     final symbolTable = m.group(3)!;
     final symbolCode = m.group(6)!;
     var comment = m.group(7)!;
+
+    // Weather station: a `_` symbol code means this position carries a weather
+    // report — the `ddd/sss` in the course/speed slot is wind direction/speed
+    // and the remainder holds the wx fields. Bin as a WeatherPacket WITH the
+    // position. The symbol is the only reliable discriminator: a moving station
+    // with course/speed has an identical `ddd/sss` but a non-`_` symbol and
+    // must stay a PositionPacket. (Compressed `_` weather and object/item/Mic-E
+    // weather are not yet promoted — tracked as a follow-up.)
+    if (symbolCode == '_') {
+      return _buildPositionedWeather(
+        comment: comment,
+        rawLine: rawLine,
+        source: source,
+        destination: destination,
+        path: path,
+        receivedAt: receivedAt,
+        transportSource: transportSource,
+        lat: lat,
+        lon: lon,
+        symbolTable: symbolTable,
+        symbolCode: symbolCode,
+        timestamp: packetTimestamp,
+      );
+    }
 
     // Extract course/speed from beginning of comment.
     int? course;
@@ -1211,6 +1274,10 @@ class AprsParser {
     r'c(\d{3})|s(\d{3})|g(\d{3})|t(-?\d{3})|r(\d{3})|p(\d{3})|P(\d{3})|h(\d{2})|b(\d{5})',
   );
 
+  // Wind in a positioned weather report uses the course/speed slot:
+  // `ddd/sss` = wind direction (degrees) / wind speed (mph).
+  static final _windRe = RegExp(r'^(\d{3})/(\d{3})');
+
   AprsPacket _parseWeather({
     required String info,
     required String rawLine,
@@ -1223,40 +1290,7 @@ class AprsParser {
     // Skip DTI and 8-char timestamp (MMDDhhmm).
     // Some implementations omit the timestamp; handle both.
     final weatherData = info.length > 9 ? info.substring(9) : info.substring(1);
-
-    int? windDir;
-    double? windSpeed;
-    double? windGust;
-    double? temperature;
-    int? humidity;
-    double? pressure;
-    double? rainfall1h;
-    double? rainfall24h;
-    double? rainSinceMidnight;
-
-    for (final m in _weatherFieldRe.allMatches(weatherData)) {
-      if (m.group(1) != null) {
-        windDir = int.tryParse(m.group(1)!);
-      } else if (m.group(2) != null) {
-        windSpeed = double.tryParse(m.group(2)!);
-      } else if (m.group(3) != null) {
-        windGust = double.tryParse(m.group(3)!);
-      } else if (m.group(4) != null) {
-        temperature = double.tryParse(m.group(4)!);
-      } else if (m.group(5) != null) {
-        rainfall1h = double.tryParse(m.group(5)!);
-      } else if (m.group(6) != null) {
-        rainfall24h = double.tryParse(m.group(6)!);
-      } else if (m.group(7) != null) {
-        // 'P' field: rainfall since midnight, in hundredths of an inch.
-        rainSinceMidnight = double.tryParse(m.group(7)!);
-      } else if (m.group(8) != null) {
-        humidity = int.tryParse(m.group(8)!);
-      } else if (m.group(9) != null) {
-        final raw = int.tryParse(m.group(9)!);
-        if (raw != null) pressure = raw / 10.0; // tenths of mb → mb
-      }
-    }
+    final f = _scanWeatherFields(weatherData);
 
     return WeatherPacket(
       rawLine: rawLine,
@@ -1265,15 +1299,144 @@ class AprsParser {
       path: path,
       receivedAt: receivedAt,
       transportSource: transportSource,
-      temperature: temperature,
-      humidity: humidity,
-      pressure: pressure,
-      windSpeed: windSpeed,
-      windDirection: windDir,
-      windGust: windGust,
-      rainfall1h: rainfall1h,
-      rainfall24h: rainfall24h,
-      rainSinceMidnight: rainSinceMidnight,
+      temperature: f.temperature,
+      humidity: f.humidity,
+      pressure: f.pressure,
+      windSpeed: f.windSpeed,
+      windDirection: f.windDir,
+      windGust: f.windGust,
+      rainfall1h: f.rainfall1h,
+      rainfall24h: f.rainfall24h,
+      rainSinceMidnight: f.rainSinceMidnight,
+    );
+  }
+
+  /// Build a [WeatherPacket] from a positioned weather report (a `_`-symbol
+  /// position). [comment] is the text after the symbol code: an optional
+  /// leading `ddd/sss` wind direction/speed, then the wx fields.
+  AprsPacket _buildPositionedWeather({
+    required String comment,
+    required String rawLine,
+    required String source,
+    required String destination,
+    required List<String> path,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+    required double lat,
+    required double lon,
+    required String symbolTable,
+    required String symbolCode,
+    required DateTime? timestamp,
+  }) {
+    int? windDir;
+    double? windSpeed;
+    var data = comment;
+    final wm = _windRe.firstMatch(comment);
+    if (wm != null) {
+      windDir = int.tryParse(wm.group(1)!);
+      windSpeed = double.tryParse(wm.group(2)!); // mph (APRS weather wind)
+      data = comment.substring(wm.end);
+    }
+    final f = _scanWeatherFields(data);
+
+    return WeatherPacket(
+      rawLine: rawLine,
+      source: source,
+      destination: destination,
+      path: path,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      lat: lat,
+      lon: lon,
+      symbolTable: symbolTable,
+      symbolCode: symbolCode,
+      temperature: f.temperature,
+      humidity: f.humidity,
+      pressure: f.pressure,
+      windSpeed: windSpeed ?? f.windSpeed,
+      windDirection: windDir ?? f.windDir,
+      windGust: f.windGust,
+      rainfall1h: f.rainfall1h,
+      rainfall24h: f.rainfall24h,
+      rainSinceMidnight: f.rainSinceMidnight,
+      timestamp: timestamp,
+    );
+  }
+
+  /// Scan a weather-data string for the standard letter-prefixed wx fields
+  /// (`c/s/g/t/r/p/P/h/b`). Shared by standalone (`_`) and positioned weather.
+  _WxFields _scanWeatherFields(String data) {
+    final f = _WxFields();
+    for (final m in _weatherFieldRe.allMatches(data)) {
+      if (m.group(1) != null) {
+        f.windDir = int.tryParse(m.group(1)!);
+      } else if (m.group(2) != null) {
+        f.windSpeed = double.tryParse(m.group(2)!);
+      } else if (m.group(3) != null) {
+        f.windGust = double.tryParse(m.group(3)!);
+      } else if (m.group(4) != null) {
+        f.temperature = double.tryParse(m.group(4)!);
+      } else if (m.group(5) != null) {
+        f.rainfall1h = double.tryParse(m.group(5)!);
+      } else if (m.group(6) != null) {
+        f.rainfall24h = double.tryParse(m.group(6)!);
+      } else if (m.group(7) != null) {
+        // 'P' field: rainfall since midnight, in hundredths of an inch.
+        f.rainSinceMidnight = double.tryParse(m.group(7)!);
+      } else if (m.group(8) != null) {
+        f.humidity = int.tryParse(m.group(8)!);
+      } else if (m.group(9) != null) {
+        final raw = int.tryParse(m.group(9)!);
+        if (raw != null) f.pressure = raw / 10.0; // tenths of mb → mb
+      }
+    }
+    return f;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Query  (DTI: ?)  and  Station capabilities  (DTI: <)
+  // ---------------------------------------------------------------------------
+
+  AprsPacket _parseQuery({
+    required String info,
+    required String rawLine,
+    required String source,
+    required String destination,
+    required List<String> path,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+  }) {
+    // Strip the leading '?' and any trailing '?' (e.g. '?APRS?' → 'APRS').
+    var q = info.substring(1);
+    if (q.endsWith('?')) q = q.substring(0, q.length - 1);
+    return QueryPacket(
+      rawLine: rawLine,
+      source: source,
+      destination: destination,
+      path: path,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      query: q,
+    );
+  }
+
+  AprsPacket _parseCapabilities({
+    required String info,
+    required String rawLine,
+    required String source,
+    required String destination,
+    required List<String> path,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+  }) {
+    return CapabilitiesPacket(
+      rawLine: rawLine,
+      source: source,
+      destination: destination,
+      path: path,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      capabilities: info.substring(1), // drop the '<' DTI
     );
   }
 

@@ -1865,4 +1865,76 @@ void main() {
       expect(p.analog[2], isNull);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Weather embedded in a position report (`_` symbol code)
+  // -------------------------------------------------------------------------
+  group('positioned weather (`_` symbol)', () {
+    test('timestamped position with `_` symbol decodes to WeatherPacket', () {
+      final p = expectPacketType<WeatherPacket>(
+        'N0CALL>APRS:@092345z4903.50N/07201.75W_220/004g005t077r000p000'
+        'P000h50b09900wRSW',
+      );
+      expect(p.lat, closeTo(49.0583, 0.001));
+      expect(p.lon, closeTo(-72.0292, 0.001));
+      expect(p.symbolCode, equals('_'));
+      expect(p.windDirection, equals(220));
+      expect(p.windSpeed, equals(4)); // mph, from the ddd/sss slot
+      expect(p.windGust, equals(5));
+      expect(p.temperature, equals(77));
+      expect(p.humidity, equals(50));
+      expect(p.pressure, closeTo(990.0, 0.1));
+      expect(p.timestamp, isNotNull);
+    });
+
+    test('non-timestamped position with `_` symbol also decodes weather', () {
+      final p = expectPacketType<WeatherPacket>(
+        'N0CALL>APRS:!4903.50N/07201.75W_180/010t068',
+      );
+      expect(p.windDirection, equals(180));
+      expect(p.windSpeed, equals(10));
+      expect(p.temperature, equals(68));
+    });
+
+    // Critical regression: a *moving* station sends an identical-looking
+    // `ddd/sss` course/speed but a non-`_` symbol — it must stay a Position.
+    test('moving station with course/speed is NOT mis-binned as weather', () {
+      final p = expectPacketType<PositionPacket>(
+        'N0CALL>APRS:!4903.50N/07201.75W>088/036Mobile',
+      );
+      expect(p.course, equals(88));
+      expect(p.speed, equals(36)); // knots — course/speed, not wind
+      expect(p.symbolCode, equals('>'));
+      expect(p.comment, equals('Mobile'));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Query (DTI ?) and station capabilities (DTI <)
+  // -------------------------------------------------------------------------
+  group('query and capabilities', () {
+    test('general query `?APRS?` decodes to QueryPacket', () {
+      final p = expectPacketType<QueryPacket>('N0CALL>APRS:?APRS?');
+      expect(p.query, equals('APRS'));
+    });
+
+    test('query without trailing `?` decodes', () {
+      final p = expectPacketType<QueryPacket>('N0CALL>APRS:?WX');
+      expect(p.query, equals('WX'));
+    });
+
+    test('station capabilities `<` decodes to CapabilitiesPacket', () {
+      final p = expectPacketType<CapabilitiesPacket>(
+        'N0CALL>APRS:<IGATE,MSG_CNT=2,LOC_CNT=18',
+      );
+      expect(p.capabilities, equals('IGATE,MSG_CNT=2,LOC_CNT=18'));
+    });
+
+    // A directed query carried inside a message keeps DTI ':' and must stay a
+    // MessagePacket — the `?` parser must not intercept it.
+    test('directed query inside a message stays a MessagePacket', () {
+      final p = expectPacketType<MessagePacket>('N0CALL>APRS::N0CALL   :?WX?');
+      expect(p.message, equals('?WX?'));
+    });
+  });
 }

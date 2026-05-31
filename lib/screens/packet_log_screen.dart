@@ -387,6 +387,8 @@ class _PacketRow extends StatelessWidget {
       StatusPacket() => 'STATUS',
       MicEPacket() => 'MIC-E',
       TelemetryPacket() => 'TEL',
+      QueryPacket() => 'QUERY',
+      CapabilitiesPacket() => 'CAP',
       UnknownPacket() => '???',
     };
   }
@@ -403,6 +405,8 @@ class _PacketRow extends StatelessWidget {
       MicEPacket() =>
         '${_latStr(p.lat)}, ${_lonStr(p.lon)} \u2022 ${p.micEMessage}',
       TelemetryPacket() => _telSummary(p),
+      QueryPacket() => '? ${p.query}',
+      CapabilitiesPacket() => p.capabilities,
       UnknownPacket() =>
         p.rawLine.length > 40
             ? '${p.rawLine.substring(0, 40)}\u2026'
@@ -491,6 +495,8 @@ class _TypeBadge extends StatelessWidget {
     'STATUS' => Colors.green,
     'MIC-E' => Colors.indigo,
     'TEL' => Colors.teal,
+    'QUERY' => Colors.pink,
+    'CAP' => Colors.brown,
     _ => Colors.blueGrey,
   };
 }

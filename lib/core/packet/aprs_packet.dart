@@ -147,6 +147,10 @@ class WeatherPacket extends AprsPacket {
   /// Rainfall since midnight, in hundredths of an inch (APRS field `P`).
   final double? rainSinceMidnight;
 
+  /// Timestamp encoded in the info field (positioned weather reports with a
+  /// `/` or `@` DTI carry one); null for positionless reports.
+  final DateTime? timestamp;
+
   WeatherPacket({
     required super.rawLine,
     required super.source,
@@ -167,6 +171,7 @@ class WeatherPacket extends AprsPacket {
     this.rainfall1h,
     this.rainfall24h,
     this.rainSinceMidnight,
+    this.timestamp,
   });
 }
 
@@ -368,6 +373,53 @@ class MicEPacket extends AprsPacket {
     required this.comment,
     required this.micEMessage,
     this.device,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Query
+// ---------------------------------------------------------------------------
+
+/// An APRS query packet (DTI: ?).
+///
+/// General queries broadcast to the network, e.g. `?APRS?`, `?WX?`, `?IGATE?`.
+/// Decoded for visibility only — Meridian does not auto-respond. (Directed
+/// queries sent inside a message keep DTI `:` and decode as [MessagePacket].)
+class QueryPacket extends AprsPacket {
+  /// The query keyword without the surrounding `?`, e.g. `APRS`, `WX`.
+  final String query;
+
+  QueryPacket({
+    required super.rawLine,
+    required super.source,
+    required super.destination,
+    required super.path,
+    required super.receivedAt,
+    super.transportSource,
+    required this.query,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Station capabilities
+// ---------------------------------------------------------------------------
+
+/// An APRS station-capabilities packet (DTI: <).
+///
+/// Carries a comma-separated list of capability tokens a station advertises,
+/// e.g. `IGATE,MSG_CNT=2,LOC_CNT=18`. Decoded for visibility only.
+class CapabilitiesPacket extends AprsPacket {
+  /// Raw capabilities text after the `<` DTI.
+  final String capabilities;
+
+  CapabilitiesPacket({
+    required super.rawLine,
+    required super.source,
+    required super.destination,
+    required super.path,
+    required super.receivedAt,
+    super.transportSource,
+    required this.capabilities,
   });
 }
 
