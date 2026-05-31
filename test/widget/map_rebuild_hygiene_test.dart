@@ -137,7 +137,7 @@ void main() {
       // Feed several more packets from distinct, widely-separated callsigns so
       // they do not cluster into a single marker at the initial zoom.
       await service.ingestLine('W2XY>APMDN0:!3234.00N/08901.00W>two');
-      await service.ingestLine('W3ZZ>APMDN0:!4012.00N/10001.00W>three');
+      await service.ingestLine('N0FFF>APMDN0:!4012.00N/10001.00W>three');
       await tester.pump(const Duration(milliseconds: 350));
 
       final mapAfter = currentMap();

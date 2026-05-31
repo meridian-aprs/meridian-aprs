@@ -301,7 +301,7 @@ void main() {
           lineNumber: '0',
           category: BulletinCategory.general,
         ),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Severe weather alert',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -315,7 +315,7 @@ void main() {
 
       expect(find.text('BLN0'), findsWidgets);
       expect(find.text('Severe weather alert'), findsOneWidget);
-      expect(find.text('From K5WX-15'), findsOneWidget);
+      expect(find.text('From N0BBB-15'), findsOneWidget);
       expect(find.text('Total receipts'), findsOneWidget);
 
       // Critical: bulletin detail is read-only — no TextField should exist.

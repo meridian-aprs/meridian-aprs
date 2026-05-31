@@ -53,7 +53,7 @@ void main() {
       final (svc, _) = await makeServices();
       final outcome = svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Severe weather alert',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -72,14 +72,14 @@ void main() {
         final (svc, _) = await makeServices();
         svc.ingest(
           info: generalInfo('0'),
-          sourceCallsign: 'K5WX-15',
+          sourceCallsign: 'N0BBB-15',
           body: 'Alert',
           transport: PacketSource.aprsIs,
           receivedAt: DateTime(2026, 4, 23, 12, 0),
         );
         final outcome = svc.ingest(
           info: generalInfo('0'),
-          sourceCallsign: 'K5WX-15',
+          sourceCallsign: 'N0BBB-15',
           body: 'Alert',
           transport: PacketSource.serialTnc,
           receivedAt: DateTime(2026, 4, 23, 12, 5),
@@ -97,7 +97,7 @@ void main() {
       final (svc, _) = await makeServices();
       svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Old text',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -107,7 +107,7 @@ void main() {
 
       svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'New text',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 10),
@@ -120,7 +120,7 @@ void main() {
       final (svc, _) = await makeServices();
       svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Same',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -128,7 +128,7 @@ void main() {
       await svc.markRead(svc.bulletins.first.id);
       svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Same',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 5),
@@ -142,7 +142,7 @@ void main() {
       final (svc, _) = await makeServices();
       final outcome = svc.ingest(
         info: namedInfo('1', 'WX'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Radar update',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -155,7 +155,7 @@ void main() {
       final (svc, _) = await makeServices(subscribedGroups: ['WX']);
       final outcome = svc.ingest(
         info: namedInfo('1', 'WX'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Radar update',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -234,7 +234,7 @@ void main() {
 
       first.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-15',
+        sourceCallsign: 'N0BBB-15',
         body: 'Alert',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -258,14 +258,14 @@ void main() {
       final fresh = DateTime.now().subtract(const Duration(hours: 2));
       svc.ingest(
         info: generalInfo('0'),
-        sourceCallsign: 'K5WX-1',
+        sourceCallsign: 'N0BBB-1',
         body: 'Old',
         transport: PacketSource.aprsIs,
         receivedAt: old,
       );
       svc.ingest(
         info: generalInfo('1'),
-        sourceCallsign: 'K5WX-2',
+        sourceCallsign: 'N0BBB-2',
         body: 'Fresh',
         transport: PacketSource.aprsIs,
         receivedAt: fresh,
@@ -292,7 +292,7 @@ void main() {
         // Sender ~4000 km away (Miami-ish).
         final outcome = svc.ingest(
           info: generalInfo('0'),
-          sourceCallsign: 'K4MIA',
+          sourceCallsign: 'N0CCC',
           body: 'Severe wx',
           transport: PacketSource.aprsIs,
           receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -314,7 +314,7 @@ void main() {
         // ~230 km away (Portland-ish).
         final outcome = svc.ingest(
           info: generalInfo('1'),
-          sourceCallsign: 'K7PDX',
+          sourceCallsign: 'N0EEE',
           body: 'Local nets',
           transport: PacketSource.aprsIs,
           receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -335,7 +335,7 @@ void main() {
 
         final outcome = svc.ingest(
           info: generalInfo('2'),
-          sourceCallsign: 'K4MIA',
+          sourceCallsign: 'N0CCC',
           body: 'No lat/lon',
           transport: PacketSource.aprsIs,
           receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -351,7 +351,7 @@ void main() {
 
       final outcome = svc.ingest(
         info: generalInfo('3'),
-        sourceCallsign: 'K4MIA',
+        sourceCallsign: 'N0CCC',
         body: 'Far away',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -391,7 +391,7 @@ void main() {
 
         final outcome = svc.ingest(
           info: namedInfo('0', 'WX'),
-          sourceCallsign: 'K4MIA',
+          sourceCallsign: 'N0CCC',
           body: 'Severe weather',
           transport: PacketSource.aprsIs,
           receivedAt: DateTime(2026, 4, 23, 12, 0),
@@ -409,7 +409,7 @@ void main() {
 
       final outcome = svc.ingest(
         info: generalInfo('5'),
-        sourceCallsign: 'K4MIA',
+        sourceCallsign: 'N0CCC',
         body: 'Global pass-through',
         transport: PacketSource.aprsIs,
         receivedAt: DateTime(2026, 4, 23, 12, 0),

@@ -753,7 +753,7 @@ Future<void> _showAddMutedSource(
         textCapitalization: TextCapitalization.characters,
         decoration: const InputDecoration(
           labelText: 'Callsign (with or without SSID)',
-          hintText: 'e.g. K5WX-15',
+          hintText: 'e.g. N0BBB-15',
         ),
       ),
       actions: [

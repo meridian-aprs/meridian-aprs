@@ -30,8 +30,8 @@ void main() {
   );
 
   test('upsertIncoming replaces on (source, addressee) conflict', () async {
-    await db.bulletinDao.upsertIncoming(incoming('K5WX', 'BLN0', body: 'v1'));
-    await db.bulletinDao.upsertIncoming(incoming('K5WX', 'BLN0', body: 'v2'));
+    await db.bulletinDao.upsertIncoming(incoming('N0BBB', 'BLN0', body: 'v1'));
+    await db.bulletinDao.upsertIncoming(incoming('N0BBB', 'BLN0', body: 'v2'));
     final rows = await db.bulletinDao.getAllIncoming();
     expect(rows, hasLength(1));
     expect(rows.single.body, 'v2');
@@ -40,7 +40,7 @@ void main() {
   test('transports converter round-trips a set', () async {
     await db.bulletinDao.upsertIncoming(
       incoming(
-        'K5WX',
+        'N0BBB',
         'BLN0',
         transports: {BulletinTransport.rf, BulletinTransport.aprsIs},
       ),
@@ -62,11 +62,11 @@ void main() {
   });
 
   test('markIncomingRead + deleteIncoming target the right row', () async {
-    await db.bulletinDao.upsertIncoming(incoming('K5WX', 'BLN0'));
-    await db.bulletinDao.markIncomingRead('K5WX', 'BLN0');
+    await db.bulletinDao.upsertIncoming(incoming('N0BBB', 'BLN0'));
+    await db.bulletinDao.markIncomingRead('N0BBB', 'BLN0');
     expect((await db.bulletinDao.getAllIncoming()).single.isRead, isTrue);
 
-    await db.bulletinDao.deleteIncoming('K5WX', 'BLN0');
+    await db.bulletinDao.deleteIncoming('N0BBB', 'BLN0');
     expect(await db.bulletinDao.getAllIncoming(), isEmpty);
   });
 

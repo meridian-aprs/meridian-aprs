@@ -166,19 +166,19 @@ void main() {
       'general bulletin (BLN0) lands in BulletinService, not Conversation',
       () async {
         final f = await _Fixture.create();
-        _ingestLine(f, 'K5WX-15>APMDN0,TCPIP*::BLN0     :Severe wx alert');
+        _ingestLine(f, 'N0BBB-15>APMDN0,TCPIP*::BLN0     :Severe wx alert');
         await Future<void>.delayed(Duration.zero);
 
         expect(f.bulletins.bulletins, hasLength(1));
         final b = f.bulletins.bulletins.first;
-        expect(b.sourceCallsign, 'K5WX-15');
+        expect(b.sourceCallsign, 'N0BBB-15');
         expect(b.addressee, 'BLN0');
         expect(b.body, 'Severe wx alert');
         expect(b.heardCount, 1);
 
         // No conversation thread was created.
         expect(
-          f.service.allConversations.any((c) => c.peerCallsign == 'K5WX-15'),
+          f.service.allConversations.any((c) => c.peerCallsign == 'N0BBB-15'),
           isFalse,
         );
         // No ACK (bulletins are never ACKed).
@@ -188,7 +188,7 @@ void main() {
 
     test('named bulletin with no subscription is dropped', () async {
       final f = await _Fixture.create();
-      _ingestLine(f, 'K5WX-15>APMDN0,TCPIP*::BLN1WX   :Radar');
+      _ingestLine(f, 'N0BBB-15>APMDN0,TCPIP*::BLN1WX   :Radar');
       await Future<void>.delayed(Duration.zero);
       expect(f.bulletins.bulletins, isEmpty);
     });
@@ -196,7 +196,7 @@ void main() {
     test('named bulletin with matching subscription is kept', () async {
       final f = await _Fixture.create();
       await f.bulletinSubscriptions.add(groupName: 'WX', notify: false);
-      _ingestLine(f, 'K5WX-15>APMDN0,TCPIP*::BLN1WX   :Radar');
+      _ingestLine(f, 'N0BBB-15>APMDN0,TCPIP*::BLN1WX   :Radar');
       await Future<void>.delayed(Duration.zero);
       expect(f.bulletins.bulletins, hasLength(1));
       expect(f.bulletins.bulletins.first.groupName, 'WX');

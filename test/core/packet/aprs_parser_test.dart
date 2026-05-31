@@ -927,7 +927,7 @@ void main() {
     // + suffix. Earlier the parser surfaced "]\"4\"}=" as the comment.
     test('TM-D710 with empty user comment renders as empty comment', () {
       final rawLine =
-          'KM4TJO-9>S6TW3Q,KE4KDY-5,WIDE1,WIDE2-1:\x60h_} *p>/]\x224\x22}=';
+          'KM4TJO-9>S6TW3Q,N0DIGI-5,WIDE1,WIDE2-1:\x60h_} *p>/]\x224\x22}=';
       final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
@@ -943,7 +943,7 @@ void main() {
     // does not over-eat the user's text.
     test('TM-D710 with frequency-object comment preserves user text', () {
       final rawLine =
-          "KM4TJO-9>S6TV7S,KE4KDY-5,WIDE1,WIDE2-1:\x60h]nmJ\x14>/]\x223r}146.520MHz Toff Eric's D710G=";
+          "KM4TJO-9>S6TV7S,N0DIGI-5,WIDE1,WIDE2-1:\x60h]nmJ\x14>/]\x223r}146.520MHz Toff Eric's D710G=";
       final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
       expect(packet, isA<MicEPacket>());
       if (packet is MicEPacket) {
@@ -1632,11 +1632,11 @@ void main() {
       // tenth-of-minute ambiguity (APRS 1.0.1 §6).
       test('Winlink WLNK-1 ambiguous Object decodes to ObjectPacket', () {
         final p = expectPacketType<ObjectPacket>(
-          'WINLINK>APWL2K,TCPIP*,qAS,WLNK-1:;N4CEC-10 *251245z3646.  N'
+          'WINLINK>APWL2K,TCPIP*,qAS,WLNK-1:;N0DDD-10 *251245z3646.  N'
           'W07617.  Wa440.450MHz Winlink VARA FM Wide Gateway',
         );
         expect(p.positionAmbiguity, equals(2));
-        expect(p.objectName, equals('N4CEC-10'));
+        expect(p.objectName, equals('N0DDD-10'));
         expect(p.isAlive, isTrue);
         expect(p.lat, closeTo(36.776, 0.001));
         expect(p.lon, closeTo(-76.2925, 0.001));

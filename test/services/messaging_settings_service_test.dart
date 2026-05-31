@@ -79,14 +79,14 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       final svc = MessagingSettingsService(prefs: prefs);
       await svc.load();
-      await svc.addMutedBulletinSource('k5wx-15');
-      expect(svc.mutedBulletinSources, contains('K5WX-15'));
+      await svc.addMutedBulletinSource('n0bbb-15');
+      expect(svc.mutedBulletinSources, contains('N0BBB-15'));
 
       // Add again — should be idempotent.
-      await svc.addMutedBulletinSource('K5WX-15');
+      await svc.addMutedBulletinSource('N0BBB-15');
       expect(svc.mutedBulletinSources.length, 1);
 
-      await svc.removeMutedBulletinSource('K5WX-15');
+      await svc.removeMutedBulletinSource('N0BBB-15');
       expect(svc.mutedBulletinSources, isEmpty);
     });
 
