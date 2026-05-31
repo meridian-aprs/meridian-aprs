@@ -924,6 +924,36 @@ void main() {
       },
     );
 
+    // Real Kenwood TH-D75 signature: leading `>` prefix, trailing `&` suffix
+    // (per aprs-deviceid; D7A=`>`, D72=`>=`, D74=`>^`, D75=`>&`). Modelled on a
+    // real TH-D75 capture: without this, the `&` device byte leaked into the
+    // comment and the radio was misidentified as a TH-D7A.
+    test(
+      'TH-D75 (`>` prefix + `&` suffix): suffix stripped, device detected',
+      () {
+        final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>\x224\x22}hello&';
+        final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
+        expect(packet, isA<MicEPacket>());
+        if (packet is MicEPacket) {
+          expect(packet.comment, equals('hello'));
+          expect(packet.device, equals('Kenwood TH-D75'));
+          expect(packet.altitude, closeTo(11.0, 1.0));
+        }
+      },
+    );
+
+    // An empty TH-D75 comment is just the bare `&` device byte — it must strip
+    // to an empty comment, not surface a lone '&'.
+    test('TH-D75 with no user comment strips the bare `&` to empty', () {
+      final rawLine = 'N0CALL-9>SX5E0A,WIDE1-1:\x60i<N Ol>/>&';
+      final packet = parser.parse(rawLine, receivedAt: kTestReceivedAt);
+      expect(packet, isA<MicEPacket>());
+      if (packet is MicEPacket) {
+        expect(packet.comment, isEmpty);
+        expect(packet.device, equals('Kenwood TH-D75'));
+      }
+    });
+
     // Real-world capture from KM4TJO-9 (user-owned TM-D710): the radio sent
     // an empty user comment, so the extension is just the prefix + altitude
     // + suffix. Earlier the parser surfaced "]\"4\"}=" as the comment.

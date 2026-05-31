@@ -199,6 +199,7 @@ class DeviceResolver {
     if (prefix == '>') {
       if (comment.endsWith('=')) return 'Kenwood TH-D72A';
       if (comment.endsWith('^')) return 'Kenwood TH-D74';
+      if (comment.endsWith('&')) return 'Kenwood TH-D75';
       return 'Kenwood TH-D7A';
     }
     if (prefix == ']') {

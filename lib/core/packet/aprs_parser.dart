@@ -1603,10 +1603,11 @@ class AprsParser {
     // Strip device-indicator trailing byte from the comment.
     if (micEPrefix != null) {
       // Legacy Kenwood: at most a single trailing byte (`=` for D710/D72A,
-      // `^` for D74, `v` reserved). If it's not one of those, it's user text
-      // and must be left intact.
+      // `^` for D74, `&` for TH-D75, `v` reserved). If it's not one of those,
+      // it's user text and must be left intact.
       if (comment.endsWith('=') ||
           comment.endsWith('^') ||
+          comment.endsWith('&') ||
           comment.endsWith('v')) {
         comment = comment.substring(0, comment.length - 1);
       }

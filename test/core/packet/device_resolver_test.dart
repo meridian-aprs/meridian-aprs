@@ -81,6 +81,13 @@ void main() {
       );
     });
 
+    test('prefix `>` + suffix `&` → TH-D75', () {
+      expect(
+        DeviceResolver.resolve(micEPrefix: '>', micECommentSuffix: 'hi&'),
+        equals('Kenwood TH-D75'),
+      );
+    });
+
     test('prefix `]` alone → TM-D700', () {
       expect(
         DeviceResolver.resolve(micEPrefix: ']', micECommentSuffix: 'hi'),
