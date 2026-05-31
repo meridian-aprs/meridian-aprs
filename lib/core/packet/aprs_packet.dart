@@ -37,6 +37,13 @@ sealed class AprsPacket {
   /// because the parser is unaware of TX direction.
   bool isOutgoing;
 
+  /// When this packet arrived wrapped in third-party traffic (DTI `}`), the
+  /// callsign of the gateway/station that re-injected it. Null for packets
+  /// received directly. Set after construction by the parser (like
+  /// [isOutgoing]); because the parser keeps [rawLine] as the full outer line,
+  /// this reconstructs deterministically on re-parse and is never persisted.
+  String? thirdPartyVia;
+
   AprsPacket({
     required this.rawLine,
     required this.source,
@@ -361,6 +368,47 @@ class MicEPacket extends AprsPacket {
     required this.comment,
     required this.micEMessage,
     this.device,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry
+// ---------------------------------------------------------------------------
+
+/// An APRS telemetry data report (DTI: T).
+///
+/// Carries up to five analog channel values and a digital (binary) field,
+/// tagged by a sequence identifier. Channel labels, units, and scaling
+/// equations arrive separately as telemetry *definition* messages
+/// (PARM/UNIT/EQNS/BITS) and are correlated at the service layer — this packet
+/// holds the raw transmitted values only.
+class TelemetryPacket extends AprsPacket {
+  /// Sequence identifier from the `T#` field, e.g. "014". Stored as text
+  /// because the non-numeric literal "MIC" is also valid per APRS spec.
+  final String sequence;
+
+  /// Analog channel values in transmission order (up to five). A null entry
+  /// marks a field that was blank or could not be parsed.
+  final List<double?> analog;
+
+  /// Digital bits as transmitted (conventionally eight, MSB first). Senders
+  /// occasionally truncate; the list reflects exactly what was sent.
+  final List<bool> digital;
+
+  /// Free-text comment following the digital field, if any.
+  final String? comment;
+
+  TelemetryPacket({
+    required super.rawLine,
+    required super.source,
+    required super.destination,
+    required super.path,
+    required super.receivedAt,
+    super.transportSource,
+    required this.sequence,
+    required this.analog,
+    required this.digital,
+    this.comment,
   });
 }
 

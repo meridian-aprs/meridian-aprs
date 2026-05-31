@@ -12,6 +12,7 @@ enum PacketTypeTag {
   item,
   status,
   micE,
+  telemetry,
   unknown,
 }
 

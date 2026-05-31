@@ -47,6 +47,8 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 - **ItemPacket** — APRS items
 - **StatusPacket** — text status reports
 - **WeatherPacket** — weather report fields parsed and surfaced on station detail
+- **TelemetryPacket** — `T#` data reports (sequence, up to five analog channels, digital bits); definition messages (PARM/UNIT/EQNS/BITS) tracked for a follow-up
+- **Third-party traffic (`}`)** — unwrapped and re-parsed to the inner packet, attributed to the inner source with the relaying gateway recorded (`thirdPartyVia`, shown as "Relayed via" in the detail sheet)
 
 ### Parsed but minimally surfaced
 - Capability flags (e.g., messaging-capable indicator on station sheet)
@@ -60,7 +62,7 @@ Pure-Dart parser dispatching on the APRS Data Type Identifier byte. Sealed `Aprs
 
 ### Explicit non-support
 - Object / Item *creation* — display only (creation tracked in `FUTURE_FEATURES.md`)
-- Telemetry packets (`T#`) — parsed as `UnknownPacket` today
+- Telemetry *definitions* (PARM/UNIT/EQNS/BITS) — data reports decode now; labelled/scaled channels via a definition store are a planned follow-up
 - DX-cluster packets, NMEA passthrough, raw GPS sentences
 
 ### AX.25 Layer

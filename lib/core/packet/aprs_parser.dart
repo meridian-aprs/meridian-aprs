@@ -42,10 +42,39 @@ class AprsParser {
     required DateTime receivedAt,
     PacketSource transportSource = PacketSource.aprsIs,
   }) {
+    return _parseInternal(
+      line: line,
+      rawLine: line,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      depth: 0,
+    );
+  }
+
+  /// Maximum third-party (`}`) unwrapping depth. One level covers all real
+  /// traffic (an igate re-injecting a heard packet); the small cap is a guard
+  /// against pathological/looped nesting so [parse] keeps its never-throws,
+  /// always-terminates contract.
+  static const int _kMaxThirdPartyDepth = 2;
+
+  /// Core parse used by [parse] and by third-party unwrapping.
+  ///
+  /// [line] is the packet text actually being decoded — for a third-party
+  /// payload this is the *inner* packet. [rawLine] is the original outer line
+  /// stamped onto every produced packet so the Raw Packet display and the
+  /// re-parse-from-DB path both see the complete frame. [depth] tracks
+  /// third-party nesting.
+  AprsPacket _parseInternal({
+    required String line,
+    required String rawLine,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+    required int depth,
+  }) {
     // Ignore blank lines and server comment lines.
     if (line.isEmpty || line.startsWith('#')) {
       return _unknown(
-        line,
+        rawLine,
         '',
         '',
         [],
@@ -59,7 +88,7 @@ class AprsParser {
     final colonIdx = line.indexOf(':');
     if (colonIdx < 0 || colonIdx + 1 > line.length) {
       return _unknown(
-        line,
+        rawLine,
         '',
         '',
         [],
@@ -76,7 +105,7 @@ class AprsParser {
     final gtIdx = header.indexOf('>');
     if (gtIdx <= 0) {
       return _unknown(
-        line,
+        rawLine,
         '',
         '',
         [],
@@ -93,7 +122,7 @@ class AprsParser {
 
     if (info.isEmpty) {
       return _unknown(
-        line,
+        rawLine,
         source,
         destination,
         path,
@@ -109,17 +138,18 @@ class AprsParser {
       return _dispatch(
         dti: dti,
         info: info,
-        rawLine: line,
+        rawLine: rawLine,
         source: source,
         destination: destination,
         path: path,
         receivedAt: receivedAt,
         transportSource: transportSource,
+        depth: depth,
       );
     } catch (_) {
       // Belt-and-suspenders: never propagate exceptions.
       return UnknownPacket(
-        rawLine: line,
+        rawLine: rawLine,
         source: source,
         destination: destination,
         path: path,
@@ -180,6 +210,7 @@ class AprsParser {
     required List<String> path,
     required DateTime receivedAt,
     required PacketSource transportSource,
+    required int depth,
   }) {
     switch (dti) {
       // Position without timestamp — no messaging (!) or messaging (=)
@@ -280,17 +311,30 @@ class AprsParser {
           transportSource: transportSource,
         );
 
-      // Telemetry — parsed as Unknown for now (v0.2 scope)
+      // Telemetry data report.
       case 'T':
-        return UnknownPacket(
+        return _parseTelemetry(
+          info: info,
           rawLine: rawLine,
           source: source,
           destination: destination,
           path: path,
           receivedAt: receivedAt,
           transportSource: transportSource,
-          reason: 'Telemetry not yet implemented',
-          rawInfo: info,
+        );
+
+      // Third-party traffic: an igate/gateway re-injecting a packet it heard.
+      // The info field after the `}` indicator is a complete inner packet.
+      case '}':
+        return _parseThirdParty(
+          info: info,
+          rawLine: rawLine,
+          source: source,
+          destination: destination,
+          path: path,
+          receivedAt: receivedAt,
+          transportSource: transportSource,
+          depth: depth,
         );
 
       default:
@@ -305,6 +349,136 @@ class AprsParser {
           transportSource: transportSource,
         );
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Third-party traffic  (DTI: })
+  // ---------------------------------------------------------------------------
+
+  /// Decode third-party traffic by unwrapping the embedded inner packet.
+  ///
+  /// Format: `}` immediately followed by a complete APRS packet
+  /// (`SOURCE>DEST,PATH:INFO`). The inner packet is re-parsed and returned as
+  /// its own typed packet — attributed to the *inner* source — with
+  /// [AprsPacket.thirdPartyVia] stamped to the relaying gateway (the outer
+  /// [source]). [rawLine] stays the full outer line so the re-parse-from-DB
+  /// path stays deterministic and the Raw Packet display shows the whole frame.
+  AprsPacket _parseThirdParty({
+    required String info,
+    required String rawLine,
+    required String source,
+    required String destination,
+    required List<String> path,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+    required int depth,
+  }) {
+    if (depth >= _kMaxThirdPartyDepth) {
+      return _unknown(
+        rawLine,
+        source,
+        destination,
+        path,
+        'Third-party nesting too deep',
+        rawInfo: info,
+        receivedAt: receivedAt,
+        transportSource: transportSource,
+      );
+    }
+
+    final inner = info.substring(1); // strip the leading '}'
+    if (inner.isEmpty) {
+      return _unknown(
+        rawLine,
+        source,
+        destination,
+        path,
+        'Empty third-party payload',
+        rawInfo: info,
+        receivedAt: receivedAt,
+        transportSource: transportSource,
+      );
+    }
+
+    final innerPacket = _parseInternal(
+      line: inner,
+      rawLine: rawLine,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      depth: depth + 1,
+    );
+    // Attribute the relay to the gateway that re-injected this packet.
+    innerPacket.thirdPartyVia = source;
+    return innerPacket;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Telemetry parsing  (DTI: T)
+  // ---------------------------------------------------------------------------
+
+  // Splits a digital-bits token into the leading run of 0/1 bits and any
+  // trailing comment text (some senders append free text after the bit field).
+  static final _telemetryBitsRe = RegExp(r'^([01]+)(.*)$', dotAll: true);
+
+  /// Decode a telemetry data report: `T#sss,a1,a2,a3,a4,a5,bbbbbbbb[comment]`.
+  ///
+  /// The leading `#` is conventional but some encoders omit it; the sequence
+  /// id may be numeric ("014") or the literal "MIC". Up to five analog
+  /// channels precede an eight-bit digital field. Missing or unparseable
+  /// fields decode to null/false rather than failing the whole packet — `T` is
+  /// telemetry-only per APRS spec, so we always return a [TelemetryPacket].
+  AprsPacket _parseTelemetry({
+    required String info,
+    required String rawLine,
+    required String source,
+    required String destination,
+    required List<String> path,
+    required DateTime receivedAt,
+    required PacketSource transportSource,
+  }) {
+    var payload = info.substring(1); // drop the 'T' DTI
+    if (payload.startsWith('#')) payload = payload.substring(1);
+
+    final tokens = payload.split(',');
+    final sequence = tokens.isNotEmpty ? tokens.first.trim() : '';
+
+    final analog = <double?>[];
+    for (var i = 1; i <= 5 && i < tokens.length; i++) {
+      analog.add(double.tryParse(tokens[i].trim()));
+    }
+
+    var digital = const <bool>[];
+    String? comment;
+    if (tokens.length > 6) {
+      final bitsToken = tokens[6];
+      final m = _telemetryBitsRe.firstMatch(bitsToken);
+      if (m != null) {
+        digital = [for (final c in m.group(1)!.split('')) c == '1'];
+        final rest = m.group(2)!;
+        if (rest.isNotEmpty) comment = rest;
+      } else if (bitsToken.isNotEmpty) {
+        comment = bitsToken;
+      }
+    }
+    // Any tokens past the digital field belong to the comment verbatim
+    // (a comment may itself contain commas).
+    if (tokens.length > 7) {
+      final tail = tokens.sublist(7).join(',');
+      comment = (comment == null || comment.isEmpty) ? tail : '$comment,$tail';
+    }
+
+    return TelemetryPacket(
+      rawLine: rawLine,
+      source: source,
+      destination: destination,
+      path: path,
+      receivedAt: receivedAt,
+      transportSource: transportSource,
+      sequence: sequence,
+      analog: analog,
+      digital: digital,
+      comment: comment,
+    );
   }
 
   // ---------------------------------------------------------------------------

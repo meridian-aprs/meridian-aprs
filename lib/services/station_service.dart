@@ -619,6 +619,7 @@ class StationService extends ChangeNotifier {
     if (p is ItemPacket) return PacketTypeTag.item;
     if (p is StatusPacket) return PacketTypeTag.status;
     if (p is MicEPacket) return PacketTypeTag.micE;
+    if (p is TelemetryPacket) return PacketTypeTag.telemetry;
     return PacketTypeTag.unknown;
   }
 
