@@ -1384,7 +1384,9 @@ class AprsParser {
         // 'P' field: rainfall since midnight, in hundredths of an inch.
         f.rainSinceMidnight = double.tryParse(m.group(7)!);
       } else if (m.group(8) != null) {
-        f.humidity = int.tryParse(m.group(8)!);
+        // APRS 1.0.1 §12: humidity is hNN with h00 meaning 100%.
+        final h = int.tryParse(m.group(8)!);
+        if (h != null) f.humidity = h == 0 ? 100 : h;
       } else if (m.group(9) != null) {
         final raw = int.tryParse(m.group(9)!);
         if (raw != null) f.pressure = raw / 10.0; // tenths of mb → mb

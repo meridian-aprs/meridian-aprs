@@ -1896,6 +1896,13 @@ void main() {
       expect(p.temperature, equals(68));
     });
 
+    test('humidity h00 decodes as 100% (APRS §12)', () {
+      final p = expectPacketType<WeatherPacket>(
+        'N0CALL>APRS:!4903.50N/07201.75W_000/000t070h00',
+      );
+      expect(p.humidity, equals(100));
+    });
+
     // Critical regression: a *moving* station sends an identical-looking
     // `ddd/sss` course/speed but a non-`_` symbol — it must stay a Position.
     test('moving station with course/speed is NOT mis-binned as weather', () {

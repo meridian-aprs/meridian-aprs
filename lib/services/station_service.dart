@@ -710,7 +710,23 @@ class StationService extends ChangeNotifier {
     lastHeard: p.receivedAt,
     symbolTable: p.symbolTable,
     symbolCode: p.symbolCode,
-    comment: p.rawLine,
+    // A concise human summary — not the raw frame (which lives in rawPacket
+    // and the packet detail sheet). Empty when no fields decoded.
+    comment: _weatherSummary(p),
     type: StationType.weather,
   );
+
+  static String _weatherSummary(WeatherPacket p) {
+    final parts = <String>[];
+    if (p.temperature != null) {
+      parts.add('${p.temperature!.toStringAsFixed(0)}°F');
+    }
+    if (p.windDirection != null && p.windSpeed != null) {
+      parts.add(
+        'wind ${p.windDirection}°/${p.windSpeed!.toStringAsFixed(0)} mph',
+      );
+    }
+    if (p.humidity != null) parts.add('${p.humidity}% RH');
+    return parts.join(' · ');
+  }
 }
